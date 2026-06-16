@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DBS Fashion — Gestion Facturation 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0F1F3D;--ivory:#F7F6F2;--gold:#C9A227;--green:#2A5C45;--red:#C0392B;
+  --slate:#6B7589;--border:#E2DDD5;--white:#FFFFFF;--light:#FAFAF8;
+  --card:#FFFFFF;--hover:#F0EEE8;
+  --font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--light);color:var(--navy);min-height:100vh;display:flex}
+#sidebar{width:230px;min-height:100vh;background:var(--navy);display:flex;flex-direction:column;position:fixed;top:0;left:0;z-index:100}
+.sb-logo{padding:24px 20px 16px;border-bottom:1px solid rgba(255,255,255,.1)}
+.sb-logo .brand{font-size:18px;font-weight:700;color:#fff;letter-spacing:.5px}
+.sb-logo .sub{font-size:11px;color:rgba(255,255,255,.45);margin-top:2px;letter-spacing:1px;text-transform:uppercase}
+.sb-nav{padding:12px 0;flex:1}
+.sb-section{padding:12px 20px 6px;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.3)}
+.sb-item{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;color:rgba(255,255,255,.65);font-size:13px;font-weight:500;transition:all .15s;border-left:3px solid transparent}
+.sb-item:hover{background:rgba(255,255,255,.06);color:#fff}
+.sb-item.active{background:rgba(201,162,39,.12);color:var(--gold);border-left-color:var(--gold)}
+.sb-item .icon{width:16px;text-align:center;flex-shrink:0}
+.sb-footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,.1);font-size:11px;color:rgba(255,255,255,.3)}
+#main{margin-left:230px;flex:1;min-height:100vh}
+.topbar{background:var(--white);border-bottom:1px solid var(--border);padding:0 32px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.topbar-title{font-size:16px;font-weight:600}
+.topbar-actions{display:flex;gap:8px}
+.btn{padding:8px 16px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:none;font-family:var(--font);transition:all .15s}
+.btn-primary{background:var(--navy);color:#fff}.btn-primary:hover{background:#1a3460}
+.btn-gold{background:var(--gold);color:#fff}.btn-gold:hover{background:#b8911f}
+.btn-green{background:var(--green);color:#fff}.btn-green:hover{background:#1f4734}
+.btn-danger{background:transparent;color:var(--red);border:1px solid #EAC4BE}.btn-danger:hover{background:#FDEEEC}
+.btn-outline{background:transparent;color:var(--navy);border:1px solid var(--border)}.btn-outline:hover{background:var(--hover)}
+.btn-sm{padding:5px 12px;font-size:12px}
+.page{display:none;padding:28px 32px}
+.page.active{display:block}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.kpi-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px}
+.kpi-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--slate);margin-bottom:8px}
+.kpi-value{font-size:24px;font-weight:700;font-family:var(--mono)}
+.kpi-value.green{color:var(--green)}.kpi-value.gold{color:var(--gold)}.kpi-value.red{color:var(--red)}
+.kpi-sub{font-size:12px;color:var(--slate);margin-top:4px}
+.table-wrap{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px}
+.table-header{padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+.table-title{font-size:14px;font-weight:600}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--light)}
+th{padding:10px 14px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--slate);border-bottom:1px solid var(--border)}
+td{padding:10px 14px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:var(--light)}
+.tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.tag-green{background:#EBF5F0;color:var(--green)}
+.tag-gold{background:#FDF5E0;color:#B8911F}
+.tag-navy{background:#EEF1F8;color:var(--navy)}
+.tag-red{background:#FDEEEC;color:var(--red)}
+.tag-slate{background:#F0EEE8;color:var(--slate)}
+.mono{font-family:var(--mono);font-size:12px}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.chart-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px}
+.chart-title{font-size:13px;font-weight:600;margin-bottom:16px}
+.bar-row{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.bar-label{font-size:12px;color:var(--slate);width:125px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar-track{flex:1;background:#F0EEE8;border-radius:4px;height:8px;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .5s}
+.bar-value{font-size:11px;font-family:var(--mono);width:82px;text-align:right}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-group.full{grid-column:1/-1}
+label{font-size:12px;font-weight:600;color:var(--slate);text-transform:uppercase;letter-spacing:.5px}
+input,select,textarea{padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:var(--font);color:var(--navy);background:var(--white);outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--navy)}
+textarea{resize:vertical;min-height:56px}
+.section-title{font-size:13px;font-weight:700;padding:12px 0 8px;border-bottom:1px solid var(--border);margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px}
+.lines-table{width:100%;border-collapse:collapse;font-size:13px}
+.lines-table th{background:var(--light);padding:8px 8px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--slate);border:1px solid var(--border)}
+.lines-table td{border:1px solid var(--border);padding:3px}
+.lines-table input,.lines-table select{border:none;padding:6px 8px;width:100%;font-size:12px;background:transparent}
+.lines-table input:focus{background:#FFFBF0}
+.remove-btn{background:none;border:none;color:var(--red);cursor:pointer;padding:4px 8px;font-size:16px;line-height:1}
+.add-line-btn{margin-top:10px;background:var(--light);border:1px dashed var(--border);border-radius:6px;padding:8px;width:100%;text-align:center;cursor:pointer;font-size:13px;color:var(--slate);font-family:var(--font)}
+.add-line-btn:hover{background:var(--hover);color:var(--navy)}
+#facture-preview-wrap{display:none}
+.preview-topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+@media print{
+  #sidebar,#main>.topbar,.preview-topbar,#facture-form-section,#detail-overlay,#report-controls,.no-print{display:none!important}
+  body{margin:0;background:#fff}
+  #main{margin-left:0}
+  .page{padding:0!important}
+  body.pg-generateur #facture-preview-wrap{display:block!important}
+  .facture-doc,.report-doc{box-shadow:none!important;border:none!important;width:100%!important}
+}
+.facture-doc{background:#fff;width:794px;min-height:1050px;margin:0 auto;border:1px solid var(--border);border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,.08);position:relative;overflow:hidden;font-size:11px}
+.facture-stripe{position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--navy)}
+.facture-body{padding:34px 40px 34px 46px}
+.facture-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px}
+.facture-emetteur .company{font-size:15px;font-weight:800;letter-spacing:.5px}
+.facture-emetteur p{font-size:10px;color:var(--slate);line-height:1.6;margin-top:4px}
+.facture-badge{background:var(--navy);color:#fff;padding:8px 18px;border-radius:6px;text-align:right}
+.facture-badge .num{font-size:16px;font-weight:800;font-family:var(--mono);letter-spacing:.5px}
+.facture-badge .date{font-size:10px;opacity:.7;margin-top:2px}
+.facture-clients{display:grid;grid-template-columns:1fr 1fr;gap:18px;background:var(--light);border-radius:8px;padding:14px 16px;margin-bottom:20px}
+.client-block .block-label{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--slate);margin-bottom:5px;font-weight:700}
+.client-block .client-name{font-size:12px;font-weight:700;margin-bottom:3px}
+.client-block p{font-size:10px;color:var(--slate);line-height:1.5}
+.facture-table{width:100%;border-collapse:collapse;margin-bottom:18px}
+.facture-table thead tr{background:var(--navy)}
+.facture-table thead th{padding:8px 10px;color:rgba(255,255,255,.85);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;text-align:left}
+.facture-table thead th.r{text-align:right}.facture-table thead th.c{text-align:center}
+.facture-table tbody td{padding:7px 10px;font-size:10px;border-bottom:1px solid var(--border)}
+.facture-table tbody tr:nth-child(even) td{background:#FAFAF8}
+.facture-table td.r{text-align:right;font-family:var(--mono)}.facture-table td.c{text-align:center}
+.facture-table tfoot td{padding:8px 10px;font-weight:700;font-size:11px;border-top:2px solid var(--navy)}
+.lettres-block{background:var(--light);border-left:4px solid var(--gold);border-radius:0 6px 6px 0;padding:9px 14px;font-size:10px;font-style:italic;font-weight:600;margin-bottom:14px}
+.facture-footer{display:grid;grid-template-columns:1fr 1fr;gap:16px;border-top:1px solid var(--border);padding-top:12px}
+.footer-block .footer-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--slate);margin-bottom:5px}
+.footer-block p{font-size:9px;color:var(--slate);line-height:1.6}
+.footer-block .rib{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--navy)}
+.footer-matieres{font-size:8.5px;color:var(--slate);margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);line-height:1.6}
+.marge-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px}
+.marge-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px}
+.marge-card .mc-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--slate);margin-bottom:6px}
+.marge-card .mc-val{font-size:20px;font-weight:700;font-family:var(--mono)}
+.marge-card .mc-sub{font-size:11px;color:var(--slate);margin-top:4px}
+.progress-bar{height:8px;border-radius:4px;background:#F0EEE8;overflow:hidden;margin-top:8px}
+.progress-fill{height:100%;border-radius:4px;transition:width .5s}
+.search-bar{display:flex;gap:10px;margin-bottom:16px}
+.search-bar input{flex:1}
+.search-bar select{min-width:150px}
+#toast{position:fixed;bottom:24px;right:24px;background:var(--navy);color:#fff;padding:12px 20px;border-radius:8px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.2);transform:translateY(80px);opacity:0;transition:all .3s;z-index:9999}
+#toast.show{transform:translateY(0);opacity:1}
+.pos{color:var(--green);font-weight:700}.neg{color:var(--red);font-weight:700}
+.fact-row{cursor:pointer}
+.completion{display:inline-flex;align-items:center;gap:6px;font-size:11px}
+.completion .cdot{width:8px;height:8px;border-radius:50%}
+#detail-overlay{display:none;position:fixed;inset:0;background:rgba(15,31,61,.45);z-index:500;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
+#detail-overlay.open{display:flex}
+.detail-modal{background:var(--white);border-radius:14px;width:1080px;max-width:96vw;box-shadow:0 24px 80px rgba(0,0,0,.3);overflow:hidden}
+.detail-head{background:var(--navy);color:#fff;padding:18px 24px;display:flex;justify-content:space-between;align-items:center}
+.detail-head .dh-title{font-size:16px;font-weight:700;font-family:var(--mono)}
+.detail-head .dh-sub{font-size:12px;opacity:.65;margin-top:2px}
+.detail-close{background:rgba(255,255,255,.12);border:none;color:#fff;font-size:18px;cursor:pointer;border-radius:6px;width:32px;height:32px}
+.detail-close:hover{background:rgba(255,255,255,.25)}
+.detail-body{padding:20px 24px}
+.detail-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.dk{background:var(--light);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+.dk .dk-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--slate)}
+.dk .dk-val{font-size:17px;font-weight:700;font-family:var(--mono);margin-top:3px}
+.detail-table{width:100%;border-collapse:collapse;font-size:12px}
+.detail-table th{background:var(--light);padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--slate);border:1px solid var(--border);text-align:left}
+.detail-table th.intern{background:#FDF9EE;color:#9A7B1A}
+.detail-table td{border:1px solid var(--border);padding:6px 10px;vertical-align:middle}
+.detail-table td.intern{background:#FFFDF6}
+.detail-table select,.detail-table input{padding:6px 8px;font-size:12px;width:100%;border:1px solid var(--border);border-radius:5px}
+.detail-table input.cout-input{font-family:var(--mono);text-align:right;width:90px}
+.detail-table .lm{font-family:var(--mono);font-size:12px;text-align:right;white-space:nowrap}
+.apply-all{font-size:11px;color:var(--gold);cursor:pointer;text-decoration:underline;background:none;border:none;font-family:var(--font);padding:0}
+.detail-foot{padding:14px 24px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--light)}
+.detail-foot .df-marge{font-size:14px;font-weight:700;font-family:var(--mono)}
+/* RAPPORTS */
+.report-doc{background:#fff;width:794px;margin:0 auto;border:1px solid var(--border);border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,.08);padding:36px 42px;font-size:12px}
+.report-doc h1{font-size:18px;font-weight:800;letter-spacing:.5px;margin-bottom:2px}
+.report-doc .r-sub{font-size:11px;color:var(--slate);margin-bottom:4px}
+.report-doc .r-period{display:inline-block;background:var(--navy);color:#fff;font-size:11px;font-weight:600;padding:4px 12px;border-radius:20px;margin:10px 0 18px}
+.report-doc h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;margin:22px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--navy)}
+.report-doc table{width:100%;border-collapse:collapse;margin-bottom:8px}
+.report-doc th{background:var(--light);padding:7px 9px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--slate);border:1px solid var(--border);text-align:left}
+.report-doc th.r{text-align:right}
+.report-doc td{padding:6px 9px;font-size:10.5px;border:1px solid var(--border)}
+.report-doc td.r{text-align:right;font-family:var(--mono);font-size:10px}
+.report-doc tr.total-row td{font-weight:700;background:var(--light)}
+.report-doc .r-foot{margin-top:24px;padding-top:10px;border-top:1px solid var(--border);font-size:9px;color:var(--slate);display:flex;justify-content:space-between}
+.r-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.r-kpi{background:var(--light);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.r-kpi .l{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--slate)}
+.r-kpi .v{font-size:15px;font-weight:700;font-family:var(--mono);margin-top:2px}
+</style>
+</head>
+<body>
+<nav id="sidebar">
+  <div class="sb-logo"><div class="brand">DBS FASHION</div><div class="sub">Facturation 2026</div></div>
+  <div class="sb-nav">
+    <div class="sb-section">Général</div>
+    <div class="sb-item active" data-page="dashboard" onclick="showPage('dashboard')"><span class="icon">◈</span>Tableau de bord</div>
+    <div class="sb-item" data-page="registre" onclick="showPage('registre')"><span class="icon">≡</span>Registre</div>
+    <div class="sb-section">Outils</div>
+    <div class="sb-item" data-page="generateur" onclick="showPage('generateur')"><span class="icon">+</span>Nouvelle facture</div>
+    <div class="sb-item" data-page="marges" onclick="showPage('marges')"><span class="icon">◎</span>Marges par facture</div>
+    <div class="sb-item" data-page="stats" onclick="showPage('stats')"><span class="icon">▤</span>Stats Interne/Façon</div>
+    <div class="sb-item" data-page="rapports" onclick="showPage('rapports')"><span class="icon">🖨</span>Rapports</div>
+  </div>
+  <div class="sb-footer">DBS Fashion · Nabeul<br>Export HT — EUR</div>
+</nav>
+<div id="main">
+  <div class="topbar">
+    <div class="topbar-title" id="page-title">Tableau de bord</div>
+    <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="exportData()">💾 Sauvegarde</button>
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('import-file').click()">📂 Importer</button>
+      <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="page-dashboard" class="page active">
+    <div class="kpi-grid" id="kpi-grid"></div>
+    <div class="chart-grid" id="chart-grid"></div>
+    <div class="table-wrap">
+      <div class="table-header"><div class="table-title">Analyse par client — prix moyen pondéré & indicateurs</div></div>
+      <table><thead><tr>
+        <th>Client</th><th>Factures</th><th>Pièces</th><th>CA net (€)</th><th>% du CA</th>
+        <th>PMP (€/pièce)</th><th>CA moyen / facture</th><th>Fournit. % CA</th>
+      </tr></thead>
+      <tbody id="analyse-client-tbody"></tbody></table>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header"><div class="table-title">Dernières factures</div>
+      <button class="btn btn-outline btn-sm" onclick="showPage('registre')">Voir tout</button></div>
+      <table><thead><tr><th>N°</th><th>Client</th><th>Date</th><th>Pièces</th><th>Type</th><th>Montant HT</th></tr></thead>
+      <tbody id="recent-tbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- REGISTRE -->
+  <div id="page-registre" class="page">
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="Rechercher par N°, client, modèle, référence..." oninput="renderRegistre()">
+      <select id="filter-client" onchange="renderRegistre()"><option value="">Tous les clients</option></select>
+      <select id="filter-type" onchange="renderRegistre()">
+        <option value="">Tous types</option><option value="facture">Factures</option>
+        <option value="avoir">Avoirs</option><option value="proforma">Proforma</option>
+      </select>
+      <select id="filter-mois" onchange="renderRegistre()">
+        <option value="">Tous les mois</option>
+        <option value="01">Janvier</option><option value="02">Février</option><option value="03">Mars</option>
+        <option value="04">Avril</option><option value="05">Mai</option><option value="06">Juin</option>
+        <option value="07">Juillet</option><option value="08">Août</option><option value="09">Septembre</option>
+        <option value="10">Octobre</option><option value="11">Novembre</option><option value="12">Décembre</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header"><div class="table-title" id="registre-count"></div><div id="registre-restore"></div></div>
+      <table><thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Pièces</th><th>Fournitures</th><th>Montant HT</th><th>Type</th><th style="width:220px"></th></tr></thead>
+      <tbody id="registre-tbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- GENERATEUR -->
+  <div id="page-generateur" class="page">
+    <div id="facture-form-section">
+      <div class="form-grid">
+        <div class="form-group"><label>N° Facture</label><input type="text" id="f-num" placeholder="ex: 79/2026"></div>
+        <div class="form-group"><label>Date</label><input type="date" id="f-date"></div>
+        <div class="form-group"><label>Type de document</label>
+          <select id="f-type"><option value="FACTURE">Facture</option><option value="FACTURE D'AVOIR">Facture d'avoir</option><option value="FACTURE PROFORMA">Facture proforma</option></select></div>
+        <div class="form-group"><label>Incoterm</label>
+          <select id="f-incoterm"><option>EX WORK</option><option>DAP</option><option>DDP</option><option>FOB</option></select></div>
+        <div class="form-group"><label>Client / Donneur d'ordre</label>
+          <select id="f-client" onchange="fillClientData()">
+            <option value="">-- Sélectionner --</option>
+            <option value="gerard_darel">DS Fashion / Gérard Darel</option>
+            <option value="claudie_pierlot">Callithea / Claudie Pierlot</option>
+            <option value="souleiado">Souleïado</option>
+            <option value="bonpoint">Bonpoint SAS</option>
+            <option value="vanessa_bruno">Solune SAS / Vanessa Bruno</option>
+            <option value="bash">BA&SH</option>
+            <option value="antonelle">Nouvelle Uja / Antonelle</option>
+            <option value="patrick">Patrick Confection</option>
+            <option value="custom">Autre (saisie manuelle)</option>
+          </select></div>
+        <div class="form-group"><label>Nom client (en-tête facture)</label><input type="text" id="f-client-nom" placeholder="ex: ds fashion"></div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label>Adresse de facturation</label><textarea id="f-client-adresse" rows="3"></textarea></div>
+        <div class="form-group"><label>Adresse de livraison</label><textarea id="f-livraison" rows="3"></textarea></div>
+      </div>
+      <div class="section-title">Lignes produits</div>
+      <table class="lines-table">
+        <thead><tr>
+          <th style="width:140px">Modèle</th><th style="width:85px">Désignation</th>
+          <th style="width:100px">Référence</th><th style="width:100px">Couleur</th>
+          <th style="width:60px">Qté</th><th style="width:70px">P.U (€)</th><th style="width:85px">Montant</th>
+          <th style="width:30px"></th>
+        </tr></thead>
+        <tbody id="lines-tbody"></tbody>
+      </table>
+      <button class="add-line-btn" onclick="addLine()">+ Ajouter une ligne</button>
+      <div class="form-grid" style="margin-top:18px">
+        <div class="form-group"><label>Fournitures Tunisie (€)</label><input type="number" id="f-fournitures" value="0" step="0.01"></div>
+        <div class="form-group"><label>Shipping / Ps OK Livraison (€)</label><input type="number" id="f-shipping" value="0" step="0.01"></div>
+        <div class="form-group"><label>Poids</label><input type="text" id="f-poids" placeholder="ex: 250 Kg"></div>
+        <div class="form-group"><label>Valeur Matière Première</label><input type="text" id="f-mp" placeholder="ex: 12500,00 eur"></div>
+        <div class="form-group"><label>Nombre de colis</label><input type="text" id="f-colis" placeholder="ex: 3 Palettes renferme 25 Cartons"></div>
+        <div class="form-group"><label>Mode de paiement</label>
+          <select id="f-paiement">
+            <option>Virement 60j date de livraison</option><option>Virement 30j date de livraison</option>
+            <option>Virement</option><option>LC 120J Date d'expédition</option><option>Virement À L'AVANCE</option>
+          </select></div>
+        <div class="form-group full"><label>Matières premières (références SA / EUR1)</label>
+          <textarea id="f-matieres" rows="2" placeholder="Matière Première d'origine CEE et importées suite SA N°… du …"></textarea></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button class="btn btn-green" onclick="saveFactureFromForm()">💾 Enregistrer la facture</button>
+        <button class="btn btn-primary" onclick="generatePreview()">Aperçu</button>
+        <button class="btn btn-outline" onclick="clearForm()">Réinitialiser</button>
+      </div>
+      <div style="font-size:12px;color:var(--slate);margin-top:10px">Une facture enregistrée apparaît dans le Registre, le Tableau de bord, les Marges et les Rapports. Enregistrer avec un N° existant met à jour la facture.</div>
+    </div>
+    <div id="facture-preview-wrap">
+      <div class="preview-topbar">
+        <button class="btn btn-outline" onclick="backToForm()">← Retour au formulaire</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-green" onclick="saveFactureFromForm()">💾 Enregistrer</button>
+          <button class="btn btn-primary" onclick="window.print()">🖨 Imprimer / PDF</button>
+        </div>
+      </div>
+      <div id="facture-doc-container"></div>
+    </div>
+  </div>
+
+  <!-- MARGES PAR FACTURE -->
+  <div id="page-marges" class="page">
+    <div style="margin-bottom:18px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px;color:var(--slate);line-height:1.6">
+      <strong style="color:var(--navy)">Cliquez sur une facture pour l'ouvrir</strong> et renseigner, article par article :
+      où la pièce a été fabriquée (<span class="tag tag-navy">Interne DBS</span> ou <span class="tag tag-gold">Façonnier</span>).
+      Pour l'<strong>interne</strong>, le coût prend automatiquement le prix de facturation (marge nulle) ; pour un <strong>façonnier</strong>, saisissez le prix de façon payé.
+      <span class="mono">Marge = CA facturé − Fournitures − Σ(Qté × Coût/pièce)</span>
+    </div>
+    <div class="marge-summary" id="marge-summary"></div>
+    <div class="search-bar">
+      <input type="text" id="marge-search" placeholder="Rechercher une facture..." oninput="renderMargesTable()">
+      <select id="marge-filter-client" onchange="renderMargesTable()"><option value="">Tous les clients</option></select>
+      <select id="marge-filter-statut" onchange="renderMargesTable()">
+        <option value="">Toutes</option>
+        <option value="complete">✓ Complètes</option>
+        <option value="partielle">◐ Partielles</option>
+        <option value="vide">○ À renseigner</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr>
+        <th>N°</th><th>Date</th><th>Client</th><th>Articles</th><th>CA HT (€)</th><th>Fournit. (€)</th>
+        <th>Coût production (€)</th><th>Marge (€)</th><th>Marge %</th><th>Saisie</th>
+      </tr></thead>
+      <tbody id="marges-tbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div id="page-stats" class="page">
+    <div class="kpi-grid" id="stats-kpi" style="grid-template-columns:repeat(3,1fr)"></div>
+    <div class="chart-grid">
+      <div class="chart-card"><div class="chart-title">CA par lieu de production (articles renseignés)</div><div id="stats-prod-bars"></div></div>
+      <div class="chart-card"><div class="chart-title">Marge par client (articles renseignés)</div><div id="stats-client-bars"></div></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header"><div class="table-title">Synthèse par façonnier</div></div>
+      <table><thead><tr><th>Façonnier</th><th>Articles</th><th>Pièces</th><th>CA facturé</th><th>Coût façon payé</th><th>Marge dégagée</th><th>Coût moyen/pc</th></tr></thead>
+      <tbody id="stats-facon-tbody"></tbody></table>
+    </div>
+    <div class="table-wrap">
+      <div class="table-header"><div class="table-title">Synthèse par client</div></div>
+      <table><thead><tr><th>Client</th><th>Factures</th><th>Pièces</th><th>CA net (€)</th><th>Fournitures (€)</th><th>Coûts saisis (€)</th><th>Marge (€)</th></tr></thead>
+      <tbody id="stats-client-tbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- RAPPORTS -->
+  <div id="page-rapports" class="page">
+    <div id="report-controls" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:20px">
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="min-width:240px">
+          <label>Type de rapport</label>
+          <select id="rpt-type">
+            <option value="synthese">Synthèse générale</option>
+            <option value="clients">Rapport par client (CA, pièces, PMP)</option>
+            <option value="mensuel">Rapport mensuel</option>
+            <option value="client_detail">Détail d'un client (liste des factures)</option>
+            <option value="faconniers">Rapport façonniers & marges</option>
+          </select>
+        </div>
+        <div class="form-group" style="min-width:180px" id="rpt-client-wrap" hidden>
+          <label>Client</label>
+          <select id="rpt-client"></select>
+        </div>
+        <div class="form-group" style="min-width:160px">
+          <label>Période</label>
+          <select id="rpt-mois">
+            <option value="">Année 2026 complète</option>
+            <option value="01">Janvier</option><option value="02">Février</option><option value="03">Mars</option>
+            <option value="04">Avril</option><option value="05">Mai</option><option value="06">Juin</option>
+            <option value="07">Juillet</option><option value="08">Août</option><option value="09">Septembre</option>
+            <option value="10">Octobre</option><option value="11">Novembre</option><option value="12">Décembre</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="generateReport()">Générer le rapport</button>
+        <button class="btn btn-gold" onclick="window.print()">🖨 Imprimer / PDF</button>
+      </div>
+    </div>
+    <div id="report-doc-wrap"></div>
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div id="detail-overlay" onclick="if(event.target===this)closeDetail()">
+  <div class="detail-modal">
+    <div class="detail-head">
+      <div><div class="dh-title" id="dh-title"></div><div class="dh-sub" id="dh-sub"></div></div>
+      <button class="detail-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="detail-body">
+      <div class="detail-kpis" id="dh-kpis"></div>
+      <table class="detail-table">
+        <thead><tr>
+          <th style="width:150px">Modèle</th><th style="width:75px">Désig.</th><th style="width:100px">Référence</th>
+          <th style="width:55px">Qté</th><th style="width:65px">P.U. €</th><th style="width:85px">Montant</th>
+          <th class="intern" style="width:120px">Fabriqué chez</th>
+          <th class="intern" style="width:130px">Façonnier</th>
+          <th class="intern" style="width:95px">Coût/pc €</th>
+          <th style="width:95px">Coût total</th><th style="width:95px">Marge ligne</th>
+        </tr></thead>
+        <tbody id="dh-lines"></tbody>
+      </table>
+      <div style="margin-top:10px;display:flex;gap:16px;align-items:center">
+        <button class="apply-all" onclick="applyFirstToAll()">↧ Appliquer la 1ère ligne à toutes les lignes</button>
+      </div>
+    </div>
+    <div class="detail-foot">
+      <div style="font-size:12px;color:var(--slate)" id="df-info"></div>
+      <div class="df-marge" id="df-marge"></div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+// ================== DONNÉES DE BASE (86 documents extraits de FACTURATION_DBS_-2026.xlsx) ==================
+const FACTURES_BASE = [{"id": "01/2026", "type": "facture", "date": "2026-01-09", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 2060, "total": 25779.6, "fournitures": 2046.0, "extras": [{"label": "Shipping", "mt": 99.9}], "lignes": [{"modele": "DDC30D152", "desig": "Chemise", "ref": "20559", "couleur": "1301-Naturel", "qte": 229, "pu": 8.7, "mt": 1992.3}, {"modele": "DDC30D152", "desig": "Chemise", "ref": "20560", "couleur": "1301-Naturel", "qte": 707, "pu": 8.7, "mt": 6150.9}, {"modele": "DDC30D152", "desig": "Chemise", "ref": "20560", "couleur": "2201-Encre", "qte": 7, "pu": 8.7, "mt": 60.9}, {"modele": "PDC36D659", "desig": "Chemise", "ref": "20532", "couleur": "1301-Naturel", "qte": 30, "pu": 8.8, "mt": 264.0}, {"modele": "PDC36D659", "desig": "Chemise", "ref": "20533", "couleur": "1301-Naturel", "qte": 287, "pu": 8.8, "mt": 2525.6}, {"modele": "DDR70D166", "desig": "Robe", "ref": "20462", "couleur": "9100-Noir", "qte": 186, "pu": 15.8, "mt": 2938.8}, {"modele": "DDR70D166", "desig": "Robe", "ref": "20463", "couleur": "9100-Noir", "qte": 614, "pu": 15.8, "mt": 9701.2}], "poids": "412 Kg", "mp": "26014,84 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°682387 du 29/11/2025  EUR1 N°A5829741", "Matière Première d'origine CEE et importées suite SA N°681968 du 22/11/2025"]}, {"id": "02/2026", "type": "facture", "date": "2026-01-16", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 2456, "total": 28476.0, "fournitures": 837.0, "extras": [{"label": "Shipping", "mt": 27.0}], "lignes": [{"modele": "DDC85D121", "desig": "Chemise", "ref": "20576", "couleur": "1301-Naturel", "qte": 496, "pu": 9.0, "mt": 4464.0}, {"modele": "DDC85D121", "desig": "Chemise", "ref": "20577", "couleur": "1301-Naturel", "qte": 1150, "pu": 9.0, "mt": 10350.0}, {"modele": "DDR70D166", "desig": "Robe", "ref": "20463", "couleur": "9100-Noir", "qte": 810, "pu": 15.8, "mt": 12798.0}], "poids": "491 Kg", "mp": "26014,84 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°682825 du 20612/2025", "Matière Première d'origine CEE et importées suite SA N°681968 du 22/11/2025"]}, {"id": "03/2026", "type": "facture", "date": "2026-01-16", "client": "souleiado", "marque": "SOULEÏADO", "clientRaw": "SOULEIADO", "pieces": 111, "total": 2067.0, "fournitures": 180.0, "extras": [], "lignes": [{"modele": "Helena", "desig": "Jupe", "ref": "S26W158", "couleur": "Noir-Blanc", "qte": 111, "pu": 17.0, "mt": 1887.0}], "poids": "45 Kg", "mp": "2012,45 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°682187 du 25/11/2025"]}, {"id": "01/2026", "type": "avoir", "date": "2026-01-19", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 496, "total": 4464.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "DDC85D121", "desig": "Chemise", "ref": "20576", "couleur": "1301-Naturel", "qte": 496, "pu": 9.0, "mt": 4464.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "04/2026", "type": "facture", "date": "2026-01-24", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 199, "total": 2709.0, "fournitures": 122.0, "extras": [], "lignes": [{"modele": "Chemise du vieux", "desig": "Chemise", "ref": "Omey Waterford", "couleur": "Bleu/Brown/ Pink", "qte": 89, "pu": 13.0, "mt": 1157.0}, {"modele": "Chemise du vieux", "desig": "Chemise", "ref": "Omey Derry", "couleur": "Green/Yellow/ Orange", "qte": 110, "pu": 13.0, "mt": 1430.0}], "poids": "40 Kg", "mp": "3124,84 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°682825 du 20612/2025"]}, {"id": "05/2026", "type": "facture", "date": "2026-01-30", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 1295, "total": 15828.4, "fournitures": 814.7, "extras": [{"label": "Shipping", "mt": 102.9}], "lignes": [{"modele": "Chemise du vieux", "desig": "Chemise", "ref": "Omey Silgo", "couleur": "Brick/Blue/ Yellows", "qte": 100, "pu": 13.0, "mt": 1300.0}, {"modele": "Chemise du vieux", "desig": "Chemise", "ref": "Omey Westmeath", "couleur": "Bleu/Brown/ Pink", "qte": 100, "pu": 13.0, "mt": 1300.0}, {"modele": "PDR70D659", "desig": "Robe", "ref": "20534", "couleur": "1301-Naturel", "qte": 34, "pu": 15.8, "mt": 537.2}, {"modele": "PDR70D659", "desig": "Robe", "ref": "20535", "couleur": "1301-Naturel", "qte": 306, "pu": 15.8, "mt": 4834.8}, {"modele": "PDC53D600", "desig": "Chemise", "ref": "20626", "couleur": "1100-Blanc", "qte": 100, "pu": 9.0, "mt": 900.0}, {"modele": "PDC53D600", "desig": "Chemise", "ref": "20429", "couleur": "1100-Blanc", "qte": 6, "pu": 9.0, "mt": 54.0}, {"modele": "PDJ40D659", "desig": "Jupe", "ref": "20652", "couleur": "1301-Naturel", "qte": 26, "pu": 9.3, "mt": 241.8}, {"modele": "PDJ40D659", "desig": "Jupe", "ref": "20653", "couleur": "1301-Naturel", "qte": 306, "pu": 9.3, "mt": 2845.8}, {"modele": "PDC36D615", "desig": "Chemise", "ref": "20667", "couleur": "1301-Naturel", "qte": 22, "pu": 9.2, "mt": 202.4}, {"modele": "PDC36D615", "desig": "Chemise", "ref": "20668", "couleur": "1301-Naturel", "qte": 279, "pu": 9.2, "mt": 2566.8}, {"modele": "DDV48D048", "desig": "Veste", "ref": "20401", "couleur": "1200-Ecru", "qte": 16, "pu": 8.0, "mt": 128.0}], "poids": "260 Kg", "mp": "16201,12 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°683274 du 12/12/2025", "Matière Première d'origine CEE et importées suite SA N°682387 du 29/11/2025", "Matière Première d'origine CEE et importées suite SA N°6823828 du 06/12/2025", "Matière Première d'origine CEE et importées suite SA N°683863 du 20/12/2025", "Matière Première d'origine CEE et importées suite SA N°681545 du 15/11/2025"]}, {"id": "06/2026", "type": "facture", "date": "2026-01-30", "client": "bash", "marque": "BA&SH", "clientRaw": "", "pieces": 0, "total": 15573.6, "fournitures": 0, "extras": [], "lignes": [{"modele": "E26", "desig": "Top", "ref": "1E26BRAN", "couleur": "0100-Noir", "qte": 31, "pu": 14.7, "mt": 455.7}, {"modele": "E26", "desig": "Top", "ref": "1E26BRAN", "couleur": "0100-Noir", "qte": 40, "pu": 14.7, "mt": 588.0}, {"modele": "E26", "desig": "Top", "ref": "1E26BRAN", "couleur": "0100-Noir", "qte": 442, "pu": 14.7, "mt": 6497.4}, {"modele": "E26", "desig": "Robe", "ref": "1E26BRYT", "couleur": "0100-Noir", "qte": 10, "pu": 17.5, "mt": 175.0}, {"modele": "E26", "desig": "Robe", "ref": "1E26BRYT", "couleur": "0100-Noir", "qte": 449, "pu": 17.5, "mt": 7857.5}], "poids": "735 Kg", "mp": "16501,47 eur", "incoterm": "DDP", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°681047 du 08/11/2025"]}, {"id": "07/2026", "type": "facture", "date": "2026-01-30", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 860, "total": 6383.0, "fournitures": 535.0, "extras": [], "lignes": [{"modele": "Shema", "desig": "Jupe", "ref": "CFPJU00887", "couleur": "Tangerinecor", "qte": 860, "pu": 6.8, "mt": 5848.0}], "poids": "255 Kg", "mp": "7010,10 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°681939 du 22/11/2025"]}, {"id": "08/2026", "type": "facture", "date": "2026-02-02", "client": "patrick", "marque": "PATRICK CONFECTION", "clientRaw": "PATRICK CONFECTION", "pieces": 1675, "total": 13195.1, "fournitures": 0, "extras": [], "lignes": [{"modele": "Citapois", "desig": "Chemise", "ref": "MFPCM00728", "couleur": "Bleu", "qte": 683, "pu": 7.7, "mt": 5259.1}, {"modele": "Calais EUR", "desig": "Chemise", "ref": "MFPCM00757", "couleur": "Bleu", "qte": 1, "pu": 8.0, "mt": 8.0}, {"modele": "Calais ASIE", "desig": "Chemise", "ref": "MFPCM00757", "couleur": "Bleu", "qte": 525, "pu": 8.0, "mt": 4200.0}, {"modele": "Calais USA", "desig": "Chemise", "ref": "MFPCM00757", "couleur": "Bleu", "qte": 466, "pu": 8.0, "mt": 3728.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "09/2026", "type": "facture", "date": "2026-02-03", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 81, "total": 1249.0, "fournitures": 196.0, "extras": [], "lignes": [{"modele": "Chemise du vieux", "desig": "Chemise", "ref": "Omey Silgo", "couleur": "Brick/Blue/ Yellows", "qte": 22, "pu": 13.0, "mt": 286.0}, {"modele": "Chemise du vieux", "desig": "Chemise", "ref": "Omey Westmeath", "couleur": "Bleu/Brown/ Pink", "qte": 22, "pu": 13.0, "mt": 286.0}, {"modele": "Chemise du vieux", "desig": "Chemise", "ref": "Omey Derry", "couleur": "Green/Yellow/Orange", "qte": 10, "pu": 13.0, "mt": 130.0}, {"modele": "Chemise du vieux", "desig": "Chemise", "ref": "Omey Waterford", "couleur": "Blue/Brown/ Pink", "qte": 27, "pu": 13.0, "mt": 351.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "10/2026", "type": "facture", "date": "2026-02-07", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 403, "total": 4017.2, "fournitures": 282.0, "extras": [{"label": "Shipping", "mt": 27.6}], "lignes": [{"modele": "DDC22D153", "desig": "Chemise", "ref": "20736", "couleur": "2401-Indigo", "qte": 363, "pu": 9.2, "mt": 3339.6}, {"modele": "DDC22D153", "desig": "Chemise", "ref": "20737", "couleur": "2401-Indigo", "qte": 40, "pu": 9.2, "mt": 368.0}], "poids": "81 Kg", "mp": "5102,01 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684126 du 26/12/2025"]}, {"id": "11/2026", "type": "facture", "date": "2026-02-13", "client": "bonpoint", "marque": "BONPOINT", "clientRaw": "BONPOINT SAS", "pieces": 500, "total": 8612.0, "fournitures": 0, "extras": [{"label": "Ps OK Livraison", "mt": 121.0}], "lignes": [{"modele": "Logan", "desig": "Veste-8080", "ref": "S06BJAW00001", "couleur": "Encre", "qte": 67, "pu": 19.0, "mt": 1273.0}, {"modele": "Logan", "desig": "Veste-8082", "ref": "S06BJAW00001", "couleur": "Encre", "qte": 83, "pu": 19.0, "mt": 1577.0}, {"modele": "Logan", "desig": "Veste-8081", "ref": "S06BJAW00001", "couleur": "Encre", "qte": 202, "pu": 19.0, "mt": 3838.0}, {"modele": "Elois", "desig": "Short-8078", "ref": "S06BBEW00007", "couleur": "Ecossais Marine", "qte": 146, "pu": 13.0, "mt": 1898.0}, {"modele": "Elois", "desig": "Short-8078", "ref": "S06BBEW00007", "couleur": "Ecossais Marine", "qte": 2, "pu": 13.0, "mt": 26.0}], "poids": "210 Kg", "mp": "5132,65 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°679712 du 21/10/2025", "Matière Première d'origine CEE et importées suite SA N°679656 du 20/10/2025", "Matière Première d'origine CEE et importées suite SA N°683024 du 08/12/2025"]}, {"id": "12/2026", "type": "facture", "date": "2026-02-13", "client": "souleiado", "marque": "SOULEÏADO", "clientRaw": "SOULEIADO", "pieces": 267, "total": 4665.0, "fournitures": 454.0, "extras": [{"label": "Ps OK Livraison", "mt": 32.0}], "lignes": [{"modele": "Suzie Fleur des champs", "desig": "Robe", "ref": "S26W321", "couleur": "Blanc", "qte": 149, "pu": 13.0, "mt": 1937.0}, {"modele": "Aurelia", "desig": "Robe", "ref": "S26W336", "couleur": "Rayures marine blanc", "qte": 118, "pu": 19.0, "mt": 2242.0}], "poids": "135 Kg", "mp": "5132,65 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°682488 du 29/11/2025"]}, {"id": "13/2026", "type": "facture", "date": "2026-02-13", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 190, "total": 1725.5, "fournitures": 102.0, "extras": [{"label": "Ps OK Livraison", "mt": 8.5}], "lignes": [{"modele": "Casablanca", "desig": "Chemise", "ref": "XCHE33", "couleur": "Rayures", "qte": 190, "pu": 8.5, "mt": 1615.0}], "poids": "38 Kg", "mp": "6110,10 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°681939 du 22/11/2025"]}, {"id": "14/2026", "type": "facture", "date": "2026-02-13", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 1659, "total": 12687.0, "fournitures": 950.0, "extras": [{"label": "Ps OK Livraison", "mt": 28.4}], "lignes": [{"modele": "Shema", "desig": "Jupe", "ref": "CFPJU00887", "couleur": "Tangerinecor", "qte": 58, "pu": 6.8, "mt": 394.4}, {"modele": "Selma", "desig": "Jupe", "ref": "CFPJU00880", "couleur": "Multico", "qte": 760, "pu": 7.2, "mt": 5472.0}, {"modele": "Basma", "desig": "Top", "ref": "CFPTO01121", "couleur": "Multico", "qte": 785, "pu": 7.0, "mt": 5495.0}, {"modele": "Colette", "desig": "Chemise", "ref": "CFPCM00570", "couleur": "Bicolore", "qte": 56, "pu": 6.2, "mt": 347.2}], "poids": "345 Kg", "mp": "12610,01 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°682824du 06/12/2025", "Matière Première d'origine CEE et importées suite SA N°683379 du 13/12/2025"]}, {"id": "15/2026", "type": "facture", "date": "2026-02-13", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 1133, "total": 11266.8, "fournitures": 801.0, "extras": [], "lignes": [{"modele": "DDC22D153", "desig": "Chemise", "ref": "20737", "couleur": "2401-Indigo", "qte": 545, "pu": 9.2, "mt": 5014.0}, {"modele": "DDC22D153", "desig": "Chemise", "ref": "20793", "couleur": "2401-Indigo", "qte": 166, "pu": 9.2, "mt": 1527.2}, {"modele": "DDV48D039", "desig": "Veste", "ref": "20676", "couleur": "1902-Caremel", "qte": 422, "pu": 9.3, "mt": 3924.6}], "poids": "227 Kg", "mp": "12045,12 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684126 du 26/12/2025"]}, {"id": "16/2026", "type": "facture", "date": "2026-02-13", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 935, "total": 23418.39, "fournitures": 0, "extras": [], "lignes": [{"modele": "6EVA45", "desig": "Chemise MC", "ref": "V09875-Genesis", "couleur": "667-Kaki", "qte": 416, "pu": 20.85, "mt": 8673.6}, {"modele": "6EVA45", "desig": "Chemise MC", "ref": "V08862-Gamba", "couleur": "667-Kaki", "qte": 519, "pu": 28.41, "mt": 14744.79}], "poids": "187 Kg", "mp": "25104,12eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°683367 du 13/12/2025"]}, {"id": "02/2026", "type": "avoir", "date": "2026-02-16", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 15, "total": 105.8, "fournitures": 0, "extras": [], "lignes": [{"modele": "Selma", "desig": "Jupe", "ref": "CFPJU00880", "couleur": "Multico", "qte": 4, "pu": 7.2, "mt": 28.8}, {"modele": "Basma", "desig": "Top", "ref": "CFPTO01121", "couleur": "Multico", "qte": 11, "pu": 7.0, "mt": 77.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "17/2026", "type": "facture", "date": "2026-02-20", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 1226, "total": 12303.27, "fournitures": 1058.77, "extras": [{"label": "Ps Ok Livraison", "mt": 45.9}], "lignes": [{"modele": "DDC22D153", "desig": "Chemise", "ref": "20737", "couleur": "2401-Indigo", "qte": 191, "pu": 9.2, "mt": 1757.2}, {"modele": "DDC22D153", "desig": "Chemise", "ref": "20737", "couleur": "1701-Camel", "qte": 3, "pu": 9.2, "mt": 27.6}, {"modele": "DDC22D153", "desig": "Chemise", "ref": "20737", "couleur": "4201-Nude", "qte": 4, "pu": 9.2, "mt": 36.8}, {"modele": "DDC22D153", "desig": "Chemise", "ref": "20793", "couleur": "3101-Bleu Ciel", "qte": 2, "pu": 9.2, "mt": 18.4}, {"modele": "DDC22D100", "desig": "Chemise", "ref": "20841", "couleur": "3101-Bleu Ciel", "qte": 44, "pu": 8.0, "mt": 352.0}, {"modele": "DDC57D113", "desig": "Chemise", "ref": "20741", "couleur": "1200-Ecru", "qte": 65, "pu": 9.0, "mt": 585.0}, {"modele": "DDC57D113", "desig": "Chemise", "ref": "20742", "couleur": "1200-Ecru", "qte": 355, "pu": 9.0, "mt": 3195.0}, {"modele": "DDV48D039", "desig": "Veste", "ref": "20675", "couleur": "1902-Caremel", "qte": 562, "pu": 9.3, "mt": 5226.6}], "poids": "245 Kg", "mp": "13521,02 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684126 du 26/12/2025"]}, {"id": "18/2026", "type": "facture", "date": "2026-02-20", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 1355, "total": 7911.6, "fournitures": 756.0, "extras": [{"label": "Ps OK Livraison", "mt": 5.1}], "lignes": [{"modele": "Sapine", "desig": "Jupe", "ref": "CFPJU00898", "couleur": "Clair Print", "qte": 1255, "pu": 5.1, "mt": 6400.5}, {"modele": "Clemence", "desig": "Chemise", "ref": "CFPCM00593", "couleur": "Ivoir", "qte": 100, "pu": 7.5, "mt": 750.0}], "poids": "395 Kg", "mp": "8910,35 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684421 du 09/01/2026", "Matière Première d'origine CEE et importées suite SA N°684279 du 03/01/2026"]}, {"id": "19/2026", "type": "facture", "date": "2026-02-24", "client": "bonpoint", "marque": "BONPOINT", "clientRaw": "BONPOINT SAS", "pieces": 16, "total": 584.0, "fournitures": 0, "extras": [{"label": "Shipping Cost", "mt": 200.0}], "lignes": [{"modele": "Mogan", "desig": "Veste", "ref": "W06BOUW00002", "couleur": "Nuit", "qte": 2, "pu": 66.0, "mt": 132.0}, {"modele": "Manuel", "desig": "Pantalon", "ref": "W06BPAW00006", "couleur": "Nuit", "qte": 3, "pu": 45.0, "mt": 135.0}, {"modele": "Timi", "desig": "Pantalon", "ref": "W06BPAW00010", "couleur": "Nuit", "qte": 3, "pu": 39.0, "mt": 117.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "20/2026", "type": "facture", "date": "2026-02-24", "client": "souleiado", "marque": "SOULEÏADO", "clientRaw": "SOULEIADO", "pieces": 8, "total": 2339.0, "fournitures": 0, "extras": [{"label": "Développement +Placement", "mt": 300.0}, {"label": "Développement +Placement", "mt": 300.0}, {"label": "Développement +Placement", "mt": 200.0}, {"label": "Développement +Placement", "mt": 200.0}, {"label": "Développement +Placement", "mt": 300.0}, {"label": "Développement +Placement", "mt": 200.0}, {"label": "Développement +Placement", "mt": 200.0}, {"label": "Développement +Placement", "mt": 200.0}], "lignes": [{"modele": "Helena", "desig": "Jupe", "ref": "S26W458", "couleur": "Noir Blanc", "qte": 1, "pu": 51.0, "mt": 51.0}, {"modele": "Fleur des champs", "desig": "Robe", "ref": "S26W321", "couleur": "Blanc", "qte": 1, "pu": 39.0, "mt": 39.0}, {"modele": "Babylone", "desig": "Jupe", "ref": "S62W450", "couleur": "Bleu Menthe", "qte": 1, "pu": 60.0, "mt": 60.0}, {"modele": "Doria Cube", "desig": "Jupe", "ref": "S26W450", "couleur": "Rouge", "qte": 1, "pu": 69.0, "mt": 69.0}, {"modele": "Aurelia", "desig": "Robe", "ref": "S26W336", "couleur": "Rayures Marine", "qte": 1, "pu": 57.0, "mt": 57.0}, {"modele": "Fanny", "desig": "Jupe", "ref": "S26W462", "couleur": "Jaune", "qte": 1, "pu": 51.0, "mt": 51.0}, {"modele": "Charlotte", "desig": "Robe", "ref": "S26W323", "couleur": "Multicolor", "qte": 1, "pu": 72.0, "mt": 72.0}, {"modele": "Chlothide", "desig": "Jupe", "ref": "S26W461", "couleur": "Rouge", "qte": 1, "pu": 40.0, "mt": 40.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "21/2025", "type": "proforma", "date": "2026-02-24", "client": "bash", "marque": "BA&SH", "clientRaw": "BASH", "pieces": 309, "total": 12418.71, "fournitures": 0, "extras": [], "lignes": [{"modele": "1E25GIGI", "desig": "Pantalon", "ref": "93359", "couleur": "0691-Noir", "qte": 309, "pu": 40.19, "mt": 12418.71}], "poids": "395 Kg", "mp": "8910,35 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": []}, {"id": "21/2026", "type": "facture", "date": "2026-02-27", "client": "antonelle", "marque": "ANTONELLE", "clientRaw": "Nouvelle Uja", "pieces": 460, "total": 4048.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "Liberta", "desig": "Chemise", "ref": "15CH3245", "couleur": "Choco", "qte": 460, "pu": 8.8, "mt": 4048.0}], "poids": "92 Kg", "mp": "4500,25 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": ["Marchandise d'origine CEE et importées suite SA N°684305 et SE N°641889 du 06/01/2026"]}, {"id": "22/2026", "type": "facture", "date": "2026-02-27", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 295, "total": 5621.9, "fournitures": 0, "extras": [], "lignes": [{"modele": "5EVA24", "desig": "Blouse ML", "ref": "V09413-Bell", "couleur": "Blanc", "qte": 150, "pu": 18.4, "mt": 2760.0}, {"modele": "5EVA24", "desig": "Robe", "ref": "V08212-Canessa", "couleur": "Blanc", "qte": 109, "pu": 21.5, "mt": 2343.5}, {"modele": "5EVA24", "desig": "Blouse ML", "ref": "V09413-Bell", "couleur": "Noir", "qte": 36, "pu": 14.4, "mt": 518.4}], "poids": "59Kg", "mp": "6012,45eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685036 du 22/01/2026"]}, {"id": "23/2026", "type": "facture", "date": "2026-02-27", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 900, "total": 7097.0, "fournitures": 347.0, "extras": [], "lignes": [{"modele": "Clemence", "desig": "Chemise", "ref": "CFPCM00593", "couleur": "Ivoir", "qte": 900, "pu": 7.5, "mt": 6750.0}], "poids": "180 Kg", "mp": "8910,35 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684331 du 07/01/2026", "Matière Première d'origine CEE et importées suite SA N°684279 du 03/01/2026"]}, {"id": "24/2026", "type": "facture", "date": "2026-02-27", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 1819, "total": 17339.45, "fournitures": 1290.45, "extras": [{"label": "Ps Ok Livraison", "mt": 27.0}], "lignes": [{"modele": "DBV36B048", "desig": "Veste", "ref": "20777", "couleur": "2100-Marine", "qte": 242, "pu": 8.0, "mt": 1936.0}, {"modele": "DDV48B048", "desig": "Veste", "ref": "20401", "couleur": "1200-Ecru", "qte": 88, "pu": 8.0, "mt": 704.0}, {"modele": "DDV48B048", "desig": "Veste", "ref": "20453", "couleur": "1701-Camel", "qte": 19, "pu": 8.0, "mt": 152.0}, {"modele": "DDC17D101", "desig": "Chemise", "ref": "20831", "couleur": "3201-Nuage", "qte": 44, "pu": 9.0, "mt": 396.0}, {"modele": "DDC17D101", "desig": "Chemise", "ref": "20832", "couleur": "3201-Nuage", "qte": 200, "pu": 9.0, "mt": 1800.0}, {"modele": "DDC17D100", "desig": "Chemise", "ref": "20842", "couleur": "1100-Blanc", "qte": 62, "pu": 9.0, "mt": 558.0}, {"modele": "DDC17D100", "desig": "Chemise", "ref": "20842", "couleur": "3101-Bleu Ciel", "qte": 14, "pu": 9.0, "mt": 126.0}, {"modele": "DDC57D113", "desig": "Chemise", "ref": "20742", "couleur": "1200-Ecru", "qte": 950, "pu": 9.0, "mt": 8550.0}, {"modele": "DCC51C140", "desig": "Chemise", "ref": "20823", "couleur": "1100-Blanc", "qte": 100, "pu": 9.0, "mt": 900.0}, {"modele": "DCC51C140", "desig": "Chemise", "ref": "20843", "couleur": "3101-Bleu Ciel", "qte": 100, "pu": 9.0, "mt": 900.0}], "poids": "245 Kg", "mp": "18321,02 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684126 du 26/12/2025"]}, {"id": "03/2026", "type": "avoir", "date": "2026-03-03", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 5, "total": 134.49, "fournitures": 0, "extras": [], "lignes": [{"modele": "6EVA45", "desig": "Chemise MC", "ref": "V09875-Genesis", "couleur": "667-Kaki", "qte": 1, "pu": 20.85, "mt": 20.85}, {"modele": "6EVA45", "desig": "Chemise MC", "ref": "V08862-Gamba", "couleur": "667-Kaki", "qte": 4, "pu": 28.41, "mt": 113.64}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "25/2026", "type": "facture", "date": "2026-03-06", "client": "souleiado", "marque": "SOULEÏADO", "clientRaw": "SOULEIADO", "pieces": 121, "total": 2127.0, "fournitures": 70.0, "extras": [], "lignes": [{"modele": "Fanny", "desig": "Jupe", "ref": "S26W462", "couleur": "Blanc/Jaune", "qte": 121, "pu": 17.0, "mt": 2057.0}], "poids": "60 Kg", "mp": "2932,65 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°682488 du 29/11/2025"]}, {"id": "26/2026", "type": "facture", "date": "2026-03-06", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 528, "total": 8149.71, "fournitures": 0, "extras": [], "lignes": [{"modele": "6EVA45", "desig": "Jupe Longue", "ref": "V07788-Giada", "couleur": "667-Kaki", "qte": 51, "pu": 19.65, "mt": 1002.15}, {"modele": "6EVA33", "desig": "Chemise ML", "ref": "V09871-Georges", "couleur": "625-Vert", "qte": 11, "pu": 18.56, "mt": 204.16}, {"modele": "4HVA88", "desig": "Chemise MC", "ref": "V09417-Bobby", "couleur": "123-Caramel", "qte": 466, "pu": 14.9, "mt": 6943.4}], "poids": "104Kg", "mp": "9012,45eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685036 du 22/01/2026"]}, {"id": "27/2026", "type": "facture", "date": "2026-03-06", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 1652, "total": 13355.0, "fournitures": 965.0, "extras": [], "lignes": [{"modele": "Clemence", "desig": "Chemise", "ref": "CFPCM00593", "couleur": "Ivoir", "qte": 177, "pu": 7.5, "mt": 1327.5}, {"modele": "Ellosbis", "desig": "Short", "ref": "CFPSH00325", "couleur": "Ecru 1", "qte": 875, "pu": 7.5, "mt": 6562.5}, {"modele": "Paloma", "desig": "Pantalon", "ref": "CFPPA00776", "couleur": "Ecru 1", "qte": 600, "pu": 7.5, "mt": 4500.0}], "poids": "330 Kg", "mp": "13581,12 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684331 du 07/01/2026", "Matière Première d'origine CEE et importées suite SA N°684279 du 03/01/2026"]}, {"id": "28/2026", "type": "facture", "date": "2026-03-06", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 1243, "total": 12230.2, "fournitures": 902.0, "extras": [], "lignes": [{"modele": "DDV48B048", "desig": "Veste", "ref": "20453", "couleur": "1701-Camel", "qte": 18, "pu": 8.0, "mt": 144.0}, {"modele": "DCC51C140", "desig": "Chemise", "ref": "20823", "couleur": "1100-Blanc", "qte": 390, "pu": 9.0, "mt": 3510.0}, {"modele": "DCC51C140", "desig": "Chemise", "ref": "20843", "couleur": "3101-Bleu Ciel", "qte": 390, "pu": 9.0, "mt": 3510.0}, {"modele": "PDC53D600", "desig": "Chemise", "ref": "20844", "couleur": "3101-Bleu Ciel", "qte": 24, "pu": 9.0, "mt": 216.0}, {"modele": "PDC53D600", "desig": "Chemise", "ref": "20845", "couleur": "3101-Bleu Ciel", "qte": 222, "pu": 9.0, "mt": 1998.0}, {"modele": "PBJ33B658", "desig": "Jupe", "ref": "20792", "couleur": "2100-Marine", "qte": 199, "pu": 9.8, "mt": 1950.2}], "poids": "250 Kg", "mp": "13102,14 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685822 du 02/02/2026", "Matière Première d'origine CEE et importées suite SA N°685820 du 02/02/2026", "Matière Première d'origine CEE et importées suite SA N°685294 du 24/01/2026"]}, {"id": "29/2026", "type": "facture", "date": "2026-03-13", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 500, "total": 4856.0, "fournitures": 352.0, "extras": [], "lignes": [{"modele": "DBC50B155", "desig": "Chemise", "ref": "20784", "couleur": "2201-Encre", "qte": 190, "pu": 7.8, "mt": 1482.0}, {"modele": "DBC48B166", "desig": "Chemise", "ref": "20786", "couleur": "3301-Bleu Ocean", "qte": 232, "pu": 10.0, "mt": 2320.0}, {"modele": "DDC14D100", "desig": "Chemise", "ref": "20839", "couleur": "3101-Bleu Ciel", "qte": 78, "pu": 9.0, "mt": 702.0}], "poids": "100 Kg", "mp": "6001,54 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685820 du 02/02/2026", "Matière Première d'origine CEE et importées suite SA N°685294 du 24/01/2026", "Matière Première d'origine CEE et importées suite SA N°684616 du 13/01/2026"]}, {"id": "30/2026", "type": "facture", "date": "2026-03-13", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 851, "total": 13283.15, "fournitures": 0, "extras": [], "lignes": [{"modele": "6EVA45", "desig": "Jupe Longue", "ref": "V07788-Giada", "couleur": "667-Kaki", "qte": 127, "pu": 19.65, "mt": 2495.55}, {"modele": "4HVA88", "desig": "Chemise MC", "ref": "V09417-Bobby", "couleur": "123-Caramel", "qte": 724, "pu": 14.9, "mt": 10787.6}], "poids": "170 Kg", "mp": "14215,14 eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685036 du 22/01/2026"]}, {"id": "31/2026", "type": "facture", "date": "2026-03-13", "client": "antonelle", "marque": "ANTONELLE", "clientRaw": "Nouvelle Uja", "pieces": 1297, "total": 12164.6, "fournitures": 0, "extras": [], "lignes": [{"modele": "Louppa", "desig": "Chemise", "ref": "15CH3312", "couleur": "Off White", "qte": 447, "pu": 8.8, "mt": 3933.6}, {"modele": "Liana", "desig": "Robe", "ref": "15RO3246", "couleur": "Blue", "qte": 430, "pu": 12.5, "mt": 5375.0}, {"modele": "Lenora", "desig": "Top", "ref": "15TO3342", "couleur": "Sable", "qte": 420, "pu": 6.8, "mt": 2856.0}], "poids": "260 Kg", "mp": "12584,51 eur", "incoterm": "FOB Nabeul-Tunisia", "paiement": "LC 120j date d'expidition N°14001-0656347GSM Suite Proforma N°01/2026 du 04/02/2026", "matieres": ["Marchandise d'origine CEE et importées suite SA N°682827 SE N°641286 du 06/12/2025", "Marchandise d'origine CEE et importées suite SA N°683834  du 20/12/2025"]}, {"id": "32/2026", "type": "facture", "date": "2026-03-13", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 450, "total": 3545.0, "fournitures": 170.0, "extras": [], "lignes": [{"modele": "Paloma", "desig": "Pantalon", "ref": "CFPPA00776", "couleur": "Ecru 1", "qte": 450, "pu": 7.5, "mt": 3375.0}], "poids": "140 Kg", "mp": "4312,10 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684331 du 07/01/2026", "Matière Première d'origine CEE et importées suite SA N°684279 du 03/01/2026"]}, {"id": "33/2026", "type": "facture", "date": "2026-03-13", "client": "souleiado", "marque": "SOULEÏADO", "clientRaw": "SOULEIADO", "pieces": 120, "total": 2452.0, "fournitures": 52.0, "extras": [], "lignes": [{"modele": "Clothide", "desig": "Jupe", "ref": "S26W461", "couleur": "Rouge", "qte": 120, "pu": 20.0, "mt": 2400.0}], "poids": "60 Kg", "mp": "2862,65 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°682488 du 29/11/2025"]}, {"id": "34/2026", "type": "facture", "date": "2026-03-17", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 663, "total": 4519.5, "fournitures": 210.0, "extras": [], "lignes": [{"modele": "Cerise", "desig": "Chemise", "ref": "CFPM00620", "couleur": "Print Foncé V", "qte": 633, "pu": 6.5, "mt": 4114.5}, {"modele": "Cerise", "desig": "Chemise", "ref": "CFPM00620", "couleur": "Print Foncé V", "qte": 30, "pu": 6.5, "mt": 195.0}], "poids": "127 Kg", "mp": "4812,10 eur", "incoterm": "EX WORK", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°686515 du 13/02/2026"]}, {"id": "35/2026", "type": "facture", "date": "2026-03-17", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 320, "total": 4204.0, "fournitures": 224.0, "extras": [], "lignes": [{"modele": "DBR41B166", "desig": "Robe", "ref": "20785", "couleur": "3301-Bleu Ocean", "qte": 200, "pu": 14.5, "mt": 2900.0}, {"modele": "DDC14D100", "desig": "Chemise", "ref": "20840", "couleur": "3101-Bleu Ciel", "qte": 120, "pu": 9.0, "mt": 1080.0}], "poids": "64 Kg", "mp": "5161,54 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685820 du 02/02/2026", "Matière Première d'origine CEE et importées suite SA N°685294 du 24/01/2026"]}, {"id": "36/2026", "type": "facture", "date": "2026-03-17", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 300, "total": 5568.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "4HVA88", "desig": "Chemise ML", "ref": "V09891-Georges", "couleur": "123-Caramrl", "qte": 300, "pu": 18.56, "mt": 5568.0}], "poids": "60 Kg", "mp": "14215,14 eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685036 du 22/01/2026"]}, {"id": "04/2026", "type": "avoir", "date": "2026-03-18", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 1925, "total": 962.5, "fournitures": 0, "extras": [], "lignes": [{"modele": "Ellosbis", "desig": "Short", "ref": "CFPSH00325", "couleur": "Ecru 1", "qte": 875, "pu": 0.5, "mt": 437.5}, {"modele": "Paloma", "desig": "Pantalon", "ref": "CFPPA00776", "couleur": "Ecru 1", "qte": 1050, "pu": 0.5, "mt": 525.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "37/2026", "type": "facture", "date": "2026-03-27", "client": "souleiado", "marque": "SOULEÏADO", "clientRaw": "SOULEIADO", "pieces": 320, "total": 7280.0, "fournitures": 80.0, "extras": [], "lignes": [{"modele": "Babylone", "desig": "Jupe", "ref": "S26W450", "couleur": "Bleu Menthe", "qte": 120, "pu": 20.0, "mt": 2400.0}, {"modele": "Charlotte", "desig": "Robe", "ref": "S23W323", "couleur": "Vintage Multico", "qte": 200, "pu": 24.0, "mt": 4800.0}], "poids": "120 Kg", "mp": "8150,14 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°686895 du 19/02/2026", "Matière Première d'origine CEE et importées suite SA N°684616 du 13/01/2026"]}, {"id": "38/2026", "type": "facture", "date": "2026-03-27", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 695, "total": 6717.9, "fournitures": 530.6, "extras": [{"label": "Ps Ok Livraison", "mt": 18.0}], "lignes": [{"modele": "DDC24D166", "desig": "Chemise", "ref": "20895", "couleur": "9100-Noir", "qte": 250, "pu": 8.8, "mt": 2200.0}, {"modele": "DDC30D152", "desig": "Chemise", "ref": "20896", "couleur": "1301-Naturel", "qte": 119, "pu": 8.7, "mt": 1035.3}, {"modele": "DDC14D100", "desig": "Chemise", "ref": "20839", "couleur": "1100-Blanc", "qte": 46, "pu": 9.0, "mt": 414.0}, {"modele": "DDC14D100", "desig": "Chemise", "ref": "20840", "couleur": "3101-Bleu Ciel", "qte": 280, "pu": 9.0, "mt": 2520.0}], "poids": "140 Kg", "mp": "8011,54 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685820 du 02/02/2026", "Matière Première d'origine CEE et importées suite SA N°687540 du 28/02/2026"]}, {"id": "39/2026", "type": "facture", "date": "2026-03-27", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 357, "total": 6843.92, "fournitures": 0, "extras": [], "lignes": [{"modele": "4HVA88", "desig": "Chemise ML", "ref": "V09891-Georges", "couleur": "123-Caramrl", "qte": 157, "pu": 18.56, "mt": 2913.92}, {"modele": "6EVA45", "desig": "Jupe Longue", "ref": "V07788-Giada", "couleur": "667-Kaki", "qte": 200, "pu": 19.65, "mt": 3930.0}], "poids": "72 Kg", "mp": "7102,89 eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685036 du 22/01/2026", "Matière Première d'origine CEE et importées suite SA N°687609 du 02/03/2026"]}, {"id": "40/2026", "type": "facture", "date": "2026-03-27", "client": "antonelle", "marque": "ANTONELLE", "clientRaw": "Nouvelle Uja", "pieces": 1342, "total": 9790.9, "fournitures": 0, "extras": [], "lignes": [{"modele": "Lincey", "desig": "Pantalon", "ref": "15PA3320", "couleur": "Kaki", "qte": 449, "pu": 7.5, "mt": 3367.5}, {"modele": "Lincey", "desig": "Chemise", "ref": "15CH3313", "couleur": "Kaki", "qte": 443, "pu": 8.8, "mt": 3898.4}, {"modele": "Liana", "desig": "Chemise", "ref": "15CH3247", "couleur": "Blue", "qte": 250, "pu": 8.5, "mt": 2125.0}, {"modele": "Liana", "desig": "AC", "ref": "15AC3248", "couleur": "Blue", "qte": 200, "pu": 2.0, "mt": 400.0}], "poids": "269 Kg", "mp": "10842,01 eur", "incoterm": "FOB Nabeul-Tunisia", "paiement": "LC 120j date d'expidition N°14001-0656347GSM Suite Proforma N°01/2026 du 04/02/2026", "matieres": ["Marchandise d'origine CEE et importées suite SA N°682827 SE N°641286 du 06/12/2025"]}, {"id": "41/2026", "type": "facture", "date": "2026-03-27", "client": "bonpoint", "marque": "BONPOINT", "clientRaw": "BONPOINT SAS", "pieces": 646, "total": 9367.0, "fournitures": 0, "extras": [{"label": "Ps OK Livraison", "mt": 58.0}], "lignes": [{"modele": "Farell", "desig": "Salopette-7933", "ref": "S06Y0VW00002", "couleur": "Ficelle", "qte": 151, "pu": 14.5, "mt": 2189.5}, {"modele": "Farell", "desig": "Salopette-7934", "ref": "S06Y0VW00002", "couleur": "Ficelle", "qte": 378, "pu": 14.5, "mt": 5481.0}, {"modele": "Farell", "desig": "Salopette-8083", "ref": "S06Y0VW00001", "couleur": "Ecossais Marine", "qte": 117, "pu": 14.5, "mt": 1696.5}], "poids": "135Kg", "mp": "11025,84 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°679769 du 22/10/2025", "Matière Première d'origine CEE et importées suite SA N°682560 et SE N°641181 du 01/12/2025", "Matière Première d'origine CEE et importées suite SA N°681235 du 11/11/2025"]}, {"id": "42/2026", "type": "facture", "date": "2026-03-27", "client": "antonelle", "marque": "ANTONELLE", "clientRaw": "ANTONELLE NEW", "pieces": 1165, "total": 7922.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "Silaria", "desig": "Chemise", "ref": "46CH3710", "couleur": "Parme", "qte": 351, "pu": 6.8, "mt": 2386.8}, {"modele": "Sanolo", "desig": "Chemise", "ref": "46CH3709", "couleur": "Ciel", "qte": 403, "pu": 6.8, "mt": 2740.4}, {"modele": "Sanolo", "desig": "Chemise", "ref": "46CH3709", "couleur": "Rose", "qte": 411, "pu": 6.8, "mt": 2794.8}], "poids": "270 Kg", "mp": "9102,54 eur", "incoterm": "FOB Nabeul-Tunisia", "paiement": "LC 120j date d'expidition N°14001-0657088GSM Suite Proforma N°04/2026 du 09/03/2026", "matieres": ["Marchandise d'origine CEE et importées suite SA N°687145  du 23/02/2026"]}, {"id": "43/2026", "type": "facture", "date": "2026-03-30", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 25, "total": 448.25, "fournitures": 0, "extras": [], "lignes": [{"modele": "Ramabis", "desig": "Robe", "ref": "P0010", "couleur": "Paille Jaune", "qte": 1, "pu": 23.25, "mt": 23.25}, {"modele": "Rama", "desig": "Robe", "ref": "P0010", "couleur": "Noir", "qte": 2, "pu": 23.25, "mt": 46.5}, {"modele": "Clemencecravate bis", "desig": "Chemise", "ref": "P0010", "couleur": "Bleu", "qte": 1, "pu": 15.75, "mt": 15.75}, {"modele": "Clemence", "desig": "Chemise", "ref": "P0010", "couleur": "Bleu", "qte": 1, "pu": 16.25, "mt": 16.25}, {"modele": "Clemence", "desig": "Chemise", "ref": "M0102", "couleur": "Bleu", "qte": 4, "pu": 16.25, "mt": 65.0}, {"modele": "Cerise", "desig": "Chemise", "ref": "P0010", "couleur": "Print Foncé", "qte": 2, "pu": 16.25, "mt": 32.5}, {"modele": "Rosace", "desig": "Robe", "ref": "P0010", "couleur": "Bleu", "qte": 2, "pu": 23.25, "mt": 46.5}, {"modele": "Charlotte", "desig": "Chemise", "ref": "P0010", "couleur": "Blanc", "qte": 2, "pu": 16.75, "mt": 33.5}, {"modele": "Charlotte", "desig": "Chemise", "ref": "M0102", "couleur": "Blanc", "qte": 4, "pu": 16.75, "mt": 67.0}, {"modele": "Carmel", "desig": "Chemise", "ref": "P0010", "couleur": "Print Foncé", "qte": 2, "pu": 17.0, "mt": 34.0}, {"modele": "Carmel", "desig": "Chemise", "ref": "M0102", "couleur": "Print Foncé", "qte": 4, "pu": 17.0, "mt": 68.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "44/2026", "type": "facture", "date": "2026-04-03", "client": "antonelle", "marque": "ANTONELLE", "clientRaw": "ANTONELLE NEW", "pieces": 450, "total": 3060.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "Somaine", "desig": "Chemise", "ref": "46CH3708", "couleur": "Fleurs", "qte": 450, "pu": 6.8, "mt": 3060.0}], "poids": "90 Kg", "mp": "4015,24eur", "incoterm": "FOB Nabeul-Tunisia", "paiement": "LC 120j date d'expidition N°14001-0657088GSM Suite Proforma N°04/2026 du 09/03/2026", "matieres": ["Marchandise d'origine CEE et importées suite SA N°687145  du 23/02/2026"]}, {"id": "45/2026", "type": "facture", "date": "2026-04-03", "client": "souleiado", "marque": "SOULEÏADO", "clientRaw": "SOULEIADO", "pieces": 221, "total": 4235.0, "fournitures": 200.0, "extras": [], "lignes": [{"modele": "Chlothide", "desig": "Jupe", "ref": "S26W461", "couleur": "Fleur Rouges", "qte": 80, "pu": 24.0, "mt": 1920.0}, {"modele": "Doria Cuba", "desig": "Jupe", "ref": "S26W459", "couleur": "Vintage Multico", "qte": 141, "pu": 15.0, "mt": 2115.0}], "poids": "90 Kg", "mp": "5210,78 eur", "incoterm": "FOB Nabeul-Tunisia", "paiement": "Virement à l'avance", "matieres": ["Marchandise d'origine CEE et importées suite SA N°687145  du 23/02/2026"]}, {"id": "46/2026", "type": "facture", "date": "2026-04-03", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 384, "total": 4322.4, "fournitures": 240.0, "extras": [{"label": "Ps Ok Livraison", "mt": 33.0}], "lignes": [{"modele": "DDCC4D367", "desig": "Chemise", "ref": "20943", "couleur": "5900-Vert Amande", "qte": 50, "pu": 11.0, "mt": 550.0}, {"modele": "DDCC4D367", "desig": "Chemise", "ref": "20944", "couleur": "5900-Vert Amande", "qte": 237, "pu": 11.0, "mt": 2607.0}, {"modele": "DDC22D153", "desig": "Chemise", "ref": "20737", "couleur": "2401-Indigo", "qte": 97, "pu": 9.2, "mt": 892.4}], "poids": "58 Kg", "mp": "8011,54 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°688398 du 14/03/2026"]}, {"id": "47/2026", "type": "facture", "date": "2026-04-03", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 348, "total": 6838.2, "fournitures": 0, "extras": [], "lignes": [{"modele": "6EVA45", "desig": "Jupe Longue", "ref": "V07788-Giada", "couleur": "667-Kaki", "qte": 348, "pu": 19.65, "mt": 6838.2}], "poids": "70 Kg", "mp": "7102,89 eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°685036 du 22/01/2026", "Matière Première d'origine CEE et importées suite SA N°687609 du 02/03/2026"]}, {"id": "48/2026", "type": "facture", "date": "2026-04-10", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 268, "total": 4422.4, "fournitures": 188.0, "extras": [], "lignes": [{"modele": "DDR70D166", "desig": "Robe", "ref": "20992", "couleur": "9100-Noir", "qte": 268, "pu": 15.8, "mt": 4234.4}], "poids": "54 Kg", "mp": "5500,84 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°681968 du 22/11/2025"]}, {"id": "49/2026", "type": "facture", "date": "2026-04-10", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 3440, "total": 31050.8, "fournitures": 1088.0, "extras": [{"label": "Ps Ok Livraison", "mt": 49.8}], "lignes": [{"modele": "Ramabis", "desig": "Robe", "ref": "CFPRO03108", "couleur": "Paille Jaune", "qte": 29, "pu": 9.3, "mt": 269.7}, {"modele": "Ramabis", "desig": "Robe", "ref": "CFPRO03108", "couleur": "Paille Jaune", "qte": 1193, "pu": 9.3, "mt": 11094.9}, {"modele": "Rama", "desig": "Robe", "ref": "CFPRO031092", "couleur": "Noir", "qte": 1525, "pu": 9.3, "mt": 14182.5}, {"modele": "Clemencecravate bis", "desig": "Chemise", "ref": "CFPCM00592", "couleur": "Bleu", "qte": 693, "pu": 6.3, "mt": 4365.9}], "poids": "688 Kg", "mp": "32410,84eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684279 du 03/01/2026", "Matière Première d'origine CEE et importées suite SA N°683852 du 20/12/2025"]}, {"id": "50/2026", "type": "facture", "date": "2026-04-10", "client": "antonelle", "marque": "ANTONELLE", "clientRaw": "Nouvelle Uja", "pieces": 1414, "total": 15473.9, "fournitures": 0, "extras": [], "lignes": [{"modele": "Lincey", "desig": "Dress", "ref": "15RO3315", "couleur": "Khaki", "qte": 397, "pu": 13.0, "mt": 5161.0}, {"modele": "Liberta", "desig": "Dress", "ref": "15RO3244", "couleur": "Choco", "qte": 350, "pu": 13.0, "mt": 4550.0}, {"modele": "Lalie", "desig": "T-Shirt", "ref": "15TO3351", "couleur": "Off White", "qte": 467, "pu": 8.7, "mt": 4062.9}, {"modele": "Liana", "desig": "Shirt", "ref": "15CH3247", "couleur": "Blue", "qte": 200, "pu": 8.5, "mt": 1700.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": ["Marchandise d'origine CEE et importées suite SA N°684305 SE N°641889 du 06/01/2026", "Marchandise d'origine CEE et importées suite SA N°682827 SE N°641286 du 06/12/2025"]}, {"id": "51/2026", "type": "facture", "date": "2026-04-10", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 849, "total": 7417.0, "fournitures": 450.0, "extras": [{"label": "Ps Ok Livraison", "mt": 53.4}, {"label": "Frais de transport", "mt": 340.0}], "lignes": [{"modele": "Phara", "desig": "Robe", "ref": "Phara A02", "couleur": "Rayee Bleu/BL", "qte": 293, "pu": 9.0, "mt": 2637.0}, {"modele": "Pharell", "desig": "Chemise", "ref": "Pharell A02", "couleur": "Rayee Bleu/BL", "qte": 333, "pu": 7.0, "mt": 2331.0}, {"modele": "Philae", "desig": "Chemise", "ref": "Philae A02", "couleur": "Rayee Bleu/BL", "qte": 223, "pu": 7.2, "mt": 1605.6}], "poids": "270 Kg", "mp": "7159,78eur", "incoterm": "DAP", "paiement": "Virement a la livraison livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°683520 du 16/12/2025"]}, {"id": "05/2026", "type": "avoir", "date": "2026-04-13", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 13, "total": 81.9, "fournitures": 0, "extras": [], "lignes": [{"modele": "Clemencecravate bis", "desig": "Chemise", "ref": "CFPCM00592", "couleur": "Bleu", "qte": 13, "pu": 6.3, "mt": 81.9}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "52/2026", "type": "facture", "date": "2026-04-14", "client": "souleiado", "marque": "SOULEÏADO", "clientRaw": "SOULEIADO", "pieces": 0, "total": 101.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "Chouchou", "desig": "Chouchou", "ref": "PE26", "couleur": "Vert", "qte": 32, "pu": 1.0, "mt": 32.0}, {"modele": "Chouchou", "desig": "Chouchou", "ref": "PE26", "couleur": "Orangé", "qte": 34, "pu": 1.0, "mt": 34.0}, {"modele": "Chouchou", "desig": "Chouchou", "ref": "PE26", "couleur": "Rouge", "qte": 35, "pu": 1.0, "mt": 35.0}], "poids": "10 Kg", "mp": "205,12 eur", "incoterm": "FOB Nabeul-Tunisia", "paiement": "Virement à l'avance", "matieres": ["Marchandise d'origine CEE et importées suite SA N°687145  du 23/02/2026"]}, {"id": "53/2026", "type": "facture", "date": "2026-04-17", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 2480, "total": 19068.4, "fournitures": 786.0, "extras": [{"label": "Ps Ok Livraison", "mt": 45.0}], "lignes": [{"modele": "Charlotte", "desig": "Chemise", "ref": "CFPM00618", "couleur": "001 Blanc", "qte": 577, "pu": 6.7, "mt": 3865.9}, {"modele": "Rosace", "desig": "Robe", "ref": "CFPRO03094", "couleur": "Print Foncé V", "qte": 30, "pu": 9.3, "mt": 279.0}, {"modele": "Rosace", "desig": "Robe", "ref": "CFPRO03094", "couleur": "Print Foncé V", "qte": 685, "pu": 9.3, "mt": 6370.5}, {"modele": "Clemence", "desig": "Chemise", "ref": "CFPCM00598", "couleur": "Print Bleu V00", "qte": 28, "pu": 6.5, "mt": 182.0}, {"modele": "Clemence", "desig": "Chemise", "ref": "CFPCM00598", "couleur": "Print Bleu V00", "qte": 1160, "pu": 6.5, "mt": 7540.0}], "poids": "496 Kg", "mp": "20154,87 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°687147 du 23/02/2026", "Matière Première d'origine CEE et importées suite SA N°687544 du 28/02/2026", "Matière Première d'origine CEE et importées suite SA N°686057 du 07/02/2026"]}, {"id": "54/2026", "type": "facture", "date": "2026-04-17", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 479, "total": 4355.0, "fournitures": 339.0, "extras": [], "lignes": [{"modele": "DDC85D121", "desig": "Chemise", "ref": "21062", "couleur": "1301-Naturel", "qte": 124, "pu": 9.0, "mt": 1116.0}, {"modele": "DDV48D048", "desig": "Veste", "ref": "20989", "couleur": "1200-Ecru", "qte": 295, "pu": 8.0, "mt": 2360.0}, {"modele": "DDC14D100", "desig": "Chemise", "ref": "20840", "couleur": "3101-Bleu Ciel", "qte": 28, "pu": 9.0, "mt": 252.0}, {"modele": "DDC14D101", "desig": "Chemise", "ref": "20839", "couleur": "1100-Blanc", "qte": 32, "pu": 9.0, "mt": 288.0}], "poids": "97 Kg", "mp": "5100,84 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°681968 du 22/11/2025"]}, {"id": "06/2026", "type": "avoir", "date": "2026-04-22", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 2, "total": 15.8, "fournitures": 0, "extras": [], "lignes": [{"modele": "Rosace", "desig": "Robe", "ref": "CFPRO03094", "couleur": "Print Foncé V", "qte": 1, "pu": 9.3, "mt": 9.3}, {"modele": "Clemence", "desig": "Chemise", "ref": "CFPCM00598", "couleur": "Print Bleu V00", "qte": 1, "pu": 6.5, "mt": 6.5}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "55/2026", "type": "facture", "date": "2026-04-24", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 217, "total": 2138.0, "fournitures": 158.0, "extras": [{"label": "Ps Ok Livraison", "mt": 27.0}], "lignes": [{"modele": "DDC66D178", "desig": "Chemise", "ref": "21061", "couleur": "2201-Encre", "qte": 217, "pu": 9.0, "mt": 1953.0}], "poids": "43,4 Kg", "mp": "5100,84 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°681968 du 22/11/2025"]}, {"id": "56/2026", "type": "facture", "date": "2026-04-24", "client": "antonelle", "marque": "ANTONELLE", "clientRaw": "ANTONELLE NEW", "pieces": 1020, "total": 9035.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "Simao", "desig": "Dress", "ref": "46RO3699", "couleur": "Beige / Off White", "qte": 350, "pu": 11.5, "mt": 4025.0}, {"modele": "Simao", "desig": "Skirt", "ref": "46JU3698", "couleur": "Beige / Off White", "qte": 320, "pu": 8.0, "mt": 2560.0}, {"modele": "Simao", "desig": "Shirt", "ref": "46CH3700", "couleur": "Beige / Off White", "qte": 350, "pu": 7.0, "mt": 2450.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "57/2026", "type": "facture", "date": "2026-04-29", "client": "patrick", "marque": "PATRICK CONFECTION", "clientRaw": "PATRICK CONFECTION", "pieces": 1500, "total": 10200.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "CIOURIS", "desig": "Chemise", "ref": "MFPCM00776", "couleur": "Blanc", "qte": 1500, "pu": 6.8, "mt": 10200.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "58/2026", "type": "facture", "date": "2026-05-02", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 3411, "total": 33478.0, "fournitures": 2970.0, "extras": [{"label": "Ps Ok Livraison", "mt": 108.0}], "lignes": [{"modele": "DEC78E140", "desig": "Chemise", "ref": "20933", "couleur": "1100-Blanc", "qte": 214, "pu": 9.0, "mt": 1926.0}, {"modele": "DEC78E140", "desig": "Chemise", "ref": "20934", "couleur": "1100-Blanc", "qte": 1000, "pu": 9.0, "mt": 9000.0}, {"modele": "DEC23E142", "desig": "Chemise", "ref": "20945", "couleur": "3201-Nuage", "qte": 342, "pu": 9.0, "mt": 3078.0}, {"modele": "DEC23E142", "desig": "Chemise", "ref": "20946", "couleur": "3201-Nuage", "qte": 500, "pu": 9.0, "mt": 4500.0}, {"modele": "PEC10E659", "desig": "Chemise", "ref": "20985", "couleur": "5701-Vert", "qte": 9, "pu": 9.0, "mt": 81.0}, {"modele": "PEC10E659", "desig": "Chemise", "ref": "20986", "couleur": "5701-Vert", "qte": 343, "pu": 9.0, "mt": 3087.0}, {"modele": "DEC11E140", "desig": "Chemise", "ref": "21002", "couleur": "1100-Blanc", "qte": 265, "pu": 9.0, "mt": 2385.0}, {"modele": "DEC11E140", "desig": "Chemise", "ref": "21003", "couleur": "1100-Blanc", "qte": 439, "pu": 9.0, "mt": 3951.0}, {"modele": "DDV48D048", "desig": "Veste", "ref": "21202", "couleur": "1200-Ecru", "qte": 299, "pu": 8.0, "mt": 2392.0}], "poids": "682 Kg", "mp": "34102,87 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°689295 du 28/03/2026", "Matière Première d'origine CEE et importées suite SA N°688398 du 14/03/2026", "Matière Première d'origine CEE et importées suite SA N°688944 du 24/03/2026"]}, {"id": "07/2026", "type": "avoir", "date": "2026-05-03", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 498, "total": 108.9, "fournitures": 0, "extras": [], "lignes": [{"modele": "Reiya", "desig": "Robe", "ref": "CFPRO03175", "couleur": "Multico", "qte": 464, "pu": 0.2, "mt": 92.8}, {"modele": "Ryama", "desig": "Robe", "ref": "CFPRO03175", "couleur": "Ivoir 009", "qte": 33, "pu": 0.2, "mt": 6.6}, {"modele": "Ryama", "desig": "Robe", "ref": "CFPRO03176", "couleur": "Ivoir 010", "qte": 1, "pu": 9.5, "mt": 9.5}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "59/2026", "type": "facture", "date": "2026-05-04", "client": "bash", "marque": "BA&SH", "clientRaw": "", "pieces": 0, "total": 2079.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "H26", "desig": "Robe", "ref": "C1H26KESA", "couleur": "Noir", "qte": 11, "pu": 51.0, "mt": 561.0}, {"modele": "H26", "desig": "Robe", "ref": "C1H26KESA", "couleur": "Cobalt", "qte": 11, "pu": 51.0, "mt": 561.0}, {"modele": "H26", "desig": "Chemise", "ref": "C1H26KELI", "couleur": "Noir", "qte": 11, "pu": 43.5, "mt": 478.5}, {"modele": "H26", "desig": "Chemise", "ref": "C1H26KELI", "couleur": "Cobalt", "qte": 11, "pu": 43.5, "mt": 478.5}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "60/2026", "type": "facture", "date": "2026-05-08", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 1474, "total": 14605.0, "fournitures": 1285.0, "extras": [{"label": "Ps Ok Livraison", "mt": 54.0}], "lignes": [{"modele": "DEC78E140", "desig": "Chemise", "ref": "20934", "couleur": "1100-Blanc", "qte": 382, "pu": 9.0, "mt": 3438.0}, {"modele": "DEC23E142", "desig": "Chemise", "ref": "20946", "couleur": "3201-Nuage", "qte": 894, "pu": 9.0, "mt": 8046.0}, {"modele": "DEC11E140", "desig": "Chemise", "ref": "21165", "couleur": "3101-Bleu Ciel", "qte": 198, "pu": 9.0, "mt": 1782.0}], "poids": "295 Kg", "mp": "19420,15 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°689295 du 28/03/2026", "Matière Première d'origine CEE et importées suite SA N°688398 du 14/03/2026"]}, {"id": "61/2026", "type": "facture", "date": "2026-05-08", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 161, "total": 1591.6, "fournitures": 63.0, "extras": [{"label": "Ps Ok Livraison", "mt": 9.5}], "lignes": [{"modele": "Ramabis", "desig": "Robe", "ref": "CFPRO03108", "couleur": "Paille Jaune", "qte": 52, "pu": 9.3, "mt": 483.6}, {"modele": "Ramalong", "desig": "Robe", "ref": "CFPRO03182", "couleur": "Multico", "qte": 60, "pu": 9.5, "mt": 570.0}, {"modele": "Ramacourt", "desig": "Robe", "ref": "CFPRO3181", "couleur": "Bleu Gris 3034", "qte": 49, "pu": 9.5, "mt": 465.5}], "poids": "32 Kg", "mp": "1620,14 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684279 du 03/01/2026", "Matière Première d'origine CEE et importées suite SA N°683852 du 20/12/2025"]}, {"id": "62/2026", "type": "facture", "date": "2026-05-08", "client": "bash", "marque": "BA&SH", "clientRaw": "", "pieces": 0, "total": 4600.8, "fournitures": 0, "extras": [], "lignes": [{"modele": "E26", "desig": "Pantalon", "ref": "1E26ONUR", "couleur": "1255-Cafe", "qte": 42, "pu": 14.2, "mt": 596.4}, {"modele": "E26", "desig": "Pantalon", "ref": "1E26ONUR", "couleur": "1255-Cafe", "qte": 230, "pu": 14.2, "mt": 3266.0}, {"modele": "E26", "desig": "Pantalon", "ref": "1E26ONUR", "couleur": "1255-Cafe", "qte": 52, "pu": 14.2, "mt": 738.4}], "poids": "735 Kg", "mp": "16501,47 eur", "incoterm": "DDP", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°681047 du 08/11/2025"]}, {"id": "63/2026", "type": "facture", "date": "2026-05-15", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 981, "total": 9818.0, "fournitures": 935.0, "extras": [{"label": "Ps Ok Livraison", "mt": 54.0}], "lignes": [{"modele": "PEC10E672", "desig": "Chemise", "ref": "21038", "couleur": "5701-Vert", "qte": 38, "pu": 9.0, "mt": 342.0}, {"modele": "PEC10E672", "desig": "Chemise", "ref": "21039", "couleur": "5701-Vert", "qte": 319, "pu": 9.0, "mt": 2871.0}, {"modele": "PEC10E672", "desig": "Chemise", "ref": "21039", "couleur": "5801-Vert Cactus", "qte": 12, "pu": 9.0, "mt": 108.0}, {"modele": "DEC36E129", "desig": "Chemise", "ref": "21172", "couleur": "1301-Naturel", "qte": 82, "pu": 9.0, "mt": 738.0}, {"modele": "DEC36E129", "desig": "Chemise", "ref": "21165", "couleur": "1301-Naturel", "qte": 530, "pu": 9.0, "mt": 4770.0}], "poids": "196 Kg", "mp": "10245,84 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°689295 du 28/03/2026", "Matière Première d'origine CEE et importées suite SA N°688398 du 14/03/2026"]}, {"id": "64/2026", "type": "facture", "date": "2026-05-15", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 510, "total": 8874.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "6EVA30", "desig": "Chemise ML", "ref": "V09925-Hugo", "couleur": "001-Blanc", "qte": 510, "pu": 17.4, "mt": 8874.0}], "poids": "102 Kg", "mp": "9510,45eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°689066 du 25/03/2026"]}, {"id": "65/2026", "type": "facture", "date": "2026-05-15", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 800, "total": 5397.6, "fournitures": 345.0, "extras": [{"label": "Ps Ok Livraison", "mt": 12.6}], "lignes": [{"modele": "Silla", "desig": "Jupe", "ref": "CFPJU00931", "couleur": "Bronze A65135", "qte": 800, "pu": 6.3, "mt": 5040.0}], "poids": "160 Kg", "mp": "6410,01 eur", "incoterm": "EX WORK", "paiement": "Virement 60j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°684279 du 03/01/2026"]}, {"id": "66/2026", "type": "facture", "date": "2026-05-21", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 799, "total": 7004.6, "fournitures": 352.0, "extras": [{"label": "Ps Ok Livraison", "mt": 28.5}], "lignes": [{"modele": "Silla", "desig": "Jupe", "ref": "CFPJU00931", "couleur": "Bronze A65135", "qte": 302, "pu": 6.3, "mt": 1902.6}, {"modele": "Reiya", "desig": "Robe", "ref": "CFPRO03175", "couleur": "Multico", "qte": 464, "pu": 9.5, "mt": 4408.0}, {"modele": "Ryama", "desig": "Robe", "ref": "CFPRO03176", "couleur": "Ivoir 010", "qte": 33, "pu": 9.5, "mt": 313.5}], "poids": "160 Kg", "mp": "8410,01 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°687051 du 21/02/2026", "Matière Première d'origine CEE et importées suite SA N°651116 du 24/04/2026"]}, {"id": "67/2026", "type": "facture", "date": "2026-05-21", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 523, "total": 5377.0, "fournitures": 470.0, "extras": [{"label": "Ps Ok Livraison", "mt": 28.5}], "lignes": [{"modele": "PEC18E678", "desig": "Chemise", "ref": "21182", "couleur": "4302-Rose", "qte": 16, "pu": 9.5, "mt": 152.0}, {"modele": "PEC18E678", "desig": "Chemise", "ref": "21183", "couleur": "4302-Rose", "qte": 207, "pu": 9.5, "mt": 1966.5}, {"modele": "DDC22D153", "desig": "Chemise", "ref": "21350", "couleur": "2401-Indigo", "qte": 300, "pu": 9.2, "mt": 2760.0}], "poids": "105 Kg", "mp": "65102,84 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°650737 du 18/04/2026", "Matière Première d'origine CEE et importées suite SA N°652007 du 08/05/2026"]}, {"id": "68/2026", "type": "facture", "date": "2026-05-21", "client": "antonelle", "marque": "ANTONELLE", "clientRaw": "Nouvelle Uja", "pieces": 472, "total": 6136.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "Lalie", "desig": "Dress", "ref": "15RO3350", "couleur": "Off White", "qte": 472, "pu": 13.0, "mt": 6136.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": ["Marchandise d'origine CEE et importées suite SA N°684305 SE N°641889 du 06/01/2026"]}, {"id": "69/2026", "type": "facture", "date": "2026-05-21", "client": "antonelle", "marque": "ANTONELLE", "clientRaw": "Nouvelle Uja", "pieces": 3270, "total": 40004.1, "fournitures": 0, "extras": [], "lignes": [{"modele": "Lilith", "desig": "T-Shirt", "ref": "15TO3570", "couleur": "Blue", "qte": 482, "pu": 8.8, "mt": 4241.6}, {"modele": "Lilith", "desig": "T-Shirt", "ref": "15TO3570", "couleur": "Coral", "qte": 485, "pu": 8.8, "mt": 4268.0}, {"modele": "Lilith", "desig": "Dress", "ref": "15RO3570", "couleur": "Blue", "qte": 473, "pu": 16.1, "mt": 7615.3}, {"modele": "Lilith", "desig": "Dress", "ref": "15RO3570", "couleur": "Coral", "qte": 460, "pu": 16.1, "mt": 7406.0}, {"modele": "Lalalande", "desig": "Dress", "ref": "15RO3574", "couleur": "Off White", "qte": 532, "pu": 16.7, "mt": 8884.4}, {"modele": "Luccia", "desig": "Shirt", "ref": "15CH3576", "couleur": "Fuchsia", "qte": 468, "pu": 9.1, "mt": 4258.8}, {"modele": "Lindia", "desig": "Shirt", "ref": "15CH3572", "couleur": "Cream", "qte": 370, "pu": 9.0, "mt": 3330.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": ["Marchandise d'origine CEE et importées suite SA N°684305 SE N°641889 du 06/01/2026", "Marchandise d'origine CEE et importées suite SA N°682827 SE N°641286 du 06/12/2025"]}, {"id": "70/2026", "type": "facture", "date": "2026-05-21", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 500, "total": 8700.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "6EVA30", "desig": "Chemise ML", "ref": "V09925-Hugo", "couleur": "001-Blanc", "qte": 500, "pu": 17.4, "mt": 8700.0}], "poids": "100 Kg", "mp": "9102,54 eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°689066 du 25/03/2026"]}, {"id": "71/2026", "type": "facture", "date": "2026-05-22", "client": "patrick", "marque": "PATRICK CONFECTION", "clientRaw": "PATRICK CONFECTION", "pieces": 1590, "total": 12402.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "CIPUNAS", "desig": "Chemise", "ref": "MFPCM00794", "couleur": "Bleu", "qte": 1590, "pu": 7.8, "mt": 12402.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}, {"id": "72/2026", "type": "facture", "date": "2026-05-29", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 20, "total": 542.0, "fournitures": 352.0, "extras": [], "lignes": [{"modele": "Ryama", "desig": "Robe", "ref": "CFPRO03176", "couleur": "Ivoir 010", "qte": 20, "pu": 9.5, "mt": 190.0}], "poids": "160 Kg", "mp": "8410,01 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°687051 du 21/02/2026", "Matière Première d'origine CEE et importées suite SA N°651116 du 24/04/2026"]}, {"id": "73/2026", "type": "facture", "date": "2026-05-29", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 500, "total": 3730.0, "fournitures": 216.0, "extras": [{"label": "Ps Ok Livraison", "mt": 14.0}], "lignes": [{"modele": "Billa", "desig": "Top", "ref": "CFPTO01187", "couleur": "Bronze A65135", "qte": 500, "pu": 7.0, "mt": 3500.0}], "poids": "100 Kg", "mp": "4150,84 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°687051 du 21/02/2026", "Matière Première d'origine CEE et importées suite SA N°651116 du 24/04/2026"]}, {"id": "74/2026", "type": "facture", "date": "2026-05-29", "client": "gerard_darel", "marque": "GÉRARD DAREL", "clientRaw": "ds fashion", "pieces": 764, "total": 8475.8, "fournitures": 685.0, "extras": [{"label": "Ps Ok Livraison PEV48E567", "mt": 42.0}], "lignes": [{"modele": "PEV48E567", "desig": "Veste", "ref": "20979", "couleur": "6301-Marron", "qte": 37, "pu": 14.0, "mt": 518.0}, {"modele": "PEV48E567", "desig": "Veste", "ref": "20980", "couleur": "6301-Marron", "qte": 113, "pu": 14.0, "mt": 1582.0}, {"modele": "DDC22D153", "desig": "Chemise", "ref": "21350", "couleur": "2401-Indigo", "qte": 280, "pu": 9.2, "mt": 2576.0}, {"modele": "PEC50E678", "desig": "Chemise", "ref": "21303", "couleur": "3101-Bleu Ciel", "qte": 22, "pu": 9.2, "mt": 202.4}, {"modele": "PEC50E678", "desig": "Chemise", "ref": "21304", "couleur": "3101-Bleu Ciel", "qte": 312, "pu": 9.2, "mt": 2870.4}], "poids": "153 Kg", "mp": "9102,84 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°650737 du 18/04/2026", "Matière Première d'origine CEE et importées suite SA N°652007 du 08/05/2026"]}, {"id": "75/2026", "type": "facture", "date": "2026-05-29", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 696, "total": 12110.4, "fournitures": 0, "extras": [], "lignes": [{"modele": "6EVA30", "desig": "Chemise ML", "ref": "V09925-Hugo", "couleur": "001-Blanc", "qte": 296, "pu": 17.4, "mt": 5150.4}, {"modele": "5HVA19", "desig": "Chemise ML", "ref": "V09925-Hugo", "couleur": "879-Ciel", "qte": 400, "pu": 17.4, "mt": 6960.0}], "poids": "139 Kg", "mp": "13502,54 eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°689066 du 25/03/2026"]}, {"id": "76/2026", "type": "facture", "date": "2026-06-04", "client": "vanessa_bruno", "marque": "VANESSA BRUNO", "clientRaw": "Solune SAS", "pieces": 1115, "total": 22549.2, "fournitures": 0, "extras": [], "lignes": [{"modele": "5HVA19", "desig": "Chemise ML", "ref": "V09925-Hugo", "couleur": "879-Ciel", "qte": 575, "pu": 17.4, "mt": 10005.0}, {"modele": "6EVA26", "desig": "Chemise ML", "ref": "V09827-Esti", "couleur": "705-Royal", "qte": 540, "pu": 23.23, "mt": 12544.2}], "poids": "223 Kg", "mp": "24012,84 eur", "incoterm": "DAP", "paiement": "Virement", "matieres": ["Matière Première d'origine CEE et importées suite SA N°689066 du 25/03/2026", "Matière Première d'origine CEE et importées suite SA N°650959 du 22/04/2026"]}, {"id": "77/2026", "type": "facture", "date": "2026-06-06", "client": "claudie_pierlot", "marque": "CLAUDIE PIERLOT", "clientRaw": "CALLITHEA", "pieces": 782, "total": 5814.0, "fournitures": 340.0, "extras": [], "lignes": [{"modele": "Billa", "desig": "Top", "ref": "CFPTO01187", "couleur": "Bronze A65135", "qte": 782, "pu": 7.0, "mt": 5474.0}], "poids": "156 Kg", "mp": "6421,89 eur", "incoterm": "EX WORK", "paiement": "Virement 30j date de livraison", "matieres": ["Matière Première d'origine CEE et importées suite SA N°687051 du 21/02/2026", "Matière Première d'origine CEE et importées suite SA N°651116 du 24/04/2026"]}, {"id": "78/2026", "type": "facture", "date": "2026-06-08", "client": "patrick", "marque": "PATRICK CONFECTION", "clientRaw": "PATRICK CONFECTION", "pieces": 1500, "total": 12750.0, "fournitures": 0, "extras": [], "lignes": [{"modele": "AMI", "desig": "Chemise", "ref": "BFUSH063.CO0031", "couleur": "Blanc", "qte": 1500, "pu": 8.5, "mt": 12750.0}], "poids": "", "mp": "", "incoterm": "", "paiement": "", "matieres": []}];
+
+const CLIENTS_DB = {
+  gerard_darel:{nom:"ds fashion",adresse:"130 Rue Reaumur\n75002 Paris\nFrance",livraison:"Sed Logistique-BAT A2 porte13\nGERARD DAREL\n1 Rue Jean Jaures\n95670 MARLY LA VILLE",marque:"GÉRARD DAREL"},
+  claudie_pierlot:{nom:"CALLITHEA",adresse:"15 Rue des Drapiers\nActipole Metz Borny\n57075 Metz\nFrance",livraison:"CLAUDIE PIERLOT - MARLY MC\n1 Rue Jules Vallee\n95670 MARLY LA VILLE",marque:"CLAUDIE PIERLOT"},
+  souleiado:{nom:"SOULEÏADO",adresse:"39 Rue Charles Demery\n13150 Tarascon\nFrance",livraison:"SOULEÏADO - Zac du Roubian\n18 Rue des Charpentiers\n13150 Tarascon sur Rhone",marque:"SOULEÏADO"},
+  bonpoint:{nom:"BONPOINT SAS",adresse:"62 Av. D IENA\n75116 Paris\nFrance",livraison:"Deret Logistique - Pour Bonpoint\n16 Rue des Sablons Quai 23+24\n45140 Ormes France",marque:"BONPOINT"},
+  vanessa_bruno:{nom:"Solune SAS",adresse:"8- Rue de la Pierre Levée, 75011\nParis-France\nFR57823863113",livraison:"LOGISTIQUE NC - RECEPTION VANESSA BRUNO\n17 RUE DU NOYER A LA MALICE\n95380 LOUVRES France",marque:"VANESSA BRUNO"},
+  bash:{nom:"BASH",adresse:"29-35 Rue Pastourelle\n75003 Paris\nFrance\nRCS: 449 158 898 — VAT N°FR42449158898",livraison:"BASH LOGISTIQUE\nZAC de la Butte aux Bergers\n11, Av. du Noyer a la Malice\n95380 LOUVRES France",marque:"BA&SH"},
+  antonelle:{nom:"Nouvelle Uja",adresse:"Zac de l'ourcq-Local 103\n100 Av. du General Leclerc\n93500 Pantin-France",livraison:"ANTONELLE/UJA - Pantin Logistique\n100 Av. du General Leclerc\nNiveau1-Cellule 6\n93500 Pantin-France",marque:"ANTONELLE"},
+  patrick:{nom:"PATRICK CONFECTION",adresse:"Dar Chaabane El Fehri\nNabeul\nMF:1115787P/A/M/000",livraison:"Dar Chaabane El Fehri, Nabeul",marque:"PATRICK CONFECTION"},
+};
+const CLIENT_NAMES = {gerard_darel:"GÉRARD DAREL",claudie_pierlot:"CLAUDIE PIERLOT",souleiado:"SOULEÏADO",bonpoint:"BONPOINT",vanessa_bruno:"VANESSA BRUNO",bash:"BA&SH",antonelle:"ANTONELLE",patrick:"PATRICK CONFECTION",zapa:"ZAPA",lb_fashion:"LB FASHION",autre:"AUTRE"};
+const FACONNIERS = ["SAJ","KMZ","ANIRATEX","IDEAL","TWINTEX","Patrick Confection","Autre"];
+const MOIS_FR = {'01':'Janvier','02':'Février','03':'Mars','04':'Avril','05':'Mai','06':'Juin','07':'Juillet','08':'Août','09':'Septembre','10':'Octobre','11':'Novembre','12':'Décembre'};
+
+// ===== STOCKAGE LOCAL =====
+let COUTS = {};     // saisies marges par article
+let OVERRIDES = {}; // factures créées ou modifiées
+let DELETED = [];   // clés des factures supprimées
+function loadStore(){
+  try{
+    const a=window.localStorage.getItem('dbs_couts_articles_2026'); if(a) COUTS=JSON.parse(a);
+    const b=window.localStorage.getItem('dbs_overrides_2026'); if(b) OVERRIDES=JSON.parse(b);
+    const c=window.localStorage.getItem('dbs_deleted_2026'); if(c) DELETED=JSON.parse(c);
+  }catch(e){}
+}
+function saveStore(){
+  try{
+    window.localStorage.setItem('dbs_couts_articles_2026',JSON.stringify(COUTS));
+    window.localStorage.setItem('dbs_overrides_2026',JSON.stringify(OVERRIDES));
+    window.localStorage.setItem('dbs_deleted_2026',JSON.stringify(DELETED));
+  }catch(e){}
+}
+function fkeyOf(id,type){ return id+'|'+type; }
+function fkey(f){ return f.id+'|'+f.type; }
+// Liste consolidée : base + créations/modifications − suppressions
+function ALLF(){
+  const map=new Map();
+  FACTURES_BASE.forEach(f=>map.set(fkey(f),f));
+  Object.values(OVERRIDES).forEach(f=>map.set(fkey(f),f));
+  return [...map.values()].filter(f=>!DELETED.includes(fkey(f)));
+}
+function findFact(id,type){ return ALLF().find(x=>x.id===id&&x.type===type); }
+
+function getLine(f,i){
+  const k=fkey(f);
+  return (COUTS[k]&&COUTS[k].lines&&COUTS[k].lines[i])||{lieu:'',fac:'',cout:''};
+}
+function setLine(f,i,field,val){
+  const k=fkey(f);
+  if(!COUTS[k]) COUTS[k]={lines:{}};
+  if(!COUTS[k].lines[i]) COUTS[k].lines[i]={lieu:'',fac:'',cout:''};
+  COUTS[k].lines[i][field]=val;
+  saveStore();
+}
+
+function nb(n){ if(n===null||n===undefined||isNaN(n)) return '—'; return n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function nbI(n){ return Math.round(n||0).toLocaleString('fr-FR'); }
+function fdate(d){ if(!d) return '—'; const p=d.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+function fid(f){ return (f.type==='avoir'?'AV-':f.type==='proforma'?'PF-':'')+f.id; }
+function caNet(f){ return f.type==='avoir' ? -f.total : f.total; }
+function typeTag(t){
+  const map={facture:['tag-navy','Facture'],avoir:['tag-red','Avoir'],proforma:['tag-slate','Proforma']};
+  const x=map[t]||['tag-slate',t];
+  return '<span class="tag '+x[0]+'">'+x[1]+'</span>';
+}
+function factureMarge(f){
+  let coutTotal=0, nRens=0;
+  const nL=f.lignes.length;
+  f.lignes.forEach((l,i)=>{
+    const c=getLine(f,i);
+    if(c.lieu==='interne'){ coutTotal+=l.qte*l.pu; nRens++; return; }
+    const cp=c.cout!==''?parseFloat(c.cout):NaN;
+    if(!isNaN(cp)&&c.lieu){ coutTotal+=l.qte*cp; nRens++; }
+  });
+  const statut = nL===0 ? 'vide' : (nRens===nL ? 'complete' : (nRens>0?'partielle':'vide'));
+  if(nRens===0) return {statut, nRens, nL, cout:null, marge:null, pct:null};
+  const ca=caNet(f);
+  const marge=ca-(f.fournitures||0)-coutTotal;
+  return {statut,nRens,nL,cout:coutTotal,marge,pct:ca!==0?(marge/Math.abs(ca))*100:0};
+}
+
+// ===== NAVIGATION =====
+function showPage(p){
+  document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.sb-item').forEach(el=>el.classList.remove('active'));
+  document.getElementById('page-'+p).classList.add('active');
+  document.body.className='pg-'+p;
+  const it=document.querySelector('.sb-item[data-page="'+p+'"]'); if(it) it.classList.add('active');
+  const titles={dashboard:'Tableau de bord',registre:'Registre des factures',generateur:'Nouvelle facture',marges:'Marges par facture',stats:'Statistiques Interne / Façonnier',rapports:'Rapports imprimables'};
+  document.getElementById('page-title').textContent=titles[p]||p;
+  if(p==='dashboard') renderDashboard();
+  if(p==='registre') renderRegistre();
+  if(p==='marges') renderMarges();
+  if(p==='stats') renderStats();
+  if(p==='rapports') initRapports();
+}
+
+// ===== DASHBOARD =====
+function renderDashboard(){
+  const ALL=ALLF();
+  const fs=ALL.filter(f=>f.type==='facture');
+  const ca=fs.reduce((s,f)=>s+f.total,0);
+  const av=ALL.filter(f=>f.type==='avoir').reduce((s,f)=>s+f.total,0);
+  const net=ca-av;
+  const pcs=fs.reduce((s,f)=>s+f.pieces,0);
+  const fourn=fs.reduce((s,f)=>s+(f.fournitures||0),0);
+  let nC=0,nP=0;
+  ALL.filter(f=>f.type!=='proforma'&&f.lignes.length).forEach(f=>{
+    const m=factureMarge(f);
+    if(m.statut==='complete')nC++; else if(m.statut==='partielle')nP++;
+  });
+  document.getElementById('kpi-grid').innerHTML=
+    '<div class="kpi-card"><div class="kpi-label">CA export net 2026</div><div class="kpi-value">'+nb(net)+' €</div><div class="kpi-sub">'+fs.length+' factures − '+ALL.filter(f=>f.type==='avoir').length+' avoirs ('+nb(av)+' €)</div></div>'+
+    '<div class="kpi-card"><div class="kpi-label">Pièces livrées</div><div class="kpi-value gold">'+nbI(pcs)+'</div><div class="kpi-sub">PMP global '+nb(net/pcs)+' €/pièce</div></div>'+
+    '<div class="kpi-card"><div class="kpi-label">Fournitures facturées</div><div class="kpi-value" style="color:var(--slate)">'+nb(fourn)+' €</div><div class="kpi-sub">'+((fourn/net)*100).toFixed(1)+'% du CA net</div></div>'+
+    '<div class="kpi-card"><div class="kpi-label">Saisie des marges</div><div class="kpi-value green">'+nC+' ✓ '+(nP?'· '+nP+' ◐':'')+'</div><div class="kpi-sub">factures complètes / partielles</div></div>';
+
+  const byClient={};
+  fs.forEach(f=>{byClient[f.client]=(byClient[f.client]||0)+f.total;});
+  ALL.filter(f=>f.type==='avoir').forEach(f=>{if(byClient[f.client]!==undefined)byClient[f.client]-=f.total;});
+  const sorted=Object.entries(byClient).sort((a,b)=>b[1]-a[1]);
+  const maxCA=sorted[0]?sorted[0][1]:1;
+  const colors=['#0F1F3D','#C9A227','#2A5C45','#6B7589','#C0392B','#1A6B8A','#8B5E3C','#444'];
+  const bars=sorted.map(([k,v],i)=>'<div class="bar-row"><div class="bar-label">'+(CLIENT_NAMES[k]||k)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+(v/maxCA*100).toFixed(1)+'%;background:'+colors[i%colors.length]+'"></div></div><div class="bar-value">'+nb(v)+' €</div></div>').join('');
+
+  const mois={};
+  fs.forEach(f=>{const m=f.date.substring(0,7);mois[m]=(mois[m]||0)+f.total;});
+  ALL.filter(f=>f.type==='avoir').forEach(f=>{const m=f.date.substring(0,7);if(mois[m])mois[m]-=f.total;});
+  const maxM=Math.max(...Object.values(mois))||1;
+  const moisBars=Object.entries(mois).sort().map(([k,v])=>'<div class="bar-row"><div class="bar-label" style="width:70px">'+(MOIS_FR[k.substring(5)]||k)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+(v/maxM*100).toFixed(1)+'%;background:var(--navy)"></div></div><div class="bar-value">'+nb(v)+' €</div></div>').join('');
+
+  document.getElementById('chart-grid').innerHTML=
+    '<div class="chart-card"><div class="chart-title">CA net par client (€ HT)</div>'+bars+'</div>'+
+    '<div class="chart-card"><div class="chart-title">CA net par mois 2026</div>'+moisBars+'</div>';
+
+  // ANALYSE PAR CLIENT : PMP pondéré, % CA, panier moyen, fournitures %
+  const ana=clientAnalysis(ALL);
+  document.getElementById('analyse-client-tbody').innerHTML=ana.rows.map(r=>
+    '<tr><td><strong>'+r.name+'</strong></td><td class="mono">'+r.n+'</td><td class="mono">'+nbI(r.pcs)+'</td>'+
+    '<td class="mono" style="font-weight:700">'+nb(r.ca)+' €</td>'+
+    '<td><div style="display:flex;align-items:center;gap:8px"><div style="flex:0 0 60px" class="progress-bar"><div class="progress-fill" style="width:'+r.pctCA.toFixed(0)+'%;background:var(--navy)"></div></div><span class="mono">'+r.pctCA.toFixed(1)+'%</span></div></td>'+
+    '<td class="mono" style="font-weight:700;color:var(--gold)">'+nb(r.pmp)+' €</td>'+
+    '<td class="mono">'+nb(r.caMoyen)+' €</td>'+
+    '<td class="mono">'+r.fournPct.toFixed(1)+'%</td></tr>').join('')+
+    '<tr style="background:var(--light)"><td><strong>TOTAL</strong></td><td class="mono"><strong>'+ana.tot.n+'</strong></td><td class="mono"><strong>'+nbI(ana.tot.pcs)+'</strong></td>'+
+    '<td class="mono"><strong>'+nb(ana.tot.ca)+' €</strong></td><td></td><td class="mono"><strong>'+nb(ana.tot.pmp)+' €</strong></td>'+
+    '<td class="mono"><strong>'+nb(ana.tot.caMoyen)+' €</strong></td><td class="mono"><strong>'+ana.tot.fournPct.toFixed(1)+'%</strong></td></tr>';
+
+  const recent=[...ALL].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
+  document.getElementById('recent-tbody').innerHTML=recent.map(f=>
+    '<tr><td class="mono">'+fid(f)+'</td><td><strong>'+(CLIENT_NAMES[f.client]||f.client)+'</strong></td><td>'+fdate(f.date)+'</td><td class="mono">'+nbI(f.pieces)+'</td><td>'+typeTag(f.type)+'</td><td class="mono" style="font-weight:700;'+(f.type==='avoir'?'color:var(--red)':'')+'">'+(f.type==='avoir'?'−':'')+nb(f.total)+' €</td></tr>').join('');
+}
+
+// Analyse client réutilisable (dashboard + rapports). PMP = Σ(qte×pu)/Σqte sur les lignes produits.
+function clientAnalysis(ALL, moisFilter){
+  const fs=ALL.filter(f=>f.type==='facture'&&(!moisFilter||f.date.substring(5,7)===moisFilter));
+  const avs=ALL.filter(f=>f.type==='avoir'&&(!moisFilter||f.date.substring(5,7)===moisFilter));
+  const by={};
+  fs.forEach(f=>{
+    const k=f.client;
+    if(!by[k]) by[k]={n:0,pcs:0,ca:0,fourn:0,sumQP:0,sumQ:0};
+    by[k].n++; by[k].pcs+=f.pieces; by[k].ca+=f.total; by[k].fourn+=(f.fournitures||0);
+    f.lignes.forEach(l=>{ if(l.qte>0&&l.pu>0){ by[k].sumQP+=l.qte*l.pu; by[k].sumQ+=l.qte; } });
+  });
+  avs.forEach(f=>{ if(by[f.client]) by[f.client].ca-=f.total; });
+  const totCA=Object.values(by).reduce((s,v)=>s+v.ca,0)||1;
+  const rows=Object.entries(by).map(([k,v])=>({
+    key:k, name:CLIENT_NAMES[k]||k, n:v.n, pcs:v.pcs, ca:v.ca,
+    pctCA:(v.ca/totCA)*100,
+    pmp:v.sumQ>0?v.sumQP/v.sumQ:0,
+    caMoyen:v.n>0?v.ca/v.n:0,
+    fournPct:v.ca>0?(v.fourn/v.ca)*100:0,
+    fourn:v.fourn
+  })).sort((a,b)=>b.ca-a.ca);
+  const tQ=rows.reduce((s,r)=>s+r.pcs,0), tN=rows.reduce((s,r)=>s+r.n,0), tCA=rows.reduce((s,r)=>s+r.ca,0), tF=rows.reduce((s,r)=>s+r.fourn,0);
+  const tQP=Object.values(by).reduce((s,v)=>s+v.sumQP,0), tQQ=Object.values(by).reduce((s,v)=>s+v.sumQ,0);
+  return {rows, tot:{n:tN,pcs:tQ,ca:tCA,pmp:tQQ>0?tQP/tQQ:0,caMoyen:tN>0?tCA/tN:0,fournPct:tCA>0?(tF/tCA)*100:0}};
+}
+
+// ===== REGISTRE =====
+function initFilters(){
+  const clients=[...new Set(ALLF().map(f=>f.client))];
+  ['filter-client','marge-filter-client'].forEach(id=>{
+    const sel=document.getElementById(id);
+    while(sel.options.length>1) sel.remove(1);
+    clients.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=CLIENT_NAMES[c]||c;sel.appendChild(o);});
+  });
+}
+function renderRegistre(){
+  const q=(document.getElementById('search-input').value||'').toLowerCase();
+  const cl=document.getElementById('filter-client').value;
+  const ty=document.getElementById('filter-type').value;
+  const mo=document.getElementById('filter-mois').value;
+  const res=ALLF().filter(f=>{
+    const txt=(f.id+' '+f.client+' '+(CLIENT_NAMES[f.client]||'')+' '+f.lignes.map(l=>l.modele+' '+l.ref+' '+l.desig).join(' ')).toLowerCase();
+    return (!q||txt.includes(q))&&(!cl||f.client===cl)&&(!ty||f.type===ty)&&(!mo||f.date.substring(5,7)===mo);
+  }).sort((a,b)=>b.date.localeCompare(a.date));
+  const tot=res.filter(f=>f.type==='facture').reduce((s,f)=>s+f.total,0)-res.filter(f=>f.type==='avoir').reduce((s,f)=>s+f.total,0);
+  document.getElementById('registre-count').textContent=res.length+' documents — CA net '+nb(tot)+' €';
+  document.getElementById('registre-restore').innerHTML=DELETED.length?
+    '<button class="btn btn-outline btn-sm" onclick="restoreDeleted()">↩ Restaurer '+DELETED.length+' facture(s) supprimée(s)</button>':'';
+  document.getElementById('registre-tbody').innerHTML=res.map(f=>{
+    const isNew=!!OVERRIDES[fkey(f)];
+    return '<tr><td class="mono"><strong>'+fid(f)+'</strong>'+(isNew?' <span class="tag tag-green" title="Créée ou modifiée dans l\u0027application">●</span>':'')+'</td><td>'+fdate(f.date)+'</td><td><strong>'+(CLIENT_NAMES[f.client]||f.client)+'</strong></td>'+
+    '<td class="mono">'+nbI(f.pieces)+'</td><td class="mono">'+(f.fournitures?nb(f.fournitures)+' €':'—')+'</td>'+
+    '<td class="mono" style="font-weight:700;'+(f.type==='avoir'?'color:var(--red)':'')+'">'+(f.type==='avoir'?'−':'')+nb(f.total)+' €</td>'+
+    '<td>'+typeTag(f.type)+'</td><td style="white-space:nowrap">'+
+      '<button class="btn btn-outline btn-sm" onclick="viewFacture(\''+f.id+'\',\''+f.type+'\')">Voir</button> '+
+      (f.lignes.length?'<button class="btn btn-gold btn-sm" onclick="openDetail(\''+f.id+'\',\''+f.type+'\')">Marges</button> ':'')+
+      '<button class="btn btn-danger btn-sm" onclick="deleteFacture(\''+f.id+'\',\''+f.type+'\')">Suppr.</button>'+
+    '</td></tr>';}).join('');
+}
+function deleteFacture(id,type){
+  if(!confirm('Supprimer la facture '+id+' ?\n\n(Les factures issues du fichier Excel pourront être restaurées via le bouton «Restaurer».)')) return;
+  const k=fkeyOf(id,type);
+  if(OVERRIDES[k]) delete OVERRIDES[k];
+  if(FACTURES_BASE.some(f=>fkey(f)===k)&&!DELETED.includes(k)) DELETED.push(k);
+  saveStore();
+  renderRegistre();
+  toast('Facture '+id+' supprimée');
+}
+function restoreDeleted(){
+  DELETED=[];
+  saveStore();
+  renderRegistre();
+  toast('Factures restaurées');
+}
+
+function viewFacture(id,type){
+  const f=findFact(id,type); if(!f) return;
+  showPage('generateur');
+  loadFormFromFact(f);
+  generatePreview();
+}
+
+// ===== ENREGISTRER UNE FACTURE =====
+function collectForm(){
+  const id=(document.getElementById('f-num').value||'').trim();
+  if(!id){ toast('⚠ Indiquez un N° de facture'); return null; }
+  const typeDoc=document.getElementById('f-type').value;
+  const type=typeDoc.includes('AVOIR')?'avoir':(typeDoc.includes('PROFORMA')?'proforma':'facture');
+  const clientSel=document.getElementById('f-client').value;
+  const client=CLIENTS_DB[clientSel]?clientSel:'autre';
+  const rows=[];
+  document.querySelectorAll('#lines-tbody tr').forEach(tr=>{
+    const ins=tr.querySelectorAll('input');
+    const q=parseFloat(ins[4].value)||0, p=parseFloat(ins[5].value)||0;
+    if(!ins[0].value&&!q) return;
+    rows.push({modele:ins[0].value,desig:ins[1].value,ref:ins[2].value,couleur:ins[3].value,qte:q,pu:p,mt:Math.round(q*p*100)/100});
+  });
+  const fournitures=parseFloat(document.getElementById('f-fournitures').value)||0;
+  const shipping=parseFloat(document.getElementById('f-shipping').value)||0;
+  const total=Math.round((rows.reduce((s,r)=>s+r.mt,0)+fournitures+shipping)*100)/100;
+  return {
+    id, type,
+    date:document.getElementById('f-date').value||new Date().toISOString().split('T')[0],
+    client, marque:CLIENT_NAMES[client]||'', clientRaw:document.getElementById('f-client-nom').value,
+    pieces:rows.reduce((s,r)=>s+r.qte,0),
+    total, fournitures,
+    extras: shipping>0?[{label:'Shipping',mt:shipping}]:[],
+    lignes:rows,
+    poids:document.getElementById('f-poids').value,
+    mp:document.getElementById('f-mp').value,
+    incoterm:document.getElementById('f-incoterm').value,
+    paiement:document.getElementById('f-paiement').value,
+    matieres:(document.getElementById('f-matieres').value||'').split('\n').filter(x=>x.trim())
+  };
+}
+function saveFactureFromForm(){
+  const f=collectForm(); if(!f) return;
+  const k=fkey(f);
+  const existed=!!findFact(f.id,f.type);
+  OVERRIDES[k]=f;
+  DELETED=DELETED.filter(x=>x!==k);
+  saveStore();
+  initFilters();
+  toast(existed?'Facture '+f.id+' mise à jour ✓':'Facture '+f.id+' enregistrée ✓');
+}
+
+// ===== DETAIL MODAL =====
+let DETAIL_F=null;
+function openDetail(id,type){
+  const f=findFact(id,type); if(!f||!f.lignes.length){toast('Pas de lignes détaillées sur ce document');return;}
+  DETAIL_F=f;
+  document.getElementById('dh-title').textContent=(f.type==='avoir'?"AVOIR ":"FACTURE ")+'N°'+f.id;
+  document.getElementById('dh-sub').textContent=(CLIENT_NAMES[f.client]||f.client)+' — '+fdate(f.date)+' — '+f.lignes.length+' article(s)';
+  renderDetailLines();
+  document.getElementById('detail-overlay').classList.add('open');
+}
+function closeDetail(){
+  document.getElementById('detail-overlay').classList.remove('open');
+  DETAIL_F=null;
+  renderMarges();
+}
+function renderDetailLines(){
+  const f=DETAIL_F;
+  const tbody=document.getElementById('dh-lines');
+  tbody.innerHTML=f.lignes.map((l,i)=>{
+    const c=getLine(f,i);
+    const cp=c.lieu==='interne'?l.pu:(c.cout!==''?parseFloat(c.cout):NaN);
+    const coutT=(!isNaN(cp))?l.qte*cp:null;
+    const margeL=(coutT!==null)?l.mt-coutT:null;
+    return '<tr>'+
+      '<td><strong>'+l.modele+'</strong><br><span style="font-size:10px;color:var(--slate)">'+(l.couleur||'')+'</span></td>'+
+      '<td>'+(l.desig||'')+'</td><td class="mono">'+(l.ref||'')+'</td>'+
+      '<td class="lm">'+l.qte+'</td><td class="lm">'+nb(l.pu)+'</td><td class="lm"><strong>'+nb(l.mt)+'</strong></td>'+
+      '<td class="intern"><select onchange="onLieu('+i+',this.value)">'+
+        '<option value="">— choisir —</option>'+
+        '<option value="interne" '+(c.lieu==='interne'?'selected':'')+'>🏭 Interne DBS</option>'+
+        '<option value="faconnier" '+(c.lieu==='faconnier'?'selected':'')+'>🤝 Façonnier</option></select></td>'+
+      '<td class="intern"><select onchange="onFac('+i+',this.value)" '+(c.lieu!=='faconnier'?'disabled':'')+'>'+
+        '<option value="">—</option>'+FACONNIERS.map(x=>'<option value="'+x+'" '+(c.fac===x?'selected':'')+'>'+x+'</option>').join('')+'</select></td>'+
+      '<td class="intern"><input type="number" class="cout-input" step="0.01" value="'+(c.lieu==='interne'?l.pu:c.cout)+'" placeholder="0.00" onchange="onCout('+i+',this.value)" '+(c.lieu==='interne'?'disabled style="background:#F0EEE8;color:var(--slate)" title="Interne : coût = prix facturé (marge nulle)"':'')+'></td>'+
+      '<td class="lm">'+(coutT!==null?nb(coutT)+' €':'—')+'</td>'+
+      '<td class="lm">'+(margeL!==null?'<span class="'+(margeL>=0?'pos':'neg')+'">'+nb(margeL)+' €</span>':'—')+'</td>'+
+    '</tr>';
+  }).join('');
+  const m=factureMarge(f);
+  const ca=caNet(f);
+  document.getElementById('dh-kpis').innerHTML=
+    '<div class="dk"><div class="dk-label">CA facturé</div><div class="dk-val">'+nb(ca)+' €</div></div>'+
+    '<div class="dk"><div class="dk-label">Fournitures</div><div class="dk-val" style="color:var(--gold)">'+nb(f.fournitures||0)+' €</div></div>'+
+    '<div class="dk"><div class="dk-label">Coût production saisi</div><div class="dk-val">'+(m.cout!==null?nb(m.cout)+' €':'—')+'</div></div>'+
+    '<div class="dk"><div class="dk-label">Marge facture</div><div class="dk-val" style="color:'+(m.marge!==null&&m.marge<0?'var(--red)':'var(--green)')+'">'+(m.marge!==null?nb(m.marge)+' € ('+m.pct.toFixed(1)+'%)':'—')+'</div></div>';
+  document.getElementById('df-info').textContent=m.nRens+' / '+m.nL+' articles renseignés'+(f.fournitures?' — fournitures déduites automatiquement':'');
+  document.getElementById('df-marge').innerHTML=m.marge!==null?('Marge : <span class="'+(m.marge>=0?'pos':'neg')+'">'+nb(m.marge)+' €</span>'):'Renseignez les coûts pour voir la marge';
+}
+function onLieu(i,v){
+  setLine(DETAIL_F,i,'lieu',v);
+  if(v==='interne'){
+    setLine(DETAIL_F,i,'fac','');
+    setLine(DETAIL_F,i,'cout',String(DETAIL_F.lignes[i].pu));
+  }
+  renderDetailLines();
+}
+function onFac(i,v){ setLine(DETAIL_F,i,'fac',v); renderDetailLines(); }
+function onCout(i,v){ setLine(DETAIL_F,i,'cout',v); renderDetailLines(); toast('Enregistré'); }
+function applyFirstToAll(){
+  const f=DETAIL_F; if(!f) return;
+  const c0=getLine(f,0);
+  if(!c0.lieu&&c0.cout===''){toast('Renseignez d\u0027abord la 1ère ligne');return;}
+  f.lignes.forEach((l,i)=>{
+    if(i===0)return;
+    setLine(f,i,'lieu',c0.lieu);
+    setLine(f,i,'fac',c0.fac);
+    setLine(f,i,'cout',c0.lieu==='interne'?String(l.pu):c0.cout);
+  });
+  renderDetailLines();
+  toast('Appliqué à toutes les lignes');
+}
+
+// ===== MARGES =====
+function renderMarges(){
+  if(!document.getElementById('page-marges').classList.contains('active'))return;
+  renderMargeSummary();
+  renderMargesTable();
+}
+function renderMargeSummary(){
+  const fs=ALLF().filter(f=>f.type!=='proforma'&&f.lignes.length);
+  let caR=0,coutR=0,fournR=0,margeR=0,n=0,nTot=fs.length;
+  fs.forEach(f=>{
+    const m=factureMarge(f);
+    if(m.marge!==null){caR+=caNet(f);coutR+=m.cout;fournR+=(f.fournitures||0);margeR+=m.marge;n++;}
+  });
+  const pct=caR>0?((margeR/caR)*100):0;
+  document.getElementById('marge-summary').innerHTML=
+    '<div class="marge-card"><div class="mc-label">Factures renseignées</div><div class="mc-val">'+n+' / '+nTot+'</div><div class="mc-sub">avec au moins 1 article saisi</div></div>'+
+    '<div class="marge-card"><div class="mc-label">CA renseigné</div><div class="mc-val">'+nb(caR)+' €</div></div>'+
+    '<div class="marge-card"><div class="mc-label">Coûts (production + fournitures)</div><div class="mc-val" style="color:var(--gold)">'+nb(coutR+fournR)+' €</div></div>'+
+    '<div class="marge-card"><div class="mc-label">Marge totale</div><div class="mc-val" style="color:'+(margeR>=0?'var(--green)':'var(--red)')+'">'+nb(margeR)+' €</div>'+
+    '<div class="mc-sub">'+pct.toFixed(1)+'% du CA renseigné</div>'+
+    '<div class="progress-bar"><div class="progress-fill" style="width:'+Math.min(100,Math.max(0,pct))+'%;background:var(--green)"></div></div></div>';
+}
+function renderMargesTable(){
+  const q=(document.getElementById('marge-search').value||'').toLowerCase();
+  const cl=document.getElementById('marge-filter-client').value;
+  const st=document.getElementById('marge-filter-statut').value;
+  const fs=ALLF().filter(f=>f.type!=='proforma').filter(f=>{
+    const txt=(f.id+' '+(CLIENT_NAMES[f.client]||'')).toLowerCase();
+    const m=factureMarge(f);
+    return (!q||txt.includes(q))&&(!cl||f.client===cl)&&(!st||m.statut===st);
+  }).sort((a,b)=>a.date.localeCompare(b.date));
+  document.getElementById('marges-tbody').innerHTML=fs.map(f=>{
+    const m=factureMarge(f);
+    const dot=m.statut==='complete'?'<span class="cdot" style="background:var(--green)"></span>✓ Complète':
+              m.statut==='partielle'?'<span class="cdot" style="background:var(--gold)"></span>◐ '+m.nRens+'/'+m.nL:
+              '<span class="cdot" style="background:#C5C0B6"></span>○ À saisir';
+    const isAv=f.type==='avoir';
+    const clickable=f.lignes.length>0;
+    return '<tr class="fact-row" '+(clickable?'onclick="openDetail(\''+f.id+'\',\''+f.type+'\')"':'')+'>'+
+      '<td class="mono"><strong>'+fid(f)+'</strong></td><td>'+fdate(f.date)+'</td>'+
+      '<td>'+(CLIENT_NAMES[f.client]||f.client)+(isAv?' <span class="tag tag-red">Avoir</span>':'')+'</td>'+
+      '<td class="mono">'+f.lignes.length+'</td>'+
+      '<td class="mono" style="font-weight:600;'+(isAv?'color:var(--red)':'')+'">'+nb(caNet(f))+' €</td>'+
+      '<td class="mono">'+(f.fournitures?nb(f.fournitures):'—')+'</td>'+
+      '<td class="mono">'+(m.cout!==null?nb(m.cout)+' €':'—')+'</td>'+
+      '<td>'+(m.marge!==null?'<span class="'+(m.marge>=0?'pos':'neg')+'">'+nb(m.marge)+' €</span>':'<span style="color:var(--slate)">—</span>')+'</td>'+
+      '<td>'+(m.pct!==null?'<span class="'+(m.marge>=0?'pos':'neg')+'">'+m.pct.toFixed(1)+'%</span>':'—')+'</td>'+
+      '<td><span class="completion">'+dot+'</span></td></tr>';
+  }).join('');
+}
+
+// ===== STATS =====
+function renderStats(){
+  const agg={interne:{ca:0,cout:0,pcs:0,n:0},faconnier:{ca:0,cout:0,pcs:0,n:0},nd:{ca:0,pcs:0,n:0}};
+  const byFacon={};
+  const byClient={};
+  ALLF().filter(f=>f.type!=='proforma').forEach(f=>{
+    const sign=f.type==='avoir'?-1:1;
+    const k=f.client;
+    if(!byClient[k]) byClient[k]={n:0,pcs:0,ca:0,fourn:0,cout:0,hasCost:false};
+    byClient[k].n++; byClient[k].ca+=caNet(f);
+    if(f.type!=='avoir'){ byClient[k].pcs+=f.pieces; byClient[k].fourn+=(f.fournitures||0); }
+    f.lignes.forEach((l,i)=>{
+      const c=getLine(f,i);
+      const cp=c.lieu==='interne'?l.pu:(c.cout!==''?parseFloat(c.cout):NaN);
+      const lineCA=l.mt*sign;
+      if(c.lieu&&!isNaN(cp)){
+        const coutT=l.qte*cp;
+        byClient[k].cout+=coutT; byClient[k].hasCost=true;
+        agg[c.lieu].ca+=lineCA; agg[c.lieu].cout+=coutT; agg[c.lieu].pcs+=l.qte; agg[c.lieu].n++;
+        if(c.lieu==='faconnier'&&c.fac){
+          if(!byFacon[c.fac]) byFacon[c.fac]={n:0,pcs:0,ca:0,cout:0};
+          byFacon[c.fac].n++; byFacon[c.fac].pcs+=l.qte; byFacon[c.fac].ca+=lineCA; byFacon[c.fac].cout+=coutT;
+        }
+      } else { agg.nd.ca+=lineCA; agg.nd.pcs+=l.qte; agg.nd.n++; }
+    });
+  });
+  document.getElementById('stats-kpi').innerHTML=
+    '<div class="kpi-card"><div class="kpi-label">Production interne DBS</div><div class="kpi-value" style="color:var(--navy)">'+nb(agg.interne.ca)+' €</div><div class="kpi-sub">'+agg.interne.n+' articles · '+nbI(agg.interne.pcs)+' pcs · marge '+nb(agg.interne.ca-agg.interne.cout)+' €</div></div>'+
+    '<div class="kpi-card"><div class="kpi-label">Sous-traité façonniers</div><div class="kpi-value gold">'+nb(agg.faconnier.ca)+' €</div><div class="kpi-sub">'+agg.faconnier.n+' articles · '+nbI(agg.faconnier.pcs)+' pcs · marge '+nb(agg.faconnier.ca-agg.faconnier.cout)+' €</div></div>'+
+    '<div class="kpi-card"><div class="kpi-label">Non renseigné</div><div class="kpi-value" style="color:var(--slate)">'+nb(agg.nd.ca)+' €</div><div class="kpi-sub">'+agg.nd.n+' articles à classer («Marges par facture»)</div></div>';
+
+  const maxP=Math.max(agg.interne.ca,agg.faconnier.ca,agg.nd.ca)||1;
+  document.getElementById('stats-prod-bars').innerHTML=
+    '<div class="bar-row"><div class="bar-label">Interne DBS</div><div class="bar-track"><div class="bar-fill" style="width:'+(agg.interne.ca/maxP*100).toFixed(1)+'%;background:var(--navy)"></div></div><div class="bar-value">'+nb(agg.interne.ca)+' €</div></div>'+
+    '<div class="bar-row"><div class="bar-label">Façonniers</div><div class="bar-track"><div class="bar-fill" style="width:'+(agg.faconnier.ca/maxP*100).toFixed(1)+'%;background:var(--gold)"></div></div><div class="bar-value">'+nb(agg.faconnier.ca)+' €</div></div>'+
+    '<div class="bar-row"><div class="bar-label">Non renseigné</div><div class="bar-track"><div class="bar-fill" style="width:'+(agg.nd.ca/maxP*100).toFixed(1)+'%;background:#C5C0B6"></div></div><div class="bar-value">'+nb(agg.nd.ca)+' €</div></div>'+
+    ((agg.interne.ca+agg.faconnier.ca)>0?'<div style="margin-top:10px;font-size:11px;color:var(--slate)">Part façonniers : '+((agg.faconnier.ca/(agg.interne.ca+agg.faconnier.ca))*100).toFixed(1)+'% du CA renseigné</div>':'');
+
+  const clientsM=Object.entries(byClient).filter(([k,v])=>v.hasCost).map(([k,v])=>[k,v.ca-v.fourn-v.cout]).sort((a,b)=>b[1]-a[1]);
+  const maxCM=Math.max(...clientsM.map(x=>Math.abs(x[1])),1);
+  document.getElementById('stats-client-bars').innerHTML=clientsM.length?clientsM.map(([k,v])=>
+    '<div class="bar-row"><div class="bar-label">'+(CLIENT_NAMES[k]||k)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+(Math.abs(v)/maxCM*100).toFixed(1)+'%;background:'+(v>=0?'var(--green)':'var(--red)')+'"></div></div><div class="bar-value">'+nb(v)+' €</div></div>').join('')
+    :'<div style="font-size:13px;color:var(--slate)">Ouvrez des factures dans «Marges par facture» et renseignez les coûts pour alimenter ce graphique.</div>';
+
+  document.getElementById('stats-facon-tbody').innerHTML=Object.keys(byFacon).length?
+    Object.entries(byFacon).sort((a,b)=>b[1].ca-a[1].ca).map(([k,v])=>
+      '<tr><td><strong>'+k+'</strong></td><td class="mono">'+v.n+'</td><td class="mono">'+nbI(v.pcs)+'</td><td class="mono">'+nb(v.ca)+' €</td><td class="mono">'+nb(v.cout)+' €</td>'+
+      '<td class="mono '+(v.ca-v.cout>=0?'pos':'neg')+'">'+nb(v.ca-v.cout)+' €</td>'+
+      '<td class="mono">'+(v.pcs?nb(v.cout/v.pcs)+' €':'—')+'</td></tr>').join('')
+    :'<tr><td colspan="7" style="text-align:center;color:var(--slate);padding:20px">Affectez vos articles à un façonnier (SAJ, KMZ, ANIRATEX, IDEAL, TWINTEX…) dans «Marges par facture»</td></tr>';
+
+  document.getElementById('stats-client-tbody').innerHTML=Object.entries(byClient).sort((a,b)=>b[1].ca-a[1].ca).map(([k,v])=>{
+    const marge=v.hasCost?(v.ca-v.fourn-v.cout):null;
+    return '<tr><td><strong>'+(CLIENT_NAMES[k]||k)+'</strong></td><td class="mono">'+v.n+'</td><td class="mono">'+nbI(v.pcs)+'</td>'+
+      '<td class="mono" style="font-weight:600">'+nb(v.ca)+' €</td><td class="mono">'+nb(v.fourn)+' €</td>'+
+      '<td class="mono">'+(v.hasCost?nb(v.cout)+' €':'—')+'</td>'+
+      '<td>'+(marge!==null?'<span class="'+(marge>=0?'pos':'neg')+'">'+nb(marge)+' €</span>':'<span style="color:var(--slate)">à renseigner</span>')+'</td></tr>';
+  }).join('');
+}
+
+// ===== RAPPORTS =====
+function initRapports(){
+  const sel=document.getElementById('rpt-client');
+  sel.innerHTML='';
+  [...new Set(ALLF().map(f=>f.client))].forEach(c=>{
+    const o=document.createElement('option');o.value=c;o.textContent=CLIENT_NAMES[c]||c;sel.appendChild(o);
+  });
+  document.getElementById('rpt-type').onchange=function(){
+    document.getElementById('rpt-client-wrap').hidden=this.value!=='client_detail';
+  };
+  if(!document.getElementById('report-doc-wrap').innerHTML) generateReport();
+}
+function reportHeader(titre, periode){
+  return '<div style="display:flex;justify-content:space-between;align-items:flex-start">'+
+    '<div><h1>DBS FASHION</h1><div class="r-sub">Diar Ben Salem - Beni Khiar 8060 - Nabeul — MF : 1802841E/A/M/000</div></div>'+
+    '<div style="text-align:right;font-size:10px;color:var(--slate)">Édité le '+fdate(new Date().toISOString().split('T')[0])+'</div></div>'+
+    '<div style="font-size:15px;font-weight:800;margin-top:14px;text-transform:uppercase;letter-spacing:.5px">'+titre+'</div>'+
+    '<span class="r-period">'+periode+'</span>';
+}
+function reportFooter(){
+  return '<div class="r-foot"><span>DBS Fashion — Document interne de gestion</span><span>Facturation export HT en euros</span></div>';
+}
+function generateReport(){
+  const type=document.getElementById('rpt-type').value;
+  const mois=document.getElementById('rpt-mois').value;
+  const periode=mois?(MOIS_FR[mois]+' 2026'):'Année 2026';
+  const ALL=ALLF();
+  const inPeriod=f=>!mois||f.date.substring(5,7)===mois;
+  let html='';
+
+  if(type==='synthese'){
+    const fs=ALL.filter(f=>f.type==='facture'&&inPeriod(f));
+    const avs=ALL.filter(f=>f.type==='avoir'&&inPeriod(f));
+    const ca=fs.reduce((s,f)=>s+f.total,0), av=avs.reduce((s,f)=>s+f.total,0), net=ca-av;
+    const pcs=fs.reduce((s,f)=>s+f.pieces,0);
+    const fourn=fs.reduce((s,f)=>s+(f.fournitures||0),0);
+    const ana=clientAnalysis(ALL,mois||null);
+    html=reportHeader('Synthèse générale de facturation',periode)+
+      '<div class="r-kpis">'+
+      '<div class="r-kpi"><div class="l">CA net HT</div><div class="v">'+nb(net)+' €</div></div>'+
+      '<div class="r-kpi"><div class="l">Factures / Avoirs</div><div class="v">'+fs.length+' / '+avs.length+'</div></div>'+
+      '<div class="r-kpi"><div class="l">Pièces livrées</div><div class="v">'+nbI(pcs)+'</div></div>'+
+      '<div class="r-kpi"><div class="l">PMP global</div><div class="v">'+nb(ana.tot.pmp)+' €/pc</div></div></div>'+
+      '<h2>Répartition par client</h2><table><thead><tr><th>Client</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net €</th><th class="r">% CA</th><th class="r">PMP €/pc</th></tr></thead><tbody>'+
+      ana.rows.map(r=>'<tr><td><strong>'+r.name+'</strong></td><td class="r">'+r.n+'</td><td class="r">'+nbI(r.pcs)+'</td><td class="r">'+nb(r.ca)+'</td><td class="r">'+r.pctCA.toFixed(1)+'%</td><td class="r">'+nb(r.pmp)+'</td></tr>').join('')+
+      '<tr class="total-row"><td>TOTAL</td><td class="r">'+ana.tot.n+'</td><td class="r">'+nbI(ana.tot.pcs)+'</td><td class="r">'+nb(ana.tot.ca)+'</td><td class="r">100%</td><td class="r">'+nb(ana.tot.pmp)+'</td></tr>'+
+      '</tbody></table>'+
+      '<h2>Évolution mensuelle</h2><table><thead><tr><th>Mois</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net €</th><th class="r">Cumul €</th></tr></thead><tbody>'+
+      (function(){
+        const byM={};
+        ALL.filter(f=>f.type==='facture').forEach(f=>{const m=f.date.substring(5,7);if(!byM[m])byM[m]={n:0,pcs:0,ca:0};byM[m].n++;byM[m].pcs+=f.pieces;byM[m].ca+=f.total;});
+        ALL.filter(f=>f.type==='avoir').forEach(f=>{const m=f.date.substring(5,7);if(byM[m])byM[m].ca-=f.total;});
+        let cumul=0;
+        return Object.entries(byM).sort().map(([m,v])=>{cumul+=v.ca;return '<tr><td>'+MOIS_FR[m]+'</td><td class="r">'+v.n+'</td><td class="r">'+nbI(v.pcs)+'</td><td class="r">'+nb(v.ca)+'</td><td class="r">'+nb(cumul)+'</td></tr>';}).join('');
+      })()+
+      '</tbody></table>'+reportFooter();
+  }
+
+  if(type==='clients'){
+    const ana=clientAnalysis(ALL,mois||null);
+    html=reportHeader('Rapport par client — CA, pièces, prix moyen pondéré',periode)+
+      '<table><thead><tr><th>Client</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net €</th><th class="r">% du CA</th><th class="r">PMP €/pc</th><th class="r">CA moy./facture €</th><th class="r">Fournitures €</th><th class="r">Fourn. % CA</th></tr></thead><tbody>'+
+      ana.rows.map(r=>'<tr><td><strong>'+r.name+'</strong></td><td class="r">'+r.n+'</td><td class="r">'+nbI(r.pcs)+'</td><td class="r">'+nb(r.ca)+'</td><td class="r">'+r.pctCA.toFixed(1)+'%</td><td class="r">'+nb(r.pmp)+'</td><td class="r">'+nb(r.caMoyen)+'</td><td class="r">'+nb(r.fourn)+'</td><td class="r">'+r.fournPct.toFixed(1)+'%</td></tr>').join('')+
+      '<tr class="total-row"><td>TOTAL</td><td class="r">'+ana.tot.n+'</td><td class="r">'+nbI(ana.tot.pcs)+'</td><td class="r">'+nb(ana.tot.ca)+'</td><td class="r">100%</td><td class="r">'+nb(ana.tot.pmp)+'</td><td class="r">'+nb(ana.tot.caMoyen)+'</td><td></td><td class="r">'+ana.tot.fournPct.toFixed(1)+'%</td></tr>'+
+      '</tbody></table>'+
+      '<div style="font-size:9.5px;color:var(--slate);margin-top:8px">PMP = prix moyen pondéré par les quantités, calculé sur les lignes produits : Σ(Quantité × P.U.) ÷ Σ(Quantités). Les avoirs sont déduits du CA net.</div>'+
+      reportFooter();
+  }
+
+  if(type==='mensuel'){
+    const fs=ALL.filter(f=>f.type!=='proforma'&&inPeriod(f)).sort((a,b)=>a.date.localeCompare(b.date));
+    const tot=fs.reduce((s,f)=>s+caNet(f),0);
+    const pcs=fs.filter(f=>f.type==='facture').reduce((s,f)=>s+f.pieces,0);
+    html=reportHeader('Rapport mensuel — liste des factures',periode)+
+      '<div class="r-kpis"><div class="r-kpi"><div class="l">Documents</div><div class="v">'+fs.length+'</div></div>'+
+      '<div class="r-kpi"><div class="l">CA net</div><div class="v">'+nb(tot)+' €</div></div>'+
+      '<div class="r-kpi"><div class="l">Pièces</div><div class="v">'+nbI(pcs)+'</div></div>'+
+      '<div class="r-kpi"><div class="l">PMP</div><div class="v">'+(pcs?nb(tot/pcs):'—')+' €/pc</div></div></div>'+
+      '<table><thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Type</th><th class="r">Pièces</th><th class="r">Fournitures €</th><th class="r">Montant HT €</th></tr></thead><tbody>'+
+      fs.map(f=>'<tr><td>'+fid(f)+'</td><td>'+fdate(f.date)+'</td><td>'+(CLIENT_NAMES[f.client]||f.client)+'</td><td>'+(f.type==='avoir'?'Avoir':'Facture')+'</td><td class="r">'+nbI(f.pieces)+'</td><td class="r">'+(f.fournitures?nb(f.fournitures):'—')+'</td><td class="r">'+(f.type==='avoir'?'−':'')+nb(f.total)+'</td></tr>').join('')+
+      '<tr class="total-row"><td colspan="4">TOTAL NET</td><td class="r">'+nbI(pcs)+'</td><td></td><td class="r">'+nb(tot)+'</td></tr>'+
+      '</tbody></table>'+reportFooter();
+  }
+
+  if(type==='client_detail'){
+    const ck=document.getElementById('rpt-client').value;
+    const fs=ALL.filter(f=>f.client===ck&&f.type!=='proforma'&&inPeriod(f)).sort((a,b)=>a.date.localeCompare(b.date));
+    const tot=fs.reduce((s,f)=>s+caNet(f),0);
+    const pcs=fs.filter(f=>f.type==='facture').reduce((s,f)=>s+f.pieces,0);
+    let sQP=0,sQ=0;
+    fs.filter(f=>f.type==='facture').forEach(f=>f.lignes.forEach(l=>{if(l.qte>0&&l.pu>0){sQP+=l.qte*l.pu;sQ+=l.qte;}}));
+    html=reportHeader('Relevé client — '+(CLIENT_NAMES[ck]||ck),periode)+
+      '<div class="r-kpis"><div class="r-kpi"><div class="l">Documents</div><div class="v">'+fs.length+'</div></div>'+
+      '<div class="r-kpi"><div class="l">CA net</div><div class="v">'+nb(tot)+' €</div></div>'+
+      '<div class="r-kpi"><div class="l">Pièces</div><div class="v">'+nbI(pcs)+'</div></div>'+
+      '<div class="r-kpi"><div class="l">PMP</div><div class="v">'+(sQ?nb(sQP/sQ):'—')+' €/pc</div></div></div>'+
+      '<table><thead><tr><th>N°</th><th>Date</th><th>Modèles</th><th class="r">Pièces</th><th class="r">Fournit. €</th><th class="r">Montant HT €</th></tr></thead><tbody>'+
+      fs.map(f=>'<tr><td>'+fid(f)+'</td><td>'+fdate(f.date)+'</td><td style="font-size:9.5px">'+([...new Set(f.lignes.map(l=>l.modele))].slice(0,4).join(', ')||'—')+'</td><td class="r">'+nbI(f.pieces)+'</td><td class="r">'+(f.fournitures?nb(f.fournitures):'—')+'</td><td class="r">'+(f.type==='avoir'?'−':'')+nb(f.total)+'</td></tr>').join('')+
+      '<tr class="total-row"><td colspan="3">TOTAL NET</td><td class="r">'+nbI(pcs)+'</td><td></td><td class="r">'+nb(tot)+'</td></tr>'+
+      '</tbody></table>'+reportFooter();
+  }
+
+  if(type==='faconniers'){
+    const byFacon={}; const agg={interne:{ca:0,cout:0,pcs:0},faconnier:{ca:0,cout:0,pcs:0},nd:{ca:0,pcs:0}};
+    ALL.filter(f=>f.type!=='proforma'&&inPeriod(f)).forEach(f=>{
+      const sign=f.type==='avoir'?-1:1;
+      f.lignes.forEach((l,i)=>{
+        const c=getLine(f,i);
+        const cp=c.lieu==='interne'?l.pu:(c.cout!==''?parseFloat(c.cout):NaN);
+        if(c.lieu&&!isNaN(cp)){
+          agg[c.lieu].ca+=l.mt*sign; agg[c.lieu].cout+=l.qte*cp; agg[c.lieu].pcs+=l.qte;
+          if(c.lieu==='faconnier'&&c.fac){
+            if(!byFacon[c.fac]) byFacon[c.fac]={n:0,pcs:0,ca:0,cout:0};
+            byFacon[c.fac].n++; byFacon[c.fac].pcs+=l.qte; byFacon[c.fac].ca+=l.mt*sign; byFacon[c.fac].cout+=l.qte*cp;
+          }
+        } else { agg.nd.ca+=l.mt*sign; agg.nd.pcs+=l.qte; }
+      });
+    });
+    html=reportHeader('Rapport façonniers & marges de sous-traitance',periode)+
+      '<div class="r-kpis"><div class="r-kpi"><div class="l">CA interne</div><div class="v">'+nb(agg.interne.ca)+' €</div></div>'+
+      '<div class="r-kpi"><div class="l">CA façonniers</div><div class="v">'+nb(agg.faconnier.ca)+' €</div></div>'+
+      '<div class="r-kpi"><div class="l">Marge sur façon</div><div class="v">'+nb(agg.faconnier.ca-agg.faconnier.cout)+' €</div></div>'+
+      '<div class="r-kpi"><div class="l">Non renseigné</div><div class="v">'+nb(agg.nd.ca)+' €</div></div></div>'+
+      '<h2>Détail par façonnier</h2>'+
+      '<table><thead><tr><th>Façonnier</th><th class="r">Articles</th><th class="r">Pièces</th><th class="r">CA facturé €</th><th class="r">Coût façon €</th><th class="r">Marge €</th><th class="r">Marge %</th><th class="r">Coût moy./pc</th></tr></thead><tbody>'+
+      (Object.keys(byFacon).length?Object.entries(byFacon).sort((a,b)=>b[1].ca-a[1].ca).map(([k,v])=>{
+        const m=v.ca-v.cout;
+        return '<tr><td><strong>'+k+'</strong></td><td class="r">'+v.n+'</td><td class="r">'+nbI(v.pcs)+'</td><td class="r">'+nb(v.ca)+'</td><td class="r">'+nb(v.cout)+'</td><td class="r">'+nb(m)+'</td><td class="r">'+(v.ca?((m/v.ca)*100).toFixed(1):'—')+'%</td><td class="r">'+(v.pcs?nb(v.cout/v.pcs):'—')+'</td></tr>';
+      }).join(''):'<tr><td colspan="8" style="text-align:center;color:var(--slate)">Aucune saisie façonnier — renseignez les articles dans «Marges par facture»</td></tr>')+
+      '</tbody></table>'+
+      '<div style="font-size:9.5px;color:var(--slate);margin-top:8px">Basé sur vos saisies article par article. La production interne est valorisée au prix facturé (marge nulle par convention).</div>'+
+      reportFooter();
+  }
+
+  document.getElementById('report-doc-wrap').innerHTML='<div class="report-doc">'+html+'</div>';
+}
+
+// ===== FORM =====
+let lineCount=0;
+function fillClientData(){
+  const k=document.getElementById('f-client').value;
+  const c=CLIENTS_DB[k];
+  if(c){
+    document.getElementById('f-client-nom').value=c.nom;
+    document.getElementById('f-client-adresse').value=c.adresse;
+    document.getElementById('f-livraison').value=c.livraison;
+  }
+}
+function addLine(data){
+  data=data||{};
+  lineCount++;
+  const id='line_'+lineCount;
+  const tr=document.createElement('tr');
+  tr.id=id;
+  const qte=data.qte||'', pu=data.pu||'';
+  tr.innerHTML=
+    '<td><input type="text" value="'+(data.modele||'').replace(/"/g,'&quot;')+'"></td>'+
+    '<td><input type="text" value="'+(data.desig||'').replace(/"/g,'&quot;')+'"></td>'+
+    '<td><input type="text" value="'+(data.ref||'').replace(/"/g,'&quot;')+'"></td>'+
+    '<td><input type="text" value="'+(data.couleur||'').replace(/"/g,'&quot;')+'"></td>'+
+    '<td><input type="number" value="'+qte+'" step="1" oninput="calcLine(\''+id+'\')"></td>'+
+    '<td><input type="number" value="'+pu+'" step="0.01" oninput="calcLine(\''+id+'\')"></td>'+
+    '<td><input type="number" value="'+((qte&&pu)?(qte*pu).toFixed(2):'')+'" readonly style="background:#FAFAF8;font-weight:600"></td>'+
+    '<td><button class="remove-btn" onclick="document.getElementById(\''+id+'\').remove()">×</button></td>';
+  document.getElementById('lines-tbody').appendChild(tr);
+}
+function calcLine(id){
+  const tr=document.getElementById(id); if(!tr) return;
+  const ins=tr.querySelectorAll('input');
+  const q=parseFloat(ins[4].value)||0, p=parseFloat(ins[5].value)||0;
+  ins[6].value=(q*p).toFixed(2);
+}
+function clearForm(){
+  document.getElementById('lines-tbody').innerHTML=''; lineCount=0;
+  ['f-num','f-client-nom','f-client-adresse','f-livraison','f-poids','f-mp','f-colis','f-matieres'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f-fournitures').value='0';
+  document.getElementById('f-shipping').value='0';
+  document.getElementById('f-client').value='';
+  document.getElementById('f-date').value=new Date().toISOString().split('T')[0];
+  document.getElementById('facture-form-section').style.display='block';
+  document.getElementById('facture-preview-wrap').style.display='none';
+  addLine();
+}
+function loadFormFromFact(f){
+  document.getElementById('f-num').value=f.id;
+  document.getElementById('f-date').value=f.date;
+  document.getElementById('f-type').value=f.type==='avoir'?"FACTURE D'AVOIR":(f.type==='proforma'?'FACTURE PROFORMA':'FACTURE');
+  document.getElementById('f-client').value=CLIENTS_DB[f.client]?f.client:'custom';
+  const c=CLIENTS_DB[f.client];
+  document.getElementById('f-client-nom').value=(f.clientRaw||(c?c.nom:''));
+  document.getElementById('f-client-adresse').value=c?c.adresse:'';
+  document.getElementById('f-livraison').value=c?c.livraison:'';
+  document.getElementById('f-fournitures').value=f.fournitures||0;
+  const ship=(f.extras||[]).reduce((s,e)=>s+e.mt,0);
+  document.getElementById('f-shipping').value=ship.toFixed(2);
+  document.getElementById('f-poids').value=f.poids||'';
+  document.getElementById('f-mp').value=f.mp||'';
+  document.getElementById('f-incoterm').value=f.incoterm||'EX WORK';
+  if(f.paiement) document.getElementById('f-paiement').value=f.paiement;
+  document.getElementById('f-matieres').value=(f.matieres||[]).join('\n');
+  document.getElementById('lines-tbody').innerHTML=''; lineCount=0;
+  (f.lignes.length?f.lignes:[{}]).forEach(l=>addLine(l));
+}
+function backToForm(){
+  document.getElementById('facture-form-section').style.display='block';
+  document.getElementById('facture-preview-wrap').style.display='none';
+}
+
+// ===== GÉNÉRATION FACTURE (document client : aucune info interne/façonnier) =====
+function generatePreview(){
+  const num=document.getElementById('f-num').value||'—';
+  const dateFmt=fdate(document.getElementById('f-date').value);
+  const typeDoc=document.getElementById('f-type').value;
+  const incoterm=document.getElementById('f-incoterm').value;
+  const clientNom=document.getElementById('f-client-nom').value||'—';
+  const clientAdresse=(document.getElementById('f-client-adresse').value||'').replace(/\n/g,'<br>');
+  const livraison=(document.getElementById('f-livraison').value||'').replace(/\n/g,'<br>');
+  const paiement=document.getElementById('f-paiement').value;
+  const poids=document.getElementById('f-poids').value;
+  const mp=document.getElementById('f-mp').value;
+  const colis=document.getElementById('f-colis').value;
+  const matieres=document.getElementById('f-matieres').value;
+  const fournitures=parseFloat(document.getElementById('f-fournitures').value)||0;
+  const shipping=parseFloat(document.getElementById('f-shipping').value)||0;
+
+  const rows=[];
+  document.querySelectorAll('#lines-tbody tr').forEach(tr=>{
+    const ins=tr.querySelectorAll('input');
+    const q=parseFloat(ins[4].value)||0, p=parseFloat(ins[5].value)||0;
+    if(!ins[0].value&&!q) return;
+    rows.push({mod:ins[0].value,des:ins[1].value,ref:ins[2].value,col:ins[3].value,qte:q,pu:p,mt:q*p});
+  });
+  const totalHT=rows.reduce((s,r)=>s+r.mt,0)+fournitures+shipping;
+  const pcs=rows.reduce((s,r)=>s+r.qte,0);
+  const lettres=montantEnLettres(totalHT);
+
+  let lignesHTML=rows.map(r=>
+    '<tr><td><strong>'+r.mod+'</strong></td><td>'+r.des+'</td><td>'+r.ref+'</td><td>'+r.col+'</td>'+
+    '<td class="c">'+(r.qte||'')+'</td><td class="r">'+(r.pu?nb(r.pu):'')+'</td><td class="r">'+nb(r.mt)+' €</td></tr>').join('');
+  if(shipping>0) lignesHTML+='<tr><td colspan="6" style="font-style:italic;color:#6B7589">Shipping</td><td class="r">'+nb(shipping)+' €</td></tr>';
+  if(fournitures>0) lignesHTML+='<tr><td colspan="6" style="font-style:italic;color:#6B7589">Fournitures Tunisie</td><td class="r">'+nb(fournitures)+' €</td></tr>';
+
+  document.getElementById('facture-doc-container').innerHTML=
+  '<div class="facture-doc"><div class="facture-stripe"></div><div class="facture-body">'+
+    '<div class="facture-header"><div class="facture-emetteur">'+
+      '<div class="company">STE DBS FASHION</div>'+
+      '<p>Diar Ben Salem - Beni Khiar 8060 - Nabeul, Tunisie<br>MF : 1802841E/A/M/000 — Tél : 20 210 211</p></div>'+
+      '<div class="facture-badge"><div class="num">'+typeDoc+' N° '+num+'</div><div class="date">Le '+dateFmt+'</div><div style="font-size:9px;opacity:.6;margin-top:3px">'+incoterm+'</div></div></div>'+
+    '<div class="facture-clients">'+
+      '<div class="client-block"><div class="block-label">Facturé à</div><div class="client-name">'+clientNom+'</div><p>'+clientAdresse+'</p></div>'+
+      '<div class="client-block"><div class="block-label">Adresse de livraison</div><p>'+livraison+'</p></div></div>'+
+    '<table class="facture-table"><thead><tr>'+
+      '<th style="width:130px">Nom du modèle</th><th style="width:75px">Désignation</th><th style="width:95px">Référence</th>'+
+      '<th style="width:95px">Couleur</th><th class="c" style="width:45px">Qté</th><th class="r" style="width:60px">P.U. €</th><th class="r" style="width:80px">Montant</th></tr></thead>'+
+      '<tbody>'+lignesHTML+'</tbody>'+
+      '<tfoot><tr><td colspan="4"><strong>TOTAL</strong></td><td class="c"><strong>'+pcs+'</strong></td><td></td><td class="r"><strong>'+nb(totalHT)+' €</strong></td></tr></tfoot></table>'+
+    '<div class="lettres-block">LA PRÉSENTE FACTURE EST ARRÊTÉE À LA SOMME DE :<br>'+lettres.toUpperCase()+'</div>'+
+    '<div class="facture-footer">'+
+      '<div class="footer-block"><div class="footer-title">Expédition</div><p>'+
+        'Poids : '+(poids||'—')+'<br>Valeur Matière Première : '+(mp||'—')+'<br>'+
+        'Nombre de colis : '+(colis||pcs+' Colis')+'<br>Incoterm : '+incoterm+'<br>Mode de paiement : '+paiement+'</p></div>'+
+      '<div class="footer-block"><div class="footer-title">Coordonnées bancaires</div>'+
+        '<p class="rib">RIB : TN59 0805 7021 0251 0024 8106<br>SWIFT : BIATTNTT — BANQUE BIAT</p></div></div>'+
+    (matieres?'<div class="footer-matieres">'+matieres.split('\n').join('<br>')+'</div>':'')+
+  '</div></div>';
+  document.getElementById('facture-form-section').style.display='none';
+  document.getElementById('facture-preview-wrap').style.display='block';
+}
+
+// ===== EXPORT / IMPORT (sauvegarde complète) =====
+function exportData(){
+  const blob=new Blob([JSON.stringify({couts:COUTS,overrides:OVERRIDES,deleted:DELETED,version:3,exported:new Date().toISOString()},null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='dbs_sauvegarde_2026_'+new Date().toISOString().split('T')[0]+'.json';
+  a.click();
+  toast('Sauvegarde exportée (marges + factures créées)');
+}
+function importData(ev){
+  const file=ev.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const d=JSON.parse(e.target.result);
+      if(d.couts) COUTS=d.couts;
+      if(d.overrides) OVERRIDES=d.overrides;
+      if(d.deleted) DELETED=d.deleted;
+      saveStore();
+      initFilters();
+      renderDashboard();
+      toast('Sauvegarde importée ✓');
+    }catch(err){toast('Fichier invalide');}
+  };
+  reader.readAsText(file);
+  ev.target.value='';
+}
+
+// ===== MONTANT EN LETTRES =====
+function montantEnLettres(n){
+  const u=['','un','deux','trois','quatre','cinq','six','sept','huit','neuf','dix','onze','douze','treize','quatorze','quinze','seize','dix-sept','dix-huit','dix-neuf'];
+  const d=['','','vingt','trente','quarante','cinquante','soixante','soixante','quatre-vingt','quatre-vingt'];
+  function dix(x){if(x<20)return u[x];const d1=Math.floor(x/10),u1=x%10;
+    if(d1===7)return d[6]+(u1===1?' et onze':u1>0?'-'+u[10+u1]:'-dix');
+    if(d1===9)return d[8]+'-'+u[10+u1>19?u1:10+u1];
+    return d[d1]+(u1===1&&d1!==8?' et un':u1>0?'-'+u[u1]:(d1===8?'s':''));}
+  function cent(x){if(x<100)return dix(x);const c=Math.floor(x/100),r=x%100;
+    if(c===1)return 'cent'+(r>0?' '+dix(r):'');
+    return u[c]+' cent'+(r===0?'s':' '+dix(r));}
+  function mille(x){if(x<1000)return cent(x);const m=Math.floor(x/1000),r=x%1000;
+    return (m===1?'mille':cent(m)+' mille')+(r>0?' '+cent(r):'');}
+  if(!n) return 'zéro euro';
+  const ent=Math.floor(Math.abs(n)), dec=Math.round((Math.abs(n)-ent)*100);
+  let s=mille(ent)+' euro'+(ent>1?'s':'');
+  if(dec>0)s+=' et '+dix(dec)+' centime'+(dec>1?'s':'');
+  return s;
+}
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2200);
+}
+
+// ===== INIT =====
+window.onload=()=>{
+  loadStore();
+  initFilters();
+  document.getElementById('f-date').value=new Date().toISOString().split('T')[0];
+  addLine();
+  document.body.className='pg-dashboard';
+  renderDashboard();
+};
+</script>
+</body>
+</html>

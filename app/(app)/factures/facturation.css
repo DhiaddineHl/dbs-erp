@@ -1,0 +1,177 @@
+/* DBS Facturation — module styles, ancestor-scoped under .fac so they never
+   leak into the rest of the app. Ported from the original DBS Facturation 2026.html. */
+.fac {
+  --navy:#0F1F3D; --ivory:#F7F6F2; --gold:#C9A227; --green:#2A5C45; --red:#C0392B;
+  --slate:#6B7589; --border:#E2DDD5; --white:#FFFFFF; --fac-light:#FAFAF8;
+  --card:#FFFFFF; --hover:#F0EEE8;
+  --mono:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
+  background:var(--fac-light); color:var(--navy); min-height:100%;
+}
+.fac * { box-sizing:border-box; }
+
+.fac .topbar { background:var(--white); border-bottom:1px solid var(--border); padding:0 32px; height:56px; display:flex; align-items:center; justify-content:space-between; }
+.fac .topbar-title { font-size:16px; font-weight:600; }
+.fac .topbar-actions { display:flex; gap:8px; }
+
+.fac .tabbar { display:flex; gap:4px; background:var(--white); border-bottom:1px solid var(--border); padding:0 24px; flex-wrap:wrap; }
+.fac .tabbar .tab { padding:12px 16px; font-size:13px; font-weight:600; color:var(--slate); cursor:pointer; border-bottom:2px solid transparent; display:flex; align-items:center; gap:7px; }
+.fac .tabbar .tab:hover { color:var(--navy); }
+.fac .tabbar .tab.active { color:var(--navy); border-bottom-color:var(--gold); }
+.fac .tabbar .tab .icon { width:16px; text-align:center; }
+
+.fac .btn { padding:8px 16px; border-radius:6px; font-size:13px; font-weight:500; cursor:pointer; border:none; transition:all .15s; }
+.fac .btn-primary { background:var(--navy); color:#fff; } .fac .btn-primary:hover { background:#1a3460; }
+.fac .btn-gold { background:var(--gold); color:#fff; } .fac .btn-gold:hover { background:#b8911f; }
+.fac .btn-green { background:var(--green); color:#fff; } .fac .btn-green:hover { background:#1f4734; }
+.fac .btn-danger { background:transparent; color:var(--red); border:1px solid #EAC4BE; } .fac .btn-danger:hover { background:#FDEEEC; }
+.fac .btn-outline { background:transparent; color:var(--navy); border:1px solid var(--border); } .fac .btn-outline:hover { background:var(--hover); }
+.fac .btn-sm { padding:5px 12px; font-size:12px; }
+
+.fac .page { padding:28px 32px; }
+.fac .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+.fac .kpi-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; }
+.fac .kpi-label { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--slate); margin-bottom:8px; }
+.fac .kpi-value { font-size:24px; font-weight:700; font-family:var(--mono); }
+.fac .kpi-value.green { color:var(--green); } .fac .kpi-value.gold { color:var(--gold); } .fac .kpi-value.red { color:var(--red); }
+.fac .kpi-sub { font-size:12px; color:var(--slate); margin-top:4px; }
+
+.fac .table-wrap { background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:20px; }
+.fac .table-header { padding:14px 20px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); }
+.fac .table-title { font-size:14px; font-weight:600; }
+.fac table { width:100%; border-collapse:collapse; }
+.fac thead tr { background:var(--fac-light); }
+.fac th { padding:10px 14px; text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.8px; color:var(--slate); border-bottom:1px solid var(--border); }
+.fac td { padding:10px 14px; font-size:13px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.fac tr:last-child td { border-bottom:none; }
+.fac tbody tr:hover td { background:var(--fac-light); }
+.fac .tag { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; }
+.fac .tag-green { background:#EBF5F0; color:var(--green); }
+.fac .tag-gold { background:#FDF5E0; color:#B8911F; }
+.fac .tag-navy { background:#EEF1F8; color:var(--navy); }
+.fac .tag-red { background:#FDEEEC; color:var(--red); }
+.fac .tag-slate { background:#F0EEE8; color:var(--slate); }
+.fac .mono { font-family:var(--mono); font-size:12px; }
+
+.fac .chart-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+.fac .chart-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px; }
+.fac .chart-title { font-size:13px; font-weight:600; margin-bottom:16px; }
+.fac .bar-row { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+.fac .bar-label { font-size:12px; color:var(--slate); width:125px; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fac .bar-track { flex:1; background:#F0EEE8; border-radius:4px; height:8px; overflow:hidden; }
+.fac .bar-fill { height:100%; border-radius:4px; transition:width .5s; }
+.fac .bar-value { font-size:11px; font-family:var(--mono); width:82px; text-align:right; }
+
+.fac .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:18px; }
+.fac .form-group { display:flex; flex-direction:column; gap:6px; }
+.fac .form-group.full { grid-column:1/-1; }
+.fac label { font-size:12px; font-weight:600; color:var(--slate); text-transform:uppercase; letter-spacing:.5px; }
+.fac input, .fac select, .fac textarea { padding:9px 12px; border:1px solid var(--border); border-radius:6px; font-size:13px; color:var(--navy); background:var(--white); outline:none; }
+.fac input:focus, .fac select:focus, .fac textarea:focus { border-color:var(--navy); }
+.fac textarea { resize:vertical; min-height:56px; }
+.fac .section-title { font-size:13px; font-weight:700; padding:12px 0 8px; border-bottom:1px solid var(--border); margin-bottom:16px; text-transform:uppercase; letter-spacing:.5px; }
+.fac .lines-table { width:100%; border-collapse:collapse; font-size:13px; }
+.fac .lines-table th { background:var(--fac-light); padding:8px 8px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:var(--slate); border:1px solid var(--border); }
+.fac .lines-table td { border:1px solid var(--border); padding:3px; }
+.fac .lines-table input, .fac .lines-table select { border:none; padding:6px 8px; width:100%; font-size:12px; background:transparent; }
+.fac .lines-table input:focus { background:#FFFBF0; }
+.fac .remove-btn { background:none; border:none; color:var(--red); cursor:pointer; padding:4px 8px; font-size:16px; line-height:1; }
+.fac .add-line-btn { margin-top:10px; background:var(--fac-light); border:1px dashed var(--border); border-radius:6px; padding:8px; width:100%; text-align:center; cursor:pointer; font-size:13px; color:var(--slate); }
+.fac .add-line-btn:hover { background:var(--hover); color:var(--navy); }
+
+.fac .marge-summary { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:22px; }
+.fac .marge-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; }
+.fac .marge-card .mc-label { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--slate); margin-bottom:6px; }
+.fac .marge-card .mc-val { font-size:20px; font-weight:700; font-family:var(--mono); }
+.fac .marge-card .mc-sub { font-size:11px; color:var(--slate); margin-top:4px; }
+.fac .progress-bar { height:8px; border-radius:4px; background:#F0EEE8; overflow:hidden; margin-top:8px; }
+.fac .progress-fill { height:100%; border-radius:4px; transition:width .5s; }
+
+.fac .search-bar { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+.fac .search-bar input { flex:1; min-width:200px; }
+.fac .search-bar select { min-width:150px; }
+.fac .pos { color:var(--green); font-weight:700; } .fac .neg { color:var(--red); font-weight:700; }
+.fac .fact-row { cursor:pointer; }
+.fac .completion { display:inline-flex; align-items:center; gap:6px; font-size:11px; }
+.fac .completion .cdot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+.fac .info-box { margin-bottom:18px; background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; font-size:13px; color:var(--slate); line-height:1.6; }
+.fac .muted-note { font-size:12px; color:var(--slate); margin-top:10px; }
+
+/* DETAIL MODAL */
+.fac-ovl { position:fixed; inset:0; background:rgba(15,31,61,.45); z-index:500; display:flex; align-items:flex-start; justify-content:center; padding:40px 20px; overflow-y:auto; }
+.fac-modal { background:#fff; border-radius:14px; width:1080px; max-width:96vw; box-shadow:0 24px 80px rgba(0,0,0,.3); overflow:hidden; font-family:inherit; color:var(--navy); }
+.fac-modal * { box-sizing:border-box; }
+.fac-modal .detail-head { background:var(--navy); color:#fff; padding:18px 24px; display:flex; justify-content:space-between; align-items:center; }
+.fac-modal .dh-title { font-size:16px; font-weight:700; font-family:var(--mono); }
+.fac-modal .dh-sub { font-size:12px; opacity:.65; margin-top:2px; }
+.fac-modal .detail-close { background:rgba(255,255,255,.12); border:none; color:#fff; font-size:18px; cursor:pointer; border-radius:6px; width:32px; height:32px; }
+.fac-modal .detail-close:hover { background:rgba(255,255,255,.25); }
+.fac-modal .detail-body { padding:20px 24px; }
+.fac-modal .detail-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }
+.fac-modal .dk { background:var(--fac-light); border:1px solid var(--border); border-radius:8px; padding:12px 14px; }
+.fac-modal .dk-label { font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--slate); }
+.fac-modal .dk-val { font-size:17px; font-weight:700; font-family:var(--mono); margin-top:3px; }
+.fac-modal .detail-table { width:100%; border-collapse:collapse; font-size:12px; }
+.fac-modal .detail-table th { background:var(--fac-light); padding:8px 10px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--slate); border:1px solid var(--border); text-align:left; }
+.fac-modal .detail-table th.intern { background:#FDF9EE; color:#9A7B1A; }
+.fac-modal .detail-table td { border:1px solid var(--border); padding:6px 10px; vertical-align:middle; }
+.fac-modal .detail-table td.intern { background:#FFFDF6; }
+.fac-modal .detail-table select, .fac-modal .detail-table input { padding:6px 8px; font-size:12px; width:100%; border:1px solid var(--border); border-radius:5px; }
+.fac-modal .detail-table input.cout-input { font-family:var(--mono); text-align:right; }
+.fac-modal .detail-table .lm { font-family:var(--mono); font-size:12px; text-align:right; white-space:nowrap; }
+.fac-modal .apply-all { font-size:11px; color:var(--gold); cursor:pointer; text-decoration:underline; background:none; border:none; padding:0; }
+.fac-modal .detail-foot { padding:14px 24px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--fac-light); }
+.fac-modal .df-marge { font-size:14px; font-weight:700; font-family:var(--mono); }
+.fac-modal .pos { color:var(--green); font-weight:700; } .fac-modal .neg { color:var(--red); font-weight:700; }
+.fac-modal .mono { font-family:var(--mono); }
+
+/* INLINE PREVIEW — invoice document */
+.fac .preview-topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.fac .facture-doc { background:#fff; width:794px; max-width:100%; margin:0 auto; border:1px solid var(--border); border-radius:4px; box-shadow:0 4px 24px rgba(0,0,0,.08); position:relative; overflow:hidden; font-size:11px; }
+.fac .facture-stripe { position:absolute; left:0; top:0; bottom:0; width:6px; background:var(--navy); }
+.fac .facture-body { padding:34px 40px 34px 46px; }
+.fac .facture-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px; }
+.fac .facture-emetteur .company { font-size:15px; font-weight:800; letter-spacing:.5px; }
+.fac .facture-emetteur p { font-size:10px; color:var(--slate); line-height:1.6; margin-top:4px; }
+.fac .facture-badge { background:var(--navy); color:#fff; padding:8px 18px; border-radius:6px; text-align:right; }
+.fac .facture-badge .num { font-size:16px; font-weight:800; font-family:var(--mono); letter-spacing:.5px; }
+.fac .facture-badge .date { font-size:10px; opacity:.7; margin-top:2px; }
+.fac .facture-clients { display:grid; grid-template-columns:1fr 1fr; gap:18px; background:var(--fac-light); border-radius:8px; padding:14px 16px; margin-bottom:20px; }
+.fac .client-block .block-label { font-size:9px; text-transform:uppercase; letter-spacing:1.5px; color:var(--slate); margin-bottom:5px; font-weight:700; }
+.fac .client-block .client-name { font-size:12px; font-weight:700; margin-bottom:3px; }
+.fac .client-block p { font-size:10px; color:var(--slate); line-height:1.5; }
+.fac .facture-table { width:100%; border-collapse:collapse; margin-bottom:18px; }
+.fac .facture-table thead tr { background:var(--navy); }
+.fac .facture-table thead th { padding:8px 10px; color:rgba(255,255,255,.85); font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; text-align:left; }
+.fac .facture-table thead th.r { text-align:right; } .fac .facture-table thead th.c { text-align:center; }
+.fac .facture-table tbody td { padding:7px 10px; font-size:10px; border-bottom:1px solid var(--border); }
+.fac .facture-table tbody tr:nth-child(even) td { background:#FAFAF8; }
+.fac .facture-table td.r { text-align:right; font-family:var(--mono); } .fac .facture-table td.c { text-align:center; }
+.fac .facture-table tfoot td { padding:8px 10px; font-weight:700; font-size:11px; border-top:2px solid var(--navy); }
+.fac .lettres-block { background:var(--fac-light); border-left:4px solid var(--gold); border-radius:0 6px 6px 0; padding:9px 14px; font-size:10px; font-style:italic; font-weight:600; margin-bottom:14px; }
+.fac .facture-footer { display:grid; grid-template-columns:1fr 1fr; gap:16px; border-top:1px solid var(--border); padding-top:12px; }
+.fac .footer-block .footer-title { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--slate); margin-bottom:5px; }
+.fac .footer-block p { font-size:9px; color:var(--slate); line-height:1.6; }
+.fac .footer-block .rib { font-family:var(--mono); font-size:9px; font-weight:600; color:var(--navy); }
+.fac .footer-matieres { font-size:8.5px; color:var(--slate); margin-top:10px; padding-top:8px; border-top:1px dashed var(--border); line-height:1.6; }
+
+/* INLINE PREVIEW — report document */
+.fac .report-doc { background:#fff; width:794px; max-width:100%; margin:0 auto; border:1px solid var(--border); border-radius:4px; box-shadow:0 4px 24px rgba(0,0,0,.08); padding:36px 42px; font-size:12px; }
+.fac .report-doc h1 { font-size:18px; font-weight:800; letter-spacing:.5px; margin-bottom:2px; }
+.fac .report-doc .r-sub { font-size:11px; color:var(--slate); margin-bottom:4px; }
+.fac .report-doc .r-period { display:inline-block; background:var(--navy); color:#fff; font-size:11px; font-weight:600; padding:4px 12px; border-radius:20px; margin:10px 0 18px; }
+.fac .report-doc h2 { font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; margin:22px 0 10px; padding-bottom:6px; border-bottom:2px solid var(--navy); }
+.fac .report-doc table { width:100%; border-collapse:collapse; margin-bottom:8px; }
+.fac .report-doc th { background:var(--fac-light); padding:7px 9px; font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--slate); border:1px solid var(--border); text-align:left; }
+.fac .report-doc th.r { text-align:right; }
+.fac .report-doc td { padding:6px 9px; font-size:10.5px; border:1px solid var(--border); }
+.fac .report-doc td.r { text-align:right; font-family:var(--mono); font-size:10px; }
+.fac .report-doc tr.total-row td { font-weight:700; background:var(--fac-light); }
+.fac .report-doc .r-foot { margin-top:24px; padding-top:10px; border-top:1px solid var(--border); font-size:9px; color:var(--slate); display:flex; justify-content:space-between; }
+.fac .report-doc .r-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px; }
+.fac .report-doc .r-kpi { background:var(--fac-light); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+.fac .report-doc .r-kpi .l { font-size:9px; text-transform:uppercase; letter-spacing:1px; color:var(--slate); }
+.fac .report-doc .r-kpi .v { font-size:15px; font-weight:700; font-family:var(--mono); margin-top:2px; }
+
+/* TOAST */
+.fac-toast { position:fixed; bottom:24px; right:24px; background:var(--navy); color:#fff; padding:12px 20px; border-radius:8px; font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,.2); transform:translateY(80px); opacity:0; transition:all .3s; z-index:9999; }
+.fac-toast.show { transform:translateY(0); opacity:1; }
