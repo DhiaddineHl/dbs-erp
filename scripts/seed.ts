@@ -20,7 +20,24 @@ import { CLIENTS_DB, FACONNIERS } from "@/lib/facturation/reference";
 import { FACTURES_BASE } from "@/lib/facturation/seed";
 import { defaults as gpaoDefaults } from "@/app/(app)/gpao_prod/store";
 import { MODULE_IDS, ROLE_KEYS, defaultModuleAccess } from "@/lib/auth/permissions";
+import { existsSync, readFileSync } from "node:fs";
 import * as M from "@/lib/modules/seed-data";
+
+/** Load a local .env if present, without overriding already-set env vars
+ * (no-op on Railway, where env is injected). */
+function loadEnv(file = ".env") {
+  if (!existsSync(file)) return;
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?$/);
+    if (!m || m[1].startsWith("#")) continue;
+    if (process.env[m[1]] !== undefined) continue;
+    let val = (m[2] ?? "").trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
+    else val = val.replace(/\s+#.*$/, "").trim();
+    process.env[m[1]] = val;
+  }
+}
+loadEnv();
 
 const {
   client,
