@@ -2,10 +2,10 @@ import { ListChecks, FolderOpen, Clock } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
-import { StatusBadge } from "@/components/shared/status-badge";
-import { DataTable } from "@/components/shared/data-table";
+import { EditableTable } from "@/components/shared/editable-table";
 import { EntityFormDialog } from "@/components/shared/entity-form-dialog";
 import { ACTION_FIELDS } from "@/lib/modules/forms";
+import { ACTION_EDIT } from "@/lib/modules/edit-columns";
 import { listActions } from "@/lib/services/modules";
 import { createAction } from "@/lib/actions/modules";
 
@@ -35,16 +35,7 @@ export default async function ActionsPage() {
       </KpiGrid>
 
       <SectionPanel title="Suivi des actions" flush>
-        <DataTable
-          columns={["Action", "Responsable", "Échéance", "Priorité", "Statut"]}
-          rows={ACTIONS.map((a) => [
-            <span key="a" className="font-semibold">{a.action}</span>,
-            a.resp,
-            a.echeance,
-            <StatusBadge key="p" tone={a.prio[0]}>{a.prio[1]}</StatusBadge>,
-            <StatusBadge key="s" tone={a.statut[0]}>{a.statut[1]}</StatusBadge>,
-          ])}
-        />
+        <EditableTable entity="action" columns={ACTION_EDIT} rows={ACTIONS} searchPlaceholder="Rechercher…" />
       </SectionPanel>
     </>
   );

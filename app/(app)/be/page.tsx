@@ -2,9 +2,9 @@ import { PencilRuler, Mail, Clock, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
-import { StatusBadge } from "@/components/shared/status-badge";
-import { DataTable } from "@/components/shared/data-table";
+import { EditableTable } from "@/components/shared/editable-table";
 import { Button } from "@/components/ui/button";
+import { BE_EDIT } from "@/lib/modules/edit-columns";
 import { listBe } from "@/lib/services/modules";
 
 export default async function BePage() {
@@ -25,17 +25,7 @@ export default async function BePage() {
       </KpiGrid>
 
       <SectionPanel title="Têtes de série" flush>
-        <DataTable
-          columns={["OF", "Modèle / Client", "Envoi TDS", "OK PRO reçu", "Réf email", "Statut"]}
-          rows={BE.map((b) => [
-            <span key="of" className="font-bold text-brand">{b.of}</span>,
-            <span key="m" className="font-semibold">{b.mc}</span>,
-            b.envoi,
-            b.ok,
-            <span key="r" className="text-muted-foreground">{b.ref}</span>,
-            <StatusBadge key="s" tone={b.statut[0]}>{b.statut[1]}</StatusBadge>,
-          ])}
-        />
+        <EditableTable entity="be" columns={BE_EDIT} rows={BE} searchPlaceholder="Rechercher…" />
       </SectionPanel>
     </>
   );

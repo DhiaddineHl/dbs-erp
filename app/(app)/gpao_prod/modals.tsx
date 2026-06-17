@@ -138,10 +138,13 @@ export function ChaineModal({
 /* ─────────── Modèle ─────────── */
 export function ModeleModal({
   edit,
+  clients,
   onClose,
   onSave,
 }: {
   edit: Modele | null;
+  /** Client names from the shared Clients module (kept in sync). */
+  clients: string[];
   onClose: () => void;
   onSave: (data: { nom: string; ref: string; client: string; sam: number; qte: number }) => void;
 }) {
@@ -164,7 +167,15 @@ export function ModeleModal({
         </div>
         <div className="fld">
           <label>Client</label>
-          <input value={client} onChange={(e) => setClient(e.target.value)} placeholder="ex: Gérard Darel" />
+          <select value={client} onChange={(e) => setClient(e.target.value)}>
+            <option value="">— Aucun —</option>
+            {clients.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+            {client && !clients.includes(client) && <option value={client}>{client}</option>}
+          </select>
         </div>
       </div>
       <div className="r2">

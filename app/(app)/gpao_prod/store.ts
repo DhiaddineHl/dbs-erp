@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 /* ═══════════════════ TYPES ═══════════════════ */
 export type Ouvriere = { id: number; nom: string; poste: string; sam: number };
@@ -40,8 +40,6 @@ export type GpaoState = {
   tvDayId?: number | null;
 };
 
-const KEY = "dbs_gpao_prod_v2";
-const KEY_V1 = "dbs_gpao_prod_v1";
 export const SEUIL_H = 85;
 export const SEUIL_B = 60;
 export const SEUIL_RET = 5; // retouche alerte si > 5 %
@@ -100,57 +98,23 @@ export function defaults(): GpaoState {
 }
 
 /* ═══════════════════ STORE HOOK ═══════════════════
-   localStorage-backed, mirrors the original single mutable S object but as
-   immutable React state. `mutate` receives a draft you can mutate freely. */
-export function useGpaoStore() {
-  const [state, setState] = useState<GpaoState | null>(null);
+   DB-backed: the page server component loads the shared state from Postgres and
+   passes it as `initial`. `mutate` applies an optimistic local update on a
+   structural clone; persistence to the DB is triggered by the page handlers via
+   the server actions in ./actions.ts (so changes are shared across all users). */
+export function useGpaoStore(initial: GpaoState) {
+  const [state, setState] = useState<GpaoState>(initial);
 
-  useEffect(() => {
-    let initial: GpaoState;
-    try {
-      // v2 store, falling back to migrate any existing v1 data (schema is a
-      // forward-compatible superset), else seed defaults.
-      initial =
-        JSON.parse(localStorage.getItem(KEY) || "null") ||
-        JSON.parse(localStorage.getItem(KEY_V1) || "null") ||
-        defaults();
-    } catch {
-      initial = defaults();
-    }
-    // Hydrate from localStorage after mount (SSR-safe: server renders the
-    // null/placeholder state, client fills it in here).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setState(initial);
+  /** Apply an optimistic mutation on a structural clone. */
+  const mutate = useCallback((fn: (draft: GpaoState) => void) => {
+    setState((prev) => {
+      const draft: GpaoState = JSON.parse(JSON.stringify(prev));
+      fn(draft);
+      return draft;
+    });
   }, []);
 
-  const persist = useCallback((next: GpaoState) => {
-    setState(next);
-    try {
-      localStorage.setItem(KEY, JSON.stringify(next));
-    } catch {
-      /* ignore quota errors */
-    }
-  }, []);
-
-  /** Apply a mutation on a structural clone then persist. */
-  const mutate = useCallback(
-    (fn: (draft: GpaoState) => void) => {
-      setState((prev) => {
-        const base = prev ?? defaults();
-        const draft: GpaoState = JSON.parse(JSON.stringify(base));
-        fn(draft);
-        try {
-          localStorage.setItem(KEY, JSON.stringify(draft));
-        } catch {
-          /* ignore */
-        }
-        return draft;
-      });
-    },
-    [],
-  );
-
-  return { state, setState: persist, mutate };
+  return { state, setState, mutate };
 }
 
 /* ═══════════════════ LOOKUPS ═══════════════════ */

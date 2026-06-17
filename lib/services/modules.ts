@@ -1,4 +1,5 @@
 import "server-only";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   mAction,
@@ -52,8 +53,11 @@ export const listOfs = () => db.select().from(mOf).orderBy(mOf.id);
 export async function listCommandes(): Promise<CommandeRow[]> {
   const rows = await db.select().from(mCommande).orderBy(mCommande.id);
   return rows.map((r) => ({
-    of: r.of, modele: r.modele, client: r.client, assigne: r.assigne, qte: r.qte,
-    pv: r.pv, pf: r.pf, marge: r.marge, export: r.export,
+    id: r.id, of: r.of, modele: r.modele, refArticle: r.refArticle, couleur: r.couleur,
+    client: r.client, faconnier: r.faconnier, chaineId: r.chaineId,
+    assigne: r.assigne, qte: r.qte, tailles: r.tailles,
+    pv: r.pv, pf: r.pf, marge: r.marge,
+    receptTissu: r.receptTissu, export: r.export, dateExportReel: r.dateExportReel, note: r.note,
     retard: [t(r.retardTone), r.retardLabel], av: r.av, statut: [t(r.statutTone), r.statutLabel],
   }));
 }
@@ -61,7 +65,7 @@ export async function listCommandes(): Promise<CommandeRow[]> {
 export async function listTissus(): Promise<TissuRow[]> {
   const rows = await db.select().from(mTissu).orderBy(mTissu.id);
   return rows.map((r) => ({
-    date: r.date, cmd: r.cmd, design: r.design, recue: r.recue, prevue: r.prevue,
+    id: r.id, date: r.date, cmd: r.cmd, design: r.design, recue: r.recue, prevue: r.prevue,
     ecart: [t(r.ecartTone), r.ecartLabel], controle: [t(r.controleTone), r.controleLabel],
     statut: [t(r.statutTone), r.statutLabel],
   }));
@@ -70,7 +74,7 @@ export async function listTissus(): Promise<TissuRow[]> {
 export async function listFournitures(): Promise<FournitureRow[]> {
   const rows = await db.select().from(mFourniture).orderBy(mFourniture.id);
   return rows.map((r) => ({
-    date: r.date, cmd: r.cmd, type: r.type, design: r.design, qte: r.qte,
+    id: r.id, date: r.date, cmd: r.cmd, type: r.type, design: r.design, qte: r.qte,
     controle: [t(r.controleTone), r.controleLabel], statut: [t(r.statutTone), r.statutLabel],
   }));
 }
@@ -78,7 +82,7 @@ export async function listFournitures(): Promise<FournitureRow[]> {
 export async function listCoupe(): Promise<CoupeRow[]> {
   const rows = await db.select().from(mCoupe).orderBy(mCoupe.id);
   return rows.map((r) => ({
-    of: r.of, mc: r.mc, qte: r.qte, coupee: r.coupee, planif: r.planif, fin: r.fin,
+    id: r.id, of: r.of, mc: r.mc, qte: r.qte, coupee: r.coupee, planif: r.planif, fin: r.fin,
     statut: [t(r.statutTone), r.statutLabel],
   }));
 }
@@ -86,14 +90,14 @@ export async function listCoupe(): Promise<CoupeRow[]> {
 export async function listBe(): Promise<BeRow[]> {
   const rows = await db.select().from(mBe).orderBy(mBe.id);
   return rows.map((r) => ({
-    of: r.of, mc: r.mc, envoi: r.envoi, ok: r.ok, ref: r.ref, statut: [t(r.statutTone), r.statutLabel],
+    id: r.id, of: r.of, mc: r.mc, envoi: r.envoi, ok: r.ok, ref: r.ref, statut: [t(r.statutTone), r.statutLabel],
   }));
 }
 
 export async function listCosting(): Promise<CostingRow[]> {
   const rows = await db.select().from(mCosting).orderBy(mCosting.id);
   return rows.map((r) => ({
-    of: r.of, modele: r.modele, qte: r.qte, sam: r.sam, coutP: r.coutP, coutT: r.coutT,
+    id: r.id, of: r.of, modele: r.modele, qte: r.qte, sam: r.sam, coutP: r.coutP, coutT: r.coutT,
     pf: r.pf, ecart: [t(r.ecartTone), r.ecartLabel], delai: r.delai,
   }));
 }
@@ -101,7 +105,7 @@ export async function listCosting(): Promise<CostingRow[]> {
 export async function listOrdo(): Promise<OrdoRow[]> {
   const rows = await db.select().from(mOrdo).orderBy(mOrdo.rang);
   return rows.map((r) => ({
-    rang: r.rang, prio: [t(r.prioTone), r.prioLabel], of: r.of, mc: r.mc, qte: r.qte,
+    id: r.id, rang: r.rang, prio: [t(r.prioTone), r.prioLabel], of: r.of, mc: r.mc, qte: r.qte,
     sam: r.sam, charge: r.charge, assigne: r.assigne, export: r.export, crit: [t(r.critTone), r.critLabel],
   }));
 }
@@ -109,7 +113,7 @@ export async function listOrdo(): Promise<OrdoRow[]> {
 export async function listBr(): Promise<BrRow[]> {
   const rows = await db.select().from(mBr).orderBy(mBr.id);
   return rows.map((r) => ({
-    br: r.br, date: r.date, facon: r.facon, cmd: r.cmd, recu: r.recu, oknc: r.oknc,
+    id: r.id, br: r.br, date: r.date, facon: r.facon, cmd: r.cmd, recu: r.recu, oknc: r.oknc,
     controle: [t(r.controleTone), r.controleLabel],
   }));
 }
@@ -117,7 +121,7 @@ export async function listBr(): Promise<BrRow[]> {
 export async function listMagasin(): Promise<MagasinRow[]> {
   const rows = await db.select().from(mMagasin).orderBy(mMagasin.id);
   return rows.map((r) => ({
-    of: r.of, mc: r.mc, source: [t(r.sourceTone), r.sourceLabel], cmd: r.cmd, recu: r.recu,
+    id: r.id, of: r.of, mc: r.mc, source: [t(r.sourceTone), r.sourceLabel], cmd: r.cmd, recu: r.recu,
     statut: [t(r.statutTone), r.statutLabel],
   }));
 }
@@ -125,7 +129,7 @@ export async function listMagasin(): Promise<MagasinRow[]> {
 export async function listBl(): Promise<BlRow[]> {
   const rows = await db.select().from(mBl).orderBy(mBl.id);
   return rows.map((r) => ({
-    bl: r.bl, date: r.date, client: r.client, lignes: r.lignes, qte: r.qte, total: r.total,
+    id: r.id, bl: r.bl, date: r.date, client: r.client, lignes: r.lignes, qte: r.qte, total: r.total,
     statut: [t(r.statutTone), r.statutLabel],
   }));
 }
@@ -133,7 +137,7 @@ export async function listBl(): Promise<BlRow[]> {
 export async function listArchives(): Promise<ArchiveRow[]> {
   const rows = await db.select().from(mArchive).orderBy(mArchive.id);
   return rows.map((r) => ({
-    of: r.of, modele: r.modele, client: r.client, qte: r.qte, ca: r.ca, marge: r.marge,
+    id: r.id, of: r.of, modele: r.modele, client: r.client, qte: r.qte, ca: r.ca, marge: r.marge,
     livre: r.livre, retard: [t(r.retardTone), r.retardLabel],
   }));
 }
@@ -141,21 +145,21 @@ export async function listArchives(): Promise<ArchiveRow[]> {
 export async function listAlertes(): Promise<AlertRow[]> {
   const rows = await db.select().from(mAlerte).orderBy(mAlerte.id);
   return rows.map((r) => ({
-    iconName: r.iconName, tone: t(r.tone), title: r.title, detail: r.detail, level: [t(r.levelTone), r.levelLabel],
+    id: r.id, iconName: r.iconName, tone: t(r.tone), title: r.title, detail: r.detail, level: [t(r.levelTone), r.levelLabel],
   }));
 }
 
 export async function listQrqc(): Promise<QrqcRow[]> {
   const rows = await db.select().from(mQrqc).orderBy(mQrqc.id);
   return rows.map((r) => ({
-    date: r.date, pb: r.pb, cause: r.cause, cmd: r.cmd, action: r.action, statut: [t(r.statutTone), r.statutLabel],
+    id: r.id, date: r.date, pb: r.pb, cause: r.cause, cmd: r.cmd, action: r.action, statut: [t(r.statutTone), r.statutLabel],
   }));
 }
 
 export async function listActions(): Promise<ActionRow[]> {
   const rows = await db.select().from(mAction).orderBy(mAction.id);
   return rows.map((r) => ({
-    action: r.action, resp: r.resp, echeance: r.echeance, prio: [t(r.prioTone), r.prioLabel],
+    id: r.id, action: r.action, resp: r.resp, echeance: r.echeance, prio: [t(r.prioTone), r.prioLabel],
     statut: [t(r.statutTone), r.statutLabel],
   }));
 }
@@ -179,3 +183,38 @@ export const countClients = () => db.$count(mClient);
 export const countCommandes = () => db.$count(mCommande);
 export const countBr = () => db.$count(mBr);
 export const countBl = () => db.$count(mBl);
+
+/* ─────────── generic update / delete (inline-edit + bulk delete) ─────────── */
+export const ENTITY_TABLES = {
+  client: mClient,
+  commande: mCommande,
+  faconnier: mFaconnier,
+  tissu: mTissu,
+  fourniture: mFourniture,
+  coupe: mCoupe,
+  be: mBe,
+  gamme: mGamme,
+  capacite: mCapaciteChaine,
+  costing: mCosting,
+  ordo: mOrdo,
+  of: mOf,
+  br: mBr,
+  magasin: mMagasin,
+  bl: mBl,
+  archive: mArchive,
+  qrqc: mQrqc,
+  action: mAction,
+} as const;
+
+export type EntityName = keyof typeof ENTITY_TABLES;
+
+export async function updateEntityRow(entity: EntityName, id: number, patch: Record<string, unknown>) {
+  const table = ENTITY_TABLES[entity];
+  await db.update(table).set(patch).where(eq(table.id, id));
+}
+
+export async function deleteEntityRows(entity: EntityName, ids: number[]) {
+  if (!ids.length) return;
+  const table = ENTITY_TABLES[entity];
+  await db.delete(table).where(inArray(table.id, ids));
+}

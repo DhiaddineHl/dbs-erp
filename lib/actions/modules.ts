@@ -6,6 +6,7 @@ import { assertUser } from "@/lib/auth/server";
 import {
   CONTROLE,
   CONTROLE_BR,
+  type Opt,
   PRIO,
   RETARD,
   STATUT_ACTION,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/modules/options";
 import { CLIENT_COLUMNS, COMMANDE_COLUMNS, mapRow } from "@/lib/modules/columns";
 import * as svc from "@/lib/services/modules";
+import type { EntityName } from "@/lib/services/modules";
 
 type Result = { ok: true } | { ok: false; error: string };
 type ImportResult = { ok: true; count: number } | { ok: false; error: string };
@@ -30,6 +32,19 @@ const fail = (e: unknown): { ok: false; error: string } => ({
 });
 const num = (v: string | undefined) => Number(v) || 0;
 const seq = (prefix: string, n: number) => `${prefix}${String(n + 1).padStart(3, "0")}`;
+
+/** Parse the tailles field (JSON string from the size-grid editor) into rows. */
+function parseTailles(raw: string | undefined): { taille: string; qte: number }[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as { taille: string; qte: number }[];
+    return Array.isArray(arr)
+      ? arr.filter((t) => t && t.taille).map((t) => ({ taille: String(t.taille), qte: Number(t.qte) || 0 }))
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 /** Parse the first sheet of an uploaded .csv/.xlsx/.xls into header-keyed rows.
  * For CSV the delimiter is sniffed (French Excel uses `;`). */
@@ -69,9 +84,16 @@ export async function createCommande(d: Data): Promise<Result> {
   try {
     await assertUser();
     const of = seq("OF-2026-", await svc.countCommandes());
+    const tailles = parseTailles(d.tailles);
+    const taillesQte = tailles.reduce((s, t) => s + (Number(t.qte) || 0), 0);
     await svc.insertCommande({
-      of, modele: d.modele, client: d.client, assigne: d.assigne ?? "", qte: num(d.qte),
-      pv: d.pv ?? "", pf: d.pf ?? "", marge: d.marge ?? "", export: d.export ?? "",
+      of, modele: d.modele, refArticle: d.refArticle ?? "", couleur: d.couleur ?? "",
+      client: d.client, faconnier: d.faconnier ?? "",
+      chaineId: d.chaineId ? Number(d.chaineId) : null,
+      assigne: d.assigne ?? "", qte: taillesQte || num(d.qte), tailles,
+      pv: d.pv ?? "", pf: d.pf ?? "", marge: d.marge ?? "",
+      receptTissu: d.recept_tissu ?? "", export: d.export ?? "", dateExportReel: d.date_export_reel ?? "",
+      note: d.note ?? "",
       retardTone: toneOf(RETARD, d.retard), retardLabel: d.retard ?? "", av: num(d.av),
       statutTone: toneOf(STATUT_CMD, d.statut), statutLabel: d.statut ?? "",
     });
@@ -191,6 +213,84 @@ export async function createAction(d: Data): Promise<Result> {
       statutTone: toneOf(STATUT_ACTION, d.statut), statutLabel: d.statut ?? "",
     });
     revalidatePath("/actions");
+    return ok;
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── generic inline update + delete / bulk delete ───────────
+ * `patch` keys are the row display keys used by the editable table. Status
+ * keys expand to `${key}Tone` + `${key}Label`; numeric keys are coerced. */
+type StatusSpec = Opt[] | "ecart";
+type EntityCfg = { path: string; numeric: string[]; status: Record<string, StatusSpec> };
+
+const ENTITY_CFG: Record<EntityName, EntityCfg> = {
+  client: { path: "/clients", numeric: ["cmd"], status: {} },
+  commande: {
+    path: "/commandes",
+    numeric: ["qte", "av", "chaineId"],
+    status: { retard: RETARD, statut: STATUT_CMD },
+  },
+  faconnier: { path: "/facon", numeric: ["cmd", "charge"], status: {} },
+  tissu: {
+    path: "/tissus",
+    numeric: ["recue", "prevue"],
+    status: { ecart: "ecart", controle: CONTROLE, statut: STATUT_RECEP },
+  },
+  fourniture: { path: "/fournitures", numeric: [], status: { controle: CONTROLE, statut: STATUT_RECEP } },
+  coupe: { path: "/coupe", numeric: ["qte", "coupee"], status: {} },
+  be: { path: "/be", numeric: [], status: {} },
+  gamme: { path: "/gammes", numeric: ["ops"], status: {} },
+  capacite: { path: "/capacite", numeric: ["eff"], status: {} },
+  costing: { path: "/capacite", numeric: ["qte"], status: {} },
+  ordo: { path: "/ordonnancement", numeric: ["rang", "qte"], status: { prio: PRIO } },
+  of: { path: "/ofs", numeric: ["qte", "prod"], status: {} },
+  br: { path: "/br", numeric: ["recu"], status: { controle: CONTROLE_BR } },
+  magasin: { path: "/magasin", numeric: ["cmd", "recu"], status: {} },
+  bl: { path: "/bl", numeric: ["lignes", "qte"], status: { statut: STATUT_BL } },
+  archive: { path: "/archives", numeric: ["qte"], status: {} },
+  qrqc: { path: "/qrqc", numeric: [], status: { statut: STATUT_QRQC } },
+  action: { path: "/actions", numeric: [], status: { prio: PRIO, statut: STATUT_ACTION } },
+};
+
+function buildPatch(cfg: EntityCfg, patch: Record<string, string>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, raw] of Object.entries(patch)) {
+    const v = raw ?? "";
+    if (k in cfg.status) {
+      const spec = cfg.status[k];
+      out[`${k}Tone`] = spec === "ecart" ? ecartTone(v) : toneOf(spec, v);
+      out[`${k}Label`] = v;
+    } else if (cfg.numeric.includes(k)) {
+      out[k] = k === "chaineId" ? (v ? Number(v) : null) : Number(v) || 0;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+export async function updateEntity(entity: EntityName, id: number, patch: Record<string, string>): Promise<Result> {
+  try {
+    await assertUser();
+    const cfg = ENTITY_CFG[entity];
+    if (!cfg) return { ok: false, error: "Entité inconnue" };
+    await svc.updateEntityRow(entity, id, buildPatch(cfg, patch));
+    revalidatePath(cfg.path);
+    return ok;
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function deleteEntities(entity: EntityName, ids: number[]): Promise<Result> {
+  try {
+    await assertUser();
+    const cfg = ENTITY_CFG[entity];
+    if (!cfg) return { ok: false, error: "Entité inconnue" };
+    await svc.deleteEntityRows(entity, ids);
+    revalidatePath(cfg.path);
     return ok;
   } catch (e) {
     return fail(e);

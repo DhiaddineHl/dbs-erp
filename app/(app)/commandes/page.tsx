@@ -3,19 +3,32 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { DataTable } from "@/components/shared/data-table";
-import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
+import { EditableTable } from "@/components/shared/editable-table";
 import { EntityFormDialog } from "@/components/shared/entity-form-dialog";
 import { ExportCsvButton } from "@/components/shared/export-csv-button";
 import { ImportButton } from "@/components/shared/import-button";
 import { COMMANDE_FIELDS } from "@/lib/modules/forms";
 import { COMMANDE_COLUMNS } from "@/lib/modules/columns";
-import { listCommandes } from "@/lib/services/modules";
+import { commandeEdit } from "@/lib/modules/edit-columns";
+import { listCommandes, listClients, listFaconniers } from "@/lib/services/modules";
+import { getChaines } from "@/lib/services/gpao";
 import { createCommande, importCommandes } from "@/lib/actions/modules";
 
 export default async function CommandesPage() {
-  const CMDS = await listCommandes();
+  const [CMDS, clients, faconniers, chaines] = await Promise.all([
+    listCommandes(),
+    listClients(),
+    listFaconniers(),
+    getChaines(),
+  ]);
+
+  const clientChoices = clients.map((c) => ({ value: c.nom, label: `${c.code} — ${c.nom}` }));
+  const faconnierChoices = [
+    ...faconniers.map((f) => ({ value: f.nom, label: f.nom })),
+    { value: "DBS", label: "DBS (interne)" },
+  ];
+  const chaineChoices = chaines.map((c) => ({ value: String(c.id), label: c.nom }));
+
   const csvRows = CMDS.map((c) => ({
     of: c.of, modele: c.modele, client: c.client, assigne: c.assigne, qte: c.qte,
     pv: c.pv, pf: c.pf, marge: c.marge, export: c.export, retard: c.retard[1], av: c.av, statut: c.statut[1],
@@ -34,6 +47,11 @@ export default async function CommandesPage() {
               triggerLabel="Nouvelle commande"
               title="Nouvelle commande"
               fields={COMMANDE_FIELDS}
+              dynamicOptions={{
+                client: clientChoices,
+                faconnier: faconnierChoices,
+                chaineId: chaineChoices,
+              }}
               action={createCommande}
               successMessage="Commande créée"
             />
@@ -48,30 +66,12 @@ export default async function CommandesPage() {
         <KpiCard label="En retard" value="2" icon={TriangleAlert} tone="danger" />
       </KpiGrid>
 
-      <div className="mb-3">
-        <Input placeholder="Rechercher OF, modèle, client…" className="h-9 w-72 bg-card" />
-      </div>
-
       <SectionPanel title="Carnet de commandes" actions={<StatusBadge tone="brand">{CMDS.length}</StatusBadge>} flush>
-        <DataTable
-          columns={["N° OF", "Modèle", "Client", "Assigné", "Qté", "P. vente", "P. façon", "Marge", "Export", "Retard", "Avancement", "Statut"]}
-          rows={CMDS.map((c) => [
-            <span key="of" className="font-bold text-brand">{c.of}</span>,
-            <span key="m" className="font-semibold">{c.modele}</span>,
-            c.client,
-            c.assigne,
-            <span key="q" className="tabular-nums">{c.qte.toLocaleString("fr-FR")}</span>,
-            <span key="pv" className="tabular-nums">{c.pv}</span>,
-            <span key="pf" className="tabular-nums">{c.pf}</span>,
-            <span key="mg" className="font-semibold tabular-nums text-success-foreground">{c.marge}</span>,
-            c.export,
-            <StatusBadge key="r" tone={c.retard[0]}>{c.retard[1]}</StatusBadge>,
-            <div key="av" className="flex w-28 items-center gap-2">
-              <Progress value={c.av} className="h-1.5" />
-              <span className="w-8 text-right text-[11px] tabular-nums">{c.av}%</span>
-            </div>,
-            <StatusBadge key="s" tone={c.statut[0]}>{c.statut[1]}</StatusBadge>,
-          ])}
+        <EditableTable
+          entity="commande"
+          columns={commandeEdit({ clients: clientChoices, faconniers: faconnierChoices, chaines: chaineChoices })}
+          rows={CMDS}
+          searchPlaceholder="Rechercher OF, modèle, client…"
         />
       </SectionPanel>
     </>

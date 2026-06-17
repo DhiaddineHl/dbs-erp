@@ -2,9 +2,8 @@ import { Scissors, CheckCircle2, Layers } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
-import { StatusBadge } from "@/components/shared/status-badge";
-import { DataTable } from "@/components/shared/data-table";
-import { Progress } from "@/components/ui/progress";
+import { EditableTable } from "@/components/shared/editable-table";
+import { COUPE_EDIT } from "@/lib/modules/edit-columns";
 import { listCoupe } from "@/lib/services/modules";
 
 export default async function CoupePage() {
@@ -24,21 +23,7 @@ export default async function CoupePage() {
       </KpiGrid>
 
       <SectionPanel title="Planning de coupe" flush>
-        <DataTable
-          columns={["OF", "Modèle / Client", "Qté", "Qté coupée", "Date planifiée", "Fin coupe", "Statut"]}
-          rows={COUPE.map((c) => [
-            <span key="of" className="font-bold text-brand">{c.of}</span>,
-            <span key="m" className="font-semibold">{c.mc}</span>,
-            <span key="q" className="tabular-nums">{c.qte.toLocaleString("fr-FR")}</span>,
-            <div key="cp" className="flex w-32 items-center gap-2">
-              <Progress value={(c.coupee / c.qte) * 100} className="h-1.5" />
-              <span className="text-[11px] tabular-nums">{c.coupee}</span>
-            </div>,
-            c.planif,
-            c.fin,
-            <StatusBadge key="s" tone={c.statut[0]}>{c.statut[1]}</StatusBadge>,
-          ])}
-        />
+        <EditableTable entity="coupe" columns={COUPE_EDIT} rows={COUPE} searchPlaceholder="Rechercher…" />
       </SectionPanel>
     </>
   );

@@ -2,10 +2,10 @@ import { SearchCheck, AlertCircle, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
-import { StatusBadge } from "@/components/shared/status-badge";
-import { DataTable } from "@/components/shared/data-table";
+import { EditableTable } from "@/components/shared/editable-table";
 import { EntityFormDialog } from "@/components/shared/entity-form-dialog";
 import { QRQC_FIELDS } from "@/lib/modules/forms";
+import { QRQC_EDIT } from "@/lib/modules/edit-columns";
 import { listQrqc } from "@/lib/services/modules";
 import { createQrqc } from "@/lib/actions/modules";
 
@@ -35,17 +35,7 @@ export default async function QrqcPage() {
       </KpiGrid>
 
       <SectionPanel title="Résolution de problèmes" flush>
-        <DataTable
-          columns={["Date", "Problème", "Cause 5M", "Commande", "Action corrective", "Statut"]}
-          rows={QRQC.map((q) => [
-            q.date,
-            <span key="p" className="font-semibold">{q.pb}</span>,
-            <StatusBadge key="c" tone="info">{q.cause}</StatusBadge>,
-            <span key="cmd" className="text-brand">{q.cmd}</span>,
-            q.action,
-            <StatusBadge key="s" tone={q.statut[0]}>{q.statut[1]}</StatusBadge>,
-          ])}
-        />
+        <EditableTable entity="qrqc" columns={QRQC_EDIT} rows={QRQC} searchPlaceholder="Rechercher…" />
       </SectionPanel>
     </>
   );

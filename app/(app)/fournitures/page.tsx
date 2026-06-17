@@ -3,14 +3,16 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { DataTable } from "@/components/shared/data-table";
+import { EditableTable } from "@/components/shared/editable-table";
 import { EntityFormDialog } from "@/components/shared/entity-form-dialog";
 import { FOURNITURE_FIELDS } from "@/lib/modules/forms";
-import { listFournitures } from "@/lib/services/modules";
+import { fournitureEdit } from "@/lib/modules/edit-columns";
+import { listFournitures, listCommandes } from "@/lib/services/modules";
 import { createFourniture } from "@/lib/actions/modules";
 
 export default async function FournituresPage() {
-  const FOURNITURES = await listFournitures();
+  const [FOURNITURES, commandes] = await Promise.all([listFournitures(), listCommandes()]);
+  const cmdChoices = commandes.map((c) => ({ value: c.of, label: `${c.of} · ${c.modele}` }));
   return (
     <>
       <PageHeader
@@ -22,6 +24,7 @@ export default async function FournituresPage() {
             triggerLabel="Réception fourniture"
             title="Réception fourniture"
             fields={FOURNITURE_FIELDS}
+            dynamicOptions={{ cmd: cmdChoices }}
             action={createFourniture}
             successMessage="Réception enregistrée"
           />
@@ -35,18 +38,7 @@ export default async function FournituresPage() {
       </KpiGrid>
 
       <SectionPanel title="Réceptions fournitures" actions={<StatusBadge tone="brand">{FOURNITURES.length}</StatusBadge>} flush>
-        <DataTable
-          columns={["Date", "Commande", "Type", "Désignation", "Qté", "Contrôle", "Statut"]}
-          rows={FOURNITURES.map((f) => [
-            f.date,
-            <span key="c" className="font-semibold text-brand">{f.cmd}</span>,
-            <StatusBadge key="t" tone="info">{f.type}</StatusBadge>,
-            f.design,
-            <span key="q" className="tabular-nums">{f.qte}</span>,
-            <StatusBadge key="ct" tone={f.controle[0]}>{f.controle[1]}</StatusBadge>,
-            <StatusBadge key="s" tone={f.statut[0]}>{f.statut[1]}</StatusBadge>,
-          ])}
-        />
+        <EditableTable entity="fourniture" columns={fournitureEdit(cmdChoices)} rows={FOURNITURES} searchPlaceholder="Rechercher…" />
       </SectionPanel>
     </>
   );

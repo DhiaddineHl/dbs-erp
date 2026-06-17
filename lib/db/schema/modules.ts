@@ -1,4 +1,6 @@
-import { integer, pgTable, serial, text } from "drizzle-orm/pg-core";
+import { integer, jsonb, pgTable, serial, text } from "drizzle-orm/pg-core";
+
+export type Taille = { taille: string; qte: number };
 
 /* Operational module entities. Status-style fields are stored as a `*Tone`
  * (UI category) + `*Label` text pair so pages render identically to before.
@@ -19,13 +21,21 @@ export const mCommande = pgTable("m_commande", {
   id: serial().primaryKey(),
   of: text().notNull(),
   modele: text().notNull(),
+  refArticle: text().notNull().default(""),
+  couleur: text().notNull().default(""),
   client: text().notNull(),
+  faconnier: text().notNull().default(""),
+  chaineId: integer(),
   assigne: text().notNull().default(""),
   qte: integer().notNull().default(0),
+  tailles: jsonb().$type<Taille[]>().notNull().default([]),
   pv: text().notNull().default(""),
   pf: text().notNull().default(""),
   marge: text().notNull().default(""),
+  receptTissu: text().notNull().default(""),
   export: text().notNull().default(""),
+  dateExportReel: text().notNull().default(""),
+  note: text().notNull().default(""),
   retardTone: text().notNull().default("neutral"),
   retardLabel: text().notNull().default(""),
   av: integer().notNull().default(0),

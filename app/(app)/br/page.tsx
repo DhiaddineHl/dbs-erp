@@ -2,10 +2,10 @@ import { PackageCheck, Package, TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
-import { StatusBadge } from "@/components/shared/status-badge";
-import { DataTable } from "@/components/shared/data-table";
+import { EditableTable } from "@/components/shared/editable-table";
 import { EntityFormDialog } from "@/components/shared/entity-form-dialog";
 import { BR_FIELDS } from "@/lib/modules/forms";
+import { BR_EDIT } from "@/lib/modules/edit-columns";
 import { listBr } from "@/lib/services/modules";
 import { createBr } from "@/lib/actions/modules";
 
@@ -35,18 +35,7 @@ export default async function BrPage() {
       </KpiGrid>
 
       <SectionPanel title="Bons de réception" flush>
-        <DataTable
-          columns={["N° BR", "Date", "Façonnier", "Commande", "Reçu", "OK / NC", "Contrôle"]}
-          rows={BRS.map((b) => [
-            <span key="br" className="font-bold text-brand">{b.br}</span>,
-            b.date,
-            <span key="f" className="font-semibold">{b.facon}</span>,
-            <span key="c" className="text-brand">{b.cmd}</span>,
-            <span key="r" className="tabular-nums">{b.recu}</span>,
-            <span key="o" className="tabular-nums">{b.oknc}</span>,
-            <StatusBadge key="ct" tone={b.controle[0]}>{b.controle[1]}</StatusBadge>,
-          ])}
-        />
+        <EditableTable entity="br" columns={BR_EDIT} rows={BRS} searchPlaceholder="Rechercher…" />
       </SectionPanel>
     </>
   );

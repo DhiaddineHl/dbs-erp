@@ -63,6 +63,13 @@ export const STATUT_ACTION: Opt[] = [
   { label: "Clôturée", tone: "success" },
 ];
 
+/** Size grids offered in the commande form (mirrors PilotPro TAILLE_GRIDS). */
+export const TAILLE_GRIDS: Record<string, string[]> = {
+  standard: ["XS", "S", "M", "L", "XL", "XXL"],
+  num: ["34", "36", "38", "40", "42", "44", "46"],
+  uni: ["TU"],
+};
+
 export const labels = (list: Opt[]) => list.map((o) => o.label);
 
 export function toneOf(list: Opt[], label: string): Tone {

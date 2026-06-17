@@ -15,8 +15,11 @@ import {
 export type Field = {
   name: string;
   label: string;
-  type?: "text" | "number" | "select" | "date";
+  type?: "text" | "number" | "select" | "date" | "tailles";
   options?: string[];
+  /** When set, the field renders a dropdown whose options are supplied at
+   * runtime via the dialog's `dynamicOptions[name]` (clients, façonniers…). */
+  dynamic?: boolean;
   required?: boolean;
   placeholder?: string;
   full?: boolean;
@@ -35,14 +38,20 @@ export const CLIENT_FIELDS: Field[] = [
 ];
 
 export const COMMANDE_FIELDS: Field[] = [
-  { name: "modele", label: "Modèle", required: true },
-  { name: "client", label: "Client", required: true },
-  { name: "assigne", label: "Assigné à", placeholder: "Chaîne 1 / Façonnier…" },
-  { name: "qte", label: "Quantité", type: "number" },
-  { name: "pv", label: "Prix vente", placeholder: "12,40 €" },
-  { name: "pf", label: "Prix façon", placeholder: "3,50 €" },
+  { name: "modele", label: "Modèle / Article", required: true, full: true },
+  { name: "refArticle", label: "Référence" },
+  { name: "couleur", label: "Couleur" },
+  { name: "client", label: "Client", type: "select", dynamic: true, required: true },
+  { name: "faconnier", label: "Façonnier", type: "select", dynamic: true },
+  { name: "chaineId", label: "Chaîne interne", type: "select", dynamic: true },
+  { name: "tailles", label: "Quantités par taille", type: "tailles", full: true },
+  { name: "pv", label: "Prix vente (€/pcs)", placeholder: "12,40" },
+  { name: "pf", label: "Prix façon (€/pcs)", placeholder: "3,50" },
   { name: "marge", label: "Marge", placeholder: "10 680 €" },
-  { name: "export", label: "Date export", placeholder: "20 juin" },
+  { name: "recept_tissu", label: "Réception tissu", type: "date" },
+  { name: "export", label: "Date export prévue", type: "date" },
+  { name: "date_export_reel", label: "Date export réelle", type: "date" },
+  { name: "note", label: "Note", full: true },
   { name: "av", label: "Avancement %", type: "number" },
   { name: "retard", label: "Retard", type: "select", options: labels(RETARD) },
   { name: "statut", label: "Statut", type: "select", options: labels(STATUT_CMD) },
@@ -60,7 +69,7 @@ export const FACONNIER_FIELDS: Field[] = [
 
 export const TISSU_FIELDS: Field[] = [
   { name: "date", label: "Date", placeholder: "10 juin" },
-  { name: "cmd", label: "Commande", placeholder: "OF-2026-001" },
+  { name: "cmd", label: "Commande", type: "select", dynamic: true, required: true },
   { name: "design", label: "Désignation", required: true, full: true },
   { name: "recue", label: "Qté reçue", type: "number" },
   { name: "prevue", label: "Qté prévue", type: "number" },
@@ -71,7 +80,7 @@ export const TISSU_FIELDS: Field[] = [
 
 export const FOURNITURE_FIELDS: Field[] = [
   { name: "date", label: "Date", placeholder: "10 juin" },
-  { name: "cmd", label: "Commande", placeholder: "OF-2026-001" },
+  { name: "cmd", label: "Commande", type: "select", dynamic: true, required: true },
   { name: "type", label: "Type", placeholder: "Boutons / Fermetures…" },
   { name: "design", label: "Désignation", required: true, full: true },
   { name: "qte", label: "Quantité", placeholder: "14 400 u" },

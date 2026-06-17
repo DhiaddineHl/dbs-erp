@@ -3,14 +3,16 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { DataTable } from "@/components/shared/data-table";
+import { EditableTable } from "@/components/shared/editable-table";
 import { EntityFormDialog } from "@/components/shared/entity-form-dialog";
 import { TISSU_FIELDS } from "@/lib/modules/forms";
-import { listTissus } from "@/lib/services/modules";
+import { tissuEdit } from "@/lib/modules/edit-columns";
+import { listTissus, listCommandes } from "@/lib/services/modules";
 import { createTissu } from "@/lib/actions/modules";
 
 export default async function TissusPage() {
-  const TISSUS = await listTissus();
+  const [TISSUS, commandes] = await Promise.all([listTissus(), listCommandes()]);
+  const cmdChoices = commandes.map((c) => ({ value: c.of, label: `${c.of} · ${c.modele}` }));
   return (
     <>
       <PageHeader
@@ -22,6 +24,7 @@ export default async function TissusPage() {
             triggerLabel="Réception tissu"
             title="Réception tissu"
             fields={TISSU_FIELDS}
+            dynamicOptions={{ cmd: cmdChoices }}
             action={createTissu}
             successMessage="Réception enregistrée"
           />
@@ -35,19 +38,7 @@ export default async function TissusPage() {
       </KpiGrid>
 
       <SectionPanel title="Réceptions tissus" actions={<StatusBadge tone="brand">{TISSUS.length}</StatusBadge>} flush>
-        <DataTable
-          columns={["Date", "Commande", "Désignation", "Qté reçue", "Prévue", "Écart", "Contrôle", "Statut"]}
-          rows={TISSUS.map((t) => [
-            t.date,
-            <span key="c" className="font-semibold text-brand">{t.cmd}</span>,
-            t.design,
-            <span key="r" className="tabular-nums">{t.recue.toLocaleString("fr-FR")}</span>,
-            <span key="p" className="tabular-nums text-muted-foreground">{t.prevue.toLocaleString("fr-FR")}</span>,
-            <StatusBadge key="e" tone={t.ecart[0]}>{t.ecart[1]}</StatusBadge>,
-            <StatusBadge key="ct" tone={t.controle[0]}>{t.controle[1]}</StatusBadge>,
-            <StatusBadge key="s" tone={t.statut[0]}>{t.statut[1]}</StatusBadge>,
-          ])}
-        />
+        <EditableTable entity="tissu" columns={tissuEdit(cmdChoices)} rows={TISSUS} searchPlaceholder="Rechercher…" />
       </SectionPanel>
     </>
   );
