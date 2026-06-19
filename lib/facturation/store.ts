@@ -1,7 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { FACTURES_BASE } from "./seed";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  deleteFactureAction,
+  restoreFacturesAction,
+  saveFactureAction,
+  setCostLineAction,
+} from "@/lib/actions/facturation";
 
 /* ═══════════════════ TYPES ═══════════════════ */
 export type Ligne = {
@@ -187,142 +193,105 @@ export function montantEnLettres(n: number): string {
   return s;
 }
 
-/* ═══════════════════ STORE HOOK ═══════════════════ */
-const K_COUTS = "dbs_couts_articles_2026";
-const K_OVER = "dbs_overrides_2026";
-const K_DEL = "dbs_deleted_2026";
+/* ═══════════════════ STORE HOOK (Postgres-backed) ═══════════════════ */
+export type FactStoreData = { factures: Facture[]; couts: Couts; deleted: Facture[] };
 
 export type FactStore = ReturnType<typeof useFactStore>;
 
-export function useFactStore() {
-  const [couts, setCouts] = useState<Couts>({});
-  const [overrides, setOverrides] = useState<Record<string, Facture>>({});
-  const [deleted, setDeleted] = useState<string[]>([]);
-  const [ready, setReady] = useState(false);
+/**
+ * Client cache over the Postgres-backed Facturation data. Reads come from the
+ * server component (props); writes go through server actions and trigger a
+ * `router.refresh()`. Cost-line edits are applied optimistically and persisted
+ * with a short debounce so typing stays responsive without a request per key.
+ */
+export function useFactStore(initial: FactStoreData) {
+  const router = useRouter();
+  const factures = initial.factures;
+  const deleted = initial.deleted;
 
+  // Optimistic copy of cost entries; re-sync when the server sends fresh data
+  // after a revalidate (the derive-state-from-props pattern).
+  const [couts, setCouts] = useState<Couts>(initial.couts);
+  const [prevServerCouts, setPrevServerCouts] = useState(initial.couts);
+  if (initial.couts !== prevServerCouts) {
+    setPrevServerCouts(initial.couts);
+    setCouts(initial.couts);
+  }
+
+  // Keep a ref of the latest couts so the debounced persist reads current data.
+  const coutsRef = useRef(couts);
   useEffect(() => {
-    // Hydrate persisted store from localStorage after mount (SSR-safe).
-    /* eslint-disable react-hooks/set-state-in-effect */
-    try {
-      const a = localStorage.getItem(K_COUTS);
-      if (a) setCouts(JSON.parse(a));
-      const b = localStorage.getItem(K_OVER);
-      if (b) setOverrides(JSON.parse(b));
-      const c = localStorage.getItem(K_DEL);
-      if (c) setDeleted(JSON.parse(c));
-    } catch {
-      /* ignore */
-    }
-    setReady(true);
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, []);
+    coutsRef.current = couts;
+  }, [couts]);
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  const persistCouts = useCallback((next: Couts) => {
-    setCouts(next);
-    try {
-      localStorage.setItem(K_COUTS, JSON.stringify(next));
-    } catch {}
-  }, []);
-  const persistOverrides = useCallback((next: Record<string, Facture>) => {
-    setOverrides(next);
-    try {
-      localStorage.setItem(K_OVER, JSON.stringify(next));
-    } catch {}
-  }, []);
-  const persistDeleted = useCallback((next: string[]) => {
-    setDeleted(next);
-    try {
-      localStorage.setItem(K_DEL, JSON.stringify(next));
-    } catch {}
-  }, []);
-
-  /** Merge base + overrides − deleted. */
-  const all = useCallback((): Facture[] => {
-    const map = new Map<string, Facture>();
-    FACTURES_BASE.forEach((f) => map.set(fkey(f), f));
-    Object.values(overrides).forEach((f) => map.set(fkey(f), f));
-    return [...map.values()].filter((f) => !deleted.includes(fkey(f)));
-  }, [overrides, deleted]);
+  const all = useCallback(() => factures, [factures]);
 
   const findFact = useCallback(
-    (id: string, type: string) => all().find((x) => x.id === id && x.type === type) || null,
-    [all],
+    (id: string, type: string) => factures.find((x) => x.id === id && x.type === type) || null,
+    [factures],
   );
+
+  const persistLine = useCallback((f: Facture, i: number) => {
+    const c = coutsRef.current[fkey(f)]?.lines?.[i] ?? { lieu: "", fac: "", cout: "" };
+    void setCostLineAction(f.id, f.type, i, {
+      lieu: c.lieu,
+      faconnier: c.fac,
+      cout: c.cout === "" ? null : Number(c.cout),
+    });
+  }, []);
 
   const setLine = useCallback(
     (f: Facture, i: number, field: keyof CostLine, val: string) => {
       const k = fkey(f);
-      const next: Couts = JSON.parse(JSON.stringify(couts));
-      if (!next[k]) next[k] = { lines: {} };
-      if (!next[k].lines[i]) next[k].lines[i] = { lieu: "", fac: "", cout: "" };
-      next[k].lines[i][field] = val as never;
-      persistCouts(next);
+      setCouts((prev) => {
+        const lines = { ...(prev[k]?.lines ?? {}) };
+        lines[i] = { ...(lines[i] ?? { lieu: "", fac: "", cout: "" }), [field]: val };
+        return { ...prev, [k]: { lines } };
+      });
+      const tk = `${k}|${i}`;
+      clearTimeout(timers.current[tk]);
+      timers.current[tk] = setTimeout(() => persistLine(f, i), 350);
     },
-    [couts, persistCouts],
+    [persistLine],
   );
 
   const saveFacture = useCallback(
-    (f: Facture) => {
-      const k = fkey(f);
-      const existed = !!findFact(f.id, f.type);
-      persistOverrides({ ...overrides, [k]: f });
-      persistDeleted(deleted.filter((x) => x !== k));
-      return existed;
+    async (f: Facture): Promise<boolean> => {
+      const res = await saveFactureAction(f);
+      if (res.ok) router.refresh();
+      return res.ok ? res.existed : false;
     },
-    [overrides, deleted, findFact, persistOverrides, persistDeleted],
+    [router],
   );
 
   const deleteFacture = useCallback(
-    (id: string, type: string) => {
-      const k = fkeyOf(id, type);
-      if (overrides[k]) {
-        const next = { ...overrides };
-        delete next[k];
-        persistOverrides(next);
-      }
-      if (FACTURES_BASE.some((f) => fkey(f) === k) && !deleted.includes(k)) persistDeleted([...deleted, k]);
+    async (id: string, type: string) => {
+      const res = await deleteFactureAction(id, type);
+      if (res.ok) router.refresh();
     },
-    [overrides, deleted, persistOverrides, persistDeleted],
+    [router],
   );
 
-  const restoreDeleted = useCallback(() => persistDeleted([]), [persistDeleted]);
-
-  const isOverride = useCallback((f: Facture) => !!overrides[fkey(f)], [overrides]);
+  const restoreDeleted = useCallback(async () => {
+    const res = await restoreFacturesAction();
+    if (res.ok) router.refresh();
+  }, [router]);
 
   const exportData = useCallback(() => {
     const blob = new Blob(
-      [JSON.stringify({ couts, overrides, deleted, version: 3, exported: new Date().toISOString() }, null, 2)],
+      [JSON.stringify({ factures, couts, version: 4, exported: new Date().toISOString() }, null, 2)],
       { type: "application/json" },
     );
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "dbs_sauvegarde_2026_" + new Date().toISOString().split("T")[0] + ".json";
     a.click();
-  }, [couts, overrides, deleted]);
-
-  const importData = useCallback(
-    (file: File, onDone: (ok: boolean) => void) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const d = JSON.parse(String(e.target?.result));
-          if (d.couts) persistCouts(d.couts);
-          if (d.overrides) persistOverrides(d.overrides);
-          if (d.deleted) persistDeleted(d.deleted);
-          onDone(true);
-        } catch {
-          onDone(false);
-        }
-      };
-      reader.readAsText(file);
-    },
-    [persistCouts, persistOverrides, persistDeleted],
-  );
+  }, [factures, couts]);
 
   return {
-    ready,
+    ready: true,
     couts,
-    overrides,
     deleted,
     all,
     findFact,
@@ -330,8 +299,6 @@ export function useFactStore() {
     saveFacture,
     deleteFacture,
     restoreDeleted,
-    isOverride,
     exportData,
-    importData,
   };
 }

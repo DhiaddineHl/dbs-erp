@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { client, facture, factureCostLine, factureExtra, factureLigne, faconnier } from "@/lib/db/schema";
 
@@ -85,8 +85,28 @@ function mapFacture(row: {
 }
 
 export async function getFactures(): Promise<FactureDomain[]> {
-  const rows = await db.query.facture.findMany({ with: { lignes: true, extras: true } });
+  const rows = await db.query.facture.findMany({
+    where: isNull(facture.deletedAt),
+    with: { lignes: true, extras: true },
+  });
   return rows.map(mapFacture);
+}
+
+/** Soft-deleted invoices, for the "restore" affordance in the registre. */
+export async function getDeletedFactures(): Promise<FactureDomain[]> {
+  const rows = await db.query.facture.findMany({
+    where: isNotNull(facture.deletedAt),
+    with: { lignes: true, extras: true },
+  });
+  return rows.map(mapFacture);
+}
+
+export async function factureExists(num: string, type: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: facture.id })
+    .from(facture)
+    .where(and(eq(facture.num, num), eq(facture.type, type), isNull(facture.deletedAt)));
+  return !!row;
 }
 
 /** Per-line cost entries shaped like the client COUTS store: `${num}|${type}` → lines[idx]. */
@@ -132,6 +152,8 @@ export async function saveFacture(f: FactureDomain): Promise<number> {
       incoterm: f.incoterm,
       paiement: f.paiement,
       matieres: f.matieres,
+      // Re-saving an invoice un-deletes it.
+      deletedAt: null,
     };
     const [row] = await tx
       .insert(facture)
@@ -149,8 +171,17 @@ export async function saveFacture(f: FactureDomain): Promise<number> {
   });
 }
 
-export async function deleteFacture(num: string, type: string) {
-  await db.delete(facture).where(and(eq(facture.num, num), eq(facture.type, type)));
+/** Soft delete: keep the row + lines but hide it from the active list. */
+export async function softDeleteFacture(num: string, type: string) {
+  await db
+    .update(facture)
+    .set({ deletedAt: new Date() })
+    .where(and(eq(facture.num, num), eq(facture.type, type)));
+}
+
+/** Restore every soft-deleted invoice. */
+export async function restoreAllFactures() {
+  await db.update(facture).set({ deletedAt: null }).where(isNotNull(facture.deletedAt));
 }
 
 export async function setCostLine(

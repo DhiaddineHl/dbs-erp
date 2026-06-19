@@ -151,10 +151,10 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
     };
   };
 
-  const save = () => {
+  const save = async () => {
     const f = collect();
     if (!f) return;
-    const existed = store.saveFacture(f);
+    const existed = await store.saveFacture(f);
     toast(existed ? `Facture ${f.id} mise à jour ✓` : `Facture ${f.id} enregistrée ✓`);
   };
 

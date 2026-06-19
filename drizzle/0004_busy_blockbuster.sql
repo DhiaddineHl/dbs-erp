@@ -1,0 +1,1 @@
+ALTER TABLE "facture" ADD COLUMN "deleted_at" timestamp;

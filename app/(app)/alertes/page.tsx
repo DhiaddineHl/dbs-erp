@@ -13,12 +13,12 @@ import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
-import { listAlertes } from "@/lib/services/modules";
+import { getAlertes } from "@/lib/services/dashboard";
 
 const ICONS: Record<string, LucideIcon> = { AlertCircle, TriangleAlert, Clock, Euro, Layers, PencilRuler };
 
 export default async function AlertesPage() {
-  const ALERTS = await listAlertes();
+  const { alerts, total, critiques, avertissements } = await getAlertes();
   return (
     <>
       <PageHeader
@@ -28,14 +28,19 @@ export default async function AlertesPage() {
       />
 
       <KpiGrid>
-        <KpiCard label="Alertes totales" value="4" icon={Bell} tone="brand" />
-        <KpiCard label="Critiques" value="2" icon={TriangleAlert} tone="danger" />
-        <KpiCard label="Avertissements" value="2" icon={AlertCircle} tone="warning" />
+        <KpiCard label="Alertes totales" value={String(total)} icon={Bell} tone="brand" />
+        <KpiCard label="Critiques" value={String(critiques)} icon={TriangleAlert} tone="danger" />
+        <KpiCard label="Avertissements" value={String(avertissements)} icon={AlertCircle} tone="warning" />
       </KpiGrid>
 
       <SectionPanel title="Anomalies détectées" flush>
         <div className="divide-y">
-          {ALERTS.map((a, i) => {
+          {alerts.length === 0 && (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              Aucune anomalie détectée — tout est sous contrôle ✓
+            </div>
+          )}
+          {alerts.map((a, i) => {
             const Icon = ICONS[a.iconName] ?? AlertCircle;
             return (
               <div key={i} className="flex items-center gap-3 px-4 py-3">

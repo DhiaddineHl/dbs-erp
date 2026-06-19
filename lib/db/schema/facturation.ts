@@ -6,6 +6,7 @@ import {
   pgTable,
   serial,
   text,
+  timestamp,
   unique,
 } from "drizzle-orm/pg-core";
 
@@ -42,6 +43,9 @@ export const facture = pgTable(
     incoterm: text().notNull().default(""),
     paiement: text().notNull().default(""),
     matieres: jsonb().$type<string[]>().notNull().default([]),
+    // Soft delete: null = active. Set when "deleted" in the registre so the
+    // "restore" UX keeps working without losing data.
+    deletedAt: timestamp(),
   },
   (t) => [unique("facture_num_type").on(t.num, t.type)],
 );

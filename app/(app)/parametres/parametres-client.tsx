@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useRef, useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Settings, Plus, Download, Upload, RotateCcw, Pencil, X, ShieldCheck } from "lucide-react";
+import { Settings, Plus, Pencil, X, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionPanel } from "@/components/shared/section-panel";
@@ -16,7 +16,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NAV_STRUCTURE } from "@/lib/nav";
 import { ROLE_KEYS, ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
-import { exportBackup, resetAll, restoreBackup } from "@/lib/settings";
 import {
   createUserAction,
   deleteUserAction,
@@ -40,7 +39,6 @@ export function ParametresClient({
   prixFacon: number;
 }) {
   const router = useRouter();
-  const restoreRef = useRef<HTMLInputElement>(null);
   const [userDialog, setUserDialog] = useState<{ open: boolean; edit: ManagedUser | null }>({ open: false, edit: null });
   const [, startTransition] = useTransition();
 
@@ -85,43 +83,13 @@ export function ParametresClient({
         </div>
       </SectionPanel>
 
-      {/* ── Données (browser-local module data) ── */}
-      <SectionPanel title="Données locales (modules GPAO / Facturation)" icon="🗄">
-        <p className="mb-4 text-xs text-muted-foreground">
-          Les modules GPAO et Facturation conservent encore leurs saisies dans ce navigateur. Exportez/restaurez cette
-          donnée locale ici. (Les comptes, permissions et la facturation de référence sont en base de données.)
+      {/* ── Données ── */}
+      <SectionPanel title="Données" icon="🗄">
+        <p className="text-xs text-muted-foreground">
+          Toutes les données — commandes, production (GPAO), facturation, comptes et permissions — sont désormais
+          stockées en base PostgreSQL côté serveur et partagées en temps réel entre tous les utilisateurs. Plus aucune
+          donnée n&apos;est conservée dans le navigateur ; les sauvegardes sont gérées au niveau de la base de données.
         </p>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => { exportBackup(); toast.success("Sauvegarde locale exportée"); }}>
-            <Download className="size-4" /> Exporter (JSON)
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => restoreRef.current?.click()}>
-            <Upload className="size-4" /> Restaurer
-          </Button>
-          <input
-            ref={restoreRef}
-            type="file"
-            accept=".json"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) restoreBackup(file, (ok) => (ok ? toast.success("Restauré ✓") : toast.error("Fichier invalide")));
-              e.target.value = "";
-            }}
-          />
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => {
-              if (confirm("Réinitialiser les données locales des modules (GPAO/Facturation) ?")) {
-                resetAll();
-                toast.success("Données locales réinitialisées");
-              }
-            }}
-          >
-            <RotateCcw className="size-4" /> Réinitialiser local
-          </Button>
-        </div>
       </SectionPanel>
 
       {/* ── Comptes ── */}
