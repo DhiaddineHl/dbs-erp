@@ -10,11 +10,16 @@ import { ImportButton } from "@/components/shared/import-button";
 import { CLIENT_FIELDS } from "@/lib/modules/forms";
 import { CLIENT_COLUMNS } from "@/lib/modules/columns";
 import { CLIENT_EDIT } from "@/lib/modules/edit-columns";
-import { listClients } from "@/lib/services/modules";
-import { createClient, importClients } from "@/lib/actions/modules";
+import { listClients } from "@/lib/services/commandes";
+import { createClient, importClients } from "@/lib/actions/commandes";
+
+const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
 export default async function ClientsPage() {
   const CLIENTS = await listClients();
+  const caTotal = CLIENTS.reduce((s, c) => s + c.ca, 0);
+  const cmdTotal = CLIENTS.reduce((s, c) => s + c.cmd, 0);
+
   return (
     <>
       <PageHeader
@@ -37,9 +42,9 @@ export default async function ClientsPage() {
       />
 
       <KpiGrid>
-        <KpiCard label="Clients" value="8" icon={Building2} tone="brand" />
-        <KpiCard label="CA portefeuille" value="248 600 €" icon={Euro} tone="success" />
-        <KpiCard label="Commandes actives" value="12" icon={Package} tone="purple" />
+        <KpiCard label="Clients" value={String(CLIENTS.length)} icon={Building2} tone="brand" />
+        <KpiCard label="CA portefeuille" value={`${eur.format(Math.round(caTotal))} €`} icon={Euro} tone="success" />
+        <KpiCard label="Commandes actives" value={String(cmdTotal)} icon={Package} tone="purple" />
       </KpiGrid>
 
       <SectionPanel

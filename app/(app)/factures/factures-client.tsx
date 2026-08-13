@@ -13,22 +13,31 @@ import {
   fdate,
   fid,
   getLine,
+  lignesCoutees,
   nb,
   nbI,
   typeLabel,
   typeTagClass,
   useFactStore,
 } from "@/lib/facturation/store";
+import { facturationMensuelle, margesFaconniers } from "@/lib/domain/graphiques";
+import { FacturationMensuelle } from "@/components/charts/facturation-mensuelle";
+import { MargesFaconniersChart } from "@/components/charts/marges-faconniers";
+import type { EncaissementRow } from "@/lib/services/finance";
+import { Encaissements } from "./encaissements";
+import { Relances } from "./relances";
 import { DetailModal } from "./detail-modal";
 import { Generateur } from "./generateur";
 import { buildReportHTML, printDocument } from "@/lib/facturation/print";
 
-type Tab = "dashboard" | "registre" | "generateur" | "marges" | "stats" | "rapports";
+type Tab = "dashboard" | "registre" | "generateur" | "encaissements" | "relances" | "marges" | "stats" | "rapports";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Tableau de bord", icon: "◈" },
   { id: "registre", label: "Registre", icon: "≡" },
   { id: "generateur", label: "Nouvelle facture", icon: "+" },
+  { id: "encaissements", label: "Encaissements", icon: "€" },
+  { id: "relances", label: "Relances", icon: "!" },
   { id: "marges", label: "Marges par facture", icon: "◎" },
   { id: "stats", label: "Stats Interne/Façon", icon: "▤" },
   { id: "rapports", label: "Rapports", icon: "🖨" },
@@ -36,9 +45,15 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 
 const BAR_COLORS = ["#0F1F3D", "#C9A227", "#2A5C45", "#6B7589", "#C0392B", "#1A6B8A", "#8B5E3C", "#444"];
 
-type Props = { factures: Facture[]; couts: Couts; deleted: Facture[] };
+type Props = {
+  factures: Facture[];
+  couts: Couts;
+  deleted: Facture[];
+  encaissements: EncaissementRow[];
+  comptes: { id: number; libelle: string }[];
+};
 
-export default function FacturesClient({ factures, couts, deleted }: Props) {
+export default function FacturesClient({ factures, couts, deleted, encaissements, comptes }: Props) {
   const store = useFactStore({ factures, couts, deleted });
   const [tab, setTab] = useState<Tab>("dashboard");
   const [detail, setDetail] = useState<Facture | null>(null);
@@ -91,6 +106,8 @@ export default function FacturesClient({ factures, couts, deleted }: Props) {
       {tab === "registre" && <Registre store={store} onView={viewFacture} onMarges={setDetail} toast={toast} />}
       {tab === "generateur" && <Generateur key={seed.key} store={store} seed={seed.facture} toast={toast} />}
       {tab === "marges" && <Marges store={store} onOpen={setDetail} />}
+      {tab === "encaissements" && <Encaissements lignes={encaissements} comptes={comptes} toast={toast} />}
+      {tab === "relances" && <Relances lignes={encaissements} comptes={comptes} toast={toast} />}
       {tab === "stats" && <Stats store={store} />}
       {tab === "rapports" && <Rapports store={store} />}
 
@@ -694,6 +711,10 @@ function Stats({ store }: { store: FactStore }) {
       });
     });
 
+  const lignes = lignesCoutees(store.all(), store.couts);
+  const facturation = facturationMensuelle(lignes);
+  const marges = margesFaconniers(lignes);
+
   const maxP = Math.max(agg.interne.ca, agg.faconnier.ca, agg.nd.ca) || 1;
   const clientsM = Object.entries(byClient)
     .filter(([, v]) => v.hasCost)
@@ -773,6 +794,23 @@ function Stats({ store }: { store: FactStore }) {
               Ouvrez des factures dans «Marges par facture» et renseignez les coûts pour alimenter ce graphique.
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Les deux séries mensuelles, sur les mêmes annotations de coût que
+          les cartes ci-dessus — donc avec la même définition d'« interne ». */}
+      <div className="chart-grid">
+        <div className="chart-card">
+          <div className="chart-title">Facturation mensuelle par origine de production</div>
+          <FacturationMensuelle data={facturation} />
+        </div>
+        <div className="chart-card">
+          <div className="chart-title">Marge sur coût façon, par façonnier</div>
+          <MargesFaconniersChart marges={marges} />
+          <div style={{ marginTop: 8, fontSize: 11, color: "var(--slate)" }}>
+            Montant facturé moins la façon payée. Ni le tissu, ni les fournitures, ni la coupe ne
+            sont déduits : ce n&apos;est pas la marge nette.
+          </div>
         </div>
       </div>
 

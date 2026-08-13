@@ -27,7 +27,16 @@ import { cn } from "@/lib/utils";
 export type EditColumn = {
   key: string;
   label: string;
-  kind?: "text" | "number" | "select" | "status" | "badge" | "progress" | "readonly";
+  kind?:
+    | "text"
+    | "number"
+    | "money"
+    | "date"
+    | "select"
+    | "status"
+    | "badge"
+    | "progress"
+    | "readonly";
   /** status select options (label + tone tuple). */
   opts?: Opt[];
   /** plain select choices (client / façonnier / chaîne). */
@@ -37,6 +46,8 @@ export type EditColumn = {
   accent?: "brand" | "success";
   strong?: boolean;
   align?: "right" | "center";
+  /** Computed by the domain layer — displayed, never typed into. */
+  readOnly?: boolean;
 };
 
 type Row = Record<string, unknown> & { id: number };
@@ -53,6 +64,12 @@ const toneText: Record<Tone, string> = {
 
 const tupleLabel = (v: unknown) => (Array.isArray(v) ? String(v[1] ?? "") : "");
 const tupleTone = (v: unknown) => (Array.isArray(v) ? (v[0] as Tone) : "neutral");
+
+const eur = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Money is stored as a number and typed as a decimal — display the French
+ * form when idle, but hand the raw value back to the input while editing. */
+const showMoney = (v: unknown) =>
+  v == null || v === "" ? "—" : Number.isFinite(Number(v)) ? `${eur.format(Number(v))} €` : String(v);
 
 function searchText(row: Row): string {
   return Object.values(row)
@@ -281,6 +298,36 @@ function renderCell(
     return <StatusBadge tone={tupleTone(v)}>{tupleLabel(v) || "—"}</StatusBadge>;
   }
 
+  if (c.readOnly) {
+    const v = row[c.key];
+    const text =
+      kind === "money"
+        ? showMoney(v)
+        : kind === "progress"
+          ? `${Math.max(0, Math.min(100, Number(v) || 0))} %`
+          : v == null || v === ""
+            ? "—"
+            : String(v);
+    const pct = Math.max(0, Math.min(100, Number(v) || 0));
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-2 tabular-nums",
+          c.strong && "font-semibold",
+          c.accent === "brand" && "text-brand font-bold",
+          c.accent === "success" && "text-success-foreground font-semibold",
+        )}
+      >
+        {kind === "progress" && (
+          <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+            <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+          </span>
+        )}
+        {text}
+      </span>
+    );
+  }
+
   if (kind === "status") {
     const opts = c.opts ?? [];
     const current = cellValue(row, c.key, tupleLabel(row[c.key]));
@@ -342,17 +389,19 @@ function renderCell(
     );
   }
 
-  // text / number
+  // text / number / money / date
   const orig = row[c.key];
   const current = cellValue(row, c.key, orig == null ? "" : String(orig));
+  const inputType = kind === "number" || kind === "money" ? "number" : kind === "date" ? "date" : "text";
   return (
     <input
-      type={kind === "number" ? "number" : "text"}
+      type={inputType}
+      step={kind === "money" ? "0.01" : undefined}
       value={current}
       onChange={(e) => setCell(row.id, c.key, e.target.value)}
       className={cn(
         editClass,
-        kind === "number" && "text-right tabular-nums",
+        (kind === "number" || kind === "money") && "text-right tabular-nums",
         c.strong && "font-semibold",
         c.accent === "brand" && "text-brand font-bold",
         c.accent === "success" && "text-success-foreground font-semibold",

@@ -7,7 +7,10 @@ export const CLIENT_COLUMNS: Column[] = [
   { key: "nom", label: "Raison sociale" },
   { key: "contact", label: "Contact" },
   { key: "email", label: "Email" },
+  { key: "tel", label: "Téléphone" },
   { key: "ville", label: "Ville" },
+  { key: "pays", label: "Pays" },
+  { key: "tva", label: "N° TVA" },
   { key: "cmd", label: "Commandes" },
   { key: "ca", label: "CA total" },
 ];
@@ -15,16 +18,30 @@ export const CLIENT_COLUMNS: Column[] = [
 export const COMMANDE_COLUMNS: Column[] = [
   { key: "of", label: "N° OF" },
   { key: "modele", label: "Modèle" },
+  { key: "refArticle", label: "Référence" },
+  { key: "couleur", label: "Couleur" },
+  { key: "saison", label: "Saison" },
   { key: "client", label: "Client" },
-  { key: "assigne", label: "Assigné" },
+  { key: "faconnier", label: "Façonnier" },
   { key: "qte", label: "Qté" },
-  { key: "pv", label: "P. vente" },
-  { key: "pf", label: "P. façon" },
-  { key: "marge", label: "Marge" },
-  { key: "export", label: "Export" },
+  { key: "produit", label: "Produit" },
+  { key: "prixVente", label: "P. vente" },
+  { key: "prixFacon", label: "P. façon" },
+  { key: "margeTotale", label: "Marge" },
+  { key: "dateExport", label: "Export" },
   { key: "retard", label: "Retard" },
   { key: "av", label: "Avancement" },
   { key: "statut", label: "Statut" },
+];
+
+export const FACONNIER_COLUMNS: Column[] = [
+  { key: "nom", label: "Nom" },
+  { key: "specialite", label: "Spécialité" },
+  { key: "contact", label: "Contact" },
+  { key: "tel", label: "Téléphone" },
+  { key: "prixFacon", label: "Prix façon réf." },
+  { key: "cmd", label: "Commandes" },
+  { key: "charge", label: "Charge" },
 ];
 
 export const norm = (s: string) =>

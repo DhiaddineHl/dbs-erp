@@ -36,6 +36,62 @@
       "when": 1781906780917,
       "tag": "0004_busy_blockbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786556784186,
+      "tag": "0005_commande_refactor",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786556987488,
+      "tag": "0006_drop_legacy_module_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786559807712,
+      "tag": "0007_preparation",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786561259981,
+      "tag": "0008_qc_et_fichiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786564875971,
+      "tag": "0009_finance",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786615239111,
+      "tag": "0010_aval",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786615261785,
+      "tag": "0011_drop_legacy_aval_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786617726950,
+      "tag": "0012_atelier_roles_journal",
+      "breakpoints": true
     }
   ]
 }

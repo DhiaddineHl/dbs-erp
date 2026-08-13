@@ -1,7 +1,7 @@
 import GpaoApp from "./gpao-app";
 import type { GpaoState, Journee } from "./store";
 import { getChaines, getJournees, getModeles } from "@/lib/services/gpao";
-import { listClients } from "@/lib/services/modules";
+import { listClients } from "@/lib/services/commandes";
 
 /* Shared GPAO state lives in Postgres now — load it server-side so every user
  * sees the same journées, chaînes and modèles. */

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The client's current PilotPro app, kept for reference during the port.
+    "draft/**",
   ]),
 ]);
 

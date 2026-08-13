@@ -35,12 +35,12 @@ export async function upsertClient(input: typeof client.$inferInsert) {
 }
 
 export async function getFaconniers() {
-  const rows = await db.query.faconnier.findMany();
-  return rows.map((r) => r.name);
+  const rows = await db.select({ nom: faconnier.nom }).from(faconnier).orderBy(faconnier.nom);
+  return rows.map((r) => r.nom);
 }
 
-export async function addFaconnier(name: string) {
-  await db.insert(faconnier).values({ name }).onConflictDoNothing({ target: faconnier.name });
+export async function addFaconnier(nom: string) {
+  await db.insert(faconnier).values({ nom }).onConflictDoNothing({ target: faconnier.nom });
 }
 
 /* ─────────── Invoices ─────────── */

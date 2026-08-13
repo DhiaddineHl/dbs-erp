@@ -19,9 +19,22 @@ import * as schema from "@/lib/db/schema";
 import { CLIENTS_DB, FACONNIERS } from "@/lib/facturation/reference";
 import { FACTURES_BASE } from "@/lib/facturation/seed";
 import { defaults as gpaoDefaults } from "@/app/(app)/gpao_prod/store";
-import { MODULE_IDS, ROLE_KEYS, defaultModuleAccess } from "@/lib/auth/permissions";
+import { BUILTIN_ROLES, MODULE_IDS, defaultModuleAccess } from "@/lib/auth/permissions";
+import { ROLES_DBS } from "@/lib/auth/roles-seed";
+import { OPERATIONS_DBS, PERSONNEL_DBS } from "@/lib/atelier/atelier-seed";
+import { cleAleatoire } from "@/lib/atelier/cle";
 import { existsSync, readFileSync } from "node:fs";
 import * as M from "@/lib/modules/seed-data";
+import { BAREMES_CLIENTS } from "@/lib/qc/baremes-seed";
+import {
+  COMPTES_BANCAIRES,
+  FACTURES_IMPAYEES,
+  FOURNISSEURS_DEMO,
+  TAUX_EUR_INITIAL,
+} from "@/lib/facturation/encaissements-seed";
+import { dateEcheance } from "@/lib/domain/finance";
+import * as av from "@/lib/domain/aval";
+import { rapprocherParNom } from "@/lib/domain/atelier";
 
 /** Load a local .env if present, without overriding already-set env vars
  * (no-op on Railway, where env is injected). */
@@ -41,14 +54,29 @@ loadEnv();
 
 const {
   client,
+  commande,
+  coupe,
+  br,
+  magasinMouvement,
+  bl,
+  blLigne,
   faconnier,
+  qcBareme,
+  qcBaremePoint,
+  compteBancaire,
+  reglement,
+  fournisseurCompte,
+  fournisseurTransaction,
   facture,
   factureLigne,
   factureExtra,
   modele,
   chaine,
   ouvriere,
+  personnel,
+  operation,
   rolePermission,
+  role: roleTable,
   appSetting,
   user,
   account,
@@ -64,8 +92,32 @@ const DEFAULT_USERS = [
 ] as const;
 
 async function seedPermissions() {
-  for (const role of ROLE_KEYS) {
-    const access = defaultModuleAccess(role);
+  // Les rôles de base et les rôles créés par DBS coexistent dans la même table.
+  for (const r of BUILTIN_ROLES) {
+    await db
+      .insert(roleTable)
+      .values({ key: r.key, label: r.label, color: r.color, builtin: true })
+      .onConflictDoNothing({ target: roleTable.key });
+  }
+  for (const r of ROLES_DBS) {
+    await db
+      .insert(roleTable)
+      .values({ key: r.key, label: r.label, color: r.color, builtin: false })
+      .onConflictDoNothing({ target: roleTable.key });
+  }
+
+  const tousRoles: { key: string; acces: Record<string, boolean> }[] = [
+    ...BUILTIN_ROLES.map((r) => ({ key: r.key, acces: defaultModuleAccess(r.key) })),
+    ...ROLES_DBS.map((r) => {
+      // Un module absent de la liste de refus reste accessible ; un écran ajouté
+      // depuis leur configuration l'est donc aussi, ce qui est le bon défaut.
+      const acces: Record<string, boolean> = {};
+      for (const id of MODULE_IDS) acces[id] = id !== "parametres" && !r.refuses.includes(id);
+      return { key: r.key, acces };
+    }),
+  ];
+
+  for (const { key: role, acces: access } of tousRoles) {
     for (const moduleId of MODULE_IDS) {
       await db
         .insert(rolePermission)
@@ -74,7 +126,7 @@ async function seedPermissions() {
     }
   }
   await db.insert(appSetting).values({ key: "prixFacon", value: 3.5 }).onConflictDoNothing({ target: appSetting.key });
-  console.log(`  ✓ permission matrix (${ROLE_KEYS.length} roles × ${MODULE_IDS.length} modules) + settings`);
+  console.log(`  ✓ matrice de permissions (${tousRoles.length} rôles × ${MODULE_IDS.length} modules) + réglages`);
 }
 
 async function seedUsers() {
@@ -99,8 +151,8 @@ async function seedFacturation() {
     const values = { key, nom: c.nom, adresse: c.adresse, livraison: c.livraison, marque: c.marque };
     await db.insert(client).values(values).onConflictDoUpdate({ target: client.key, set: values });
   }
-  for (const name of FACONNIERS) {
-    await db.insert(faconnier).values({ name }).onConflictDoNothing({ target: faconnier.name });
+  for (const nom of FACONNIERS) {
+    await db.insert(faconnier).values({ nom }).onConflictDoNothing({ target: faconnier.nom });
   }
   for (const f of FACTURES_BASE) {
     const header = {
@@ -152,6 +204,137 @@ async function seedGpao() {
   console.log(`  ✓ ${d.modeles.length} modèle(s), ${d.chaines.length} chaîne(s), ${d.chaines[0]?.ouvrieres.length ?? 0} ouvrières`);
 }
 
+
+/** Demo clients / façonniers land in the same tables as the facturation ones —
+ * there is only one référentiel now. */
+async function seedReferentiel() {
+  for (const c of M.CLIENTS) {
+    await db.insert(client).values(c).onConflictDoNothing({ target: client.key });
+  }
+  for (const f of M.FACONNIERS) {
+    await db.insert(faconnier).values(f).onConflictDoNothing({ target: faconnier.nom });
+  }
+  console.log(`  ✓ ${M.CLIENTS.length} clients + ${M.FACONNIERS.length} façonniers (référentiel)`);
+}
+
+async function seedCommandes() {
+  if ((await db.$count(commande)) > 0) {
+    console.log("  • commandes already seeded — skipped");
+    return;
+  }
+  const clients = new Map((await db.select().from(client)).map((c) => [c.nom, c.id]));
+  const faconniers = new Map((await db.select().from(faconnier)).map((f) => [f.nom, f.id]));
+  const chaines = new Map((await db.select().from(chaine)).map((c) => [c.nom, c.id]));
+
+  for (const c of M.COMMANDES) {
+    await db.insert(commande).values({
+      ofNumber: c.ofNumber,
+      modele: c.modele,
+      clientId: clients.get(c.client) ?? null,
+      faconnierId: c.faconnier ? (faconniers.get(c.faconnier) ?? null) : null,
+      chaineId: c.chaine ? (chaines.get(c.chaine) ?? null) : null,
+      qte: c.qte,
+      produit: c.produit,
+      prixVente: c.prixVente,
+      prixFacon: c.prixFacon,
+      consoTheo: c.consoTheo,
+      dateExport: c.dateExport,
+    });
+  }
+  console.log(`  ✓ ${M.COMMANDES.length} commandes`);
+}
+
+
+/** Barèmes de mesures clients — insérés une fois, jamais écrasés : ce sont des
+ * données de travail que la qualité ajuste ensuite. */
+async function seedBaremes() {
+  if ((await db.$count(qcBareme)) > 0) {
+    console.log("  • barèmes qualité déjà seedés — skipped");
+    return;
+  }
+  let points = 0;
+  for (const b of BAREMES_CLIENTS) {
+    const [row] = await db
+      .insert(qcBareme)
+      .values({ nom: b.nom, client: b.client, refs: b.refs, tailles: b.tailles })
+      .returning({ id: qcBareme.id });
+    if (b.points.length) {
+      await db.insert(qcBaremePoint).values(
+        b.points.map((p, ordre) => ({
+          baremeId: row.id, ordre, label: p.label, tolerance: p.tolerance, valeurs: p.valeurs,
+        })),
+      );
+      points += b.points.length;
+    }
+  }
+  console.log(`  ✓ ${BAREMES_CLIENTS.length} barèmes qualité (${points} points de mesure)`);
+}
+
+
+/** Comptes d'encaissement, taux de change et état de règlement des factures. */
+async function seedFinance() {
+  for (const [ordre, libelle] of COMPTES_BANCAIRES.entries()) {
+    await db
+      .insert(compteBancaire)
+      .values({ libelle, ordre })
+      .onConflictDoNothing({ target: compteBancaire.libelle });
+  }
+  await db
+    .insert(appSetting)
+    .values({ key: "tauxEur", value: TAUX_EUR_INITIAL })
+    .onConflictDoNothing({ target: appSetting.key });
+
+  if ((await db.$count(reglement)) === 0) {
+    const [compte] = await db.select().from(compteBancaire).orderBy(compteBancaire.ordre).limit(1);
+    const factures = await db.select().from(facture);
+    const valeurs = factures
+      .filter((f) => f.type === "facture" && !FACTURES_IMPAYEES.has(f.num.split("/")[0].trim()))
+      .map((f) => ({
+        factureId: f.id,
+        // Réglée à l'échéance quand le mode de paiement en exprime une.
+        date: dateEcheance(f.date, f.paiement) ?? f.date,
+        montant: f.total,
+        mode: "Virement",
+        compteId: compte?.id ?? null,
+        ref: "",
+        note: "Repris de l'état initial",
+      }));
+    if (valeurs.length) await db.insert(reglement).values(valeurs);
+    console.log(`  ✓ ${COMPTES_BANCAIRES.length} comptes bancaires, ${valeurs.length} factures soldées`);
+  } else {
+    console.log("  • encaissements déjà seedés — skipped");
+  }
+}
+
+/** Grand livre : quelques fournisseurs de démonstration avec des échéances. */
+async function seedGrandLivre() {
+  if ((await db.$count(fournisseurCompte)) > 0) {
+    console.log("  • grand livre déjà seedé — skipped");
+    return;
+  }
+  const jour = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  let mouvements = 0;
+  for (const f of FOURNISSEURS_DEMO) {
+    const [row] = await db
+      .insert(fournisseurCompte)
+      .values({ nom: f.nom, categorie: f.categorie, devise: f.devise })
+      .returning({ id: fournisseurCompte.id });
+    if (f.transactions.length) {
+      await db.insert(fournisseurTransaction).values(
+        f.transactions.map((t) => ({
+          compteId: row.id, date: jour(t.jours), libelle: t.libelle, debit: t.debit, credit: t.credit,
+        })),
+      );
+      mouvements += f.transactions.length;
+    }
+  }
+  console.log(`  ✓ ${FOURNISSEURS_DEMO.length} fournisseurs (${mouvements} mouvements)`);
+}
+
 async function insertIfEmpty<T extends PgTable>(tbl: T, rows: T["$inferInsert"][]) {
   const count = await db.$count(tbl);
   if (count > 0) return false;
@@ -164,17 +347,10 @@ async function seedModules() {
   let n = 0;
   const tick = (ok: boolean) => ok && n++;
 
-  tick(await insertIfEmpty(s.mClient, M.CLIENTS));
-  tick(await insertIfEmpty(s.mFaconnier, M.FACONNIERS));
   tick(await insertIfEmpty(s.mGamme, M.GAMMES));
   tick(await insertIfEmpty(s.mCapaciteChaine, M.CAPACITE_CHAINES));
   tick(await insertIfEmpty(s.mOf, M.OFS));
 
-  tick(await insertIfEmpty(s.mCommande, M.COMMANDES.map((c) => ({
-    of: c.of, modele: c.modele, client: c.client, assigne: c.assigne, qte: c.qte, pv: c.pv, pf: c.pf,
-    marge: c.marge, export: c.export, retardTone: c.retard[0], retardLabel: c.retard[1], av: c.av,
-    statutTone: c.statut[0], statutLabel: c.statut[1],
-  }))));
   tick(await insertIfEmpty(s.mTissu, M.TISSUS.map((r) => ({
     date: r.date, cmd: r.cmd, design: r.design, recue: r.recue, prevue: r.prevue,
     ecartTone: r.ecart[0], ecartLabel: r.ecart[1], controleTone: r.controle[0], controleLabel: r.controle[1],
@@ -183,10 +359,6 @@ async function seedModules() {
   tick(await insertIfEmpty(s.mFourniture, M.FOURNITURES.map((r) => ({
     date: r.date, cmd: r.cmd, type: r.type, design: r.design, qte: r.qte,
     controleTone: r.controle[0], controleLabel: r.controle[1], statutTone: r.statut[0], statutLabel: r.statut[1],
-  }))));
-  tick(await insertIfEmpty(s.mCoupe, M.COUPE.map((r) => ({
-    of: r.of, mc: r.mc, qte: r.qte, coupee: r.coupee, planif: r.planif, fin: r.fin,
-    statutTone: r.statut[0], statutLabel: r.statut[1],
   }))));
   tick(await insertIfEmpty(s.mBe, M.BE.map((r) => ({
     of: r.of, mc: r.mc, envoi: r.envoi, ok: r.ok, ref: r.ref, statutTone: r.statut[0], statutLabel: r.statut[1],
@@ -198,22 +370,6 @@ async function seedModules() {
   tick(await insertIfEmpty(s.mOrdo, M.ORDO.map((r) => ({
     rang: r.rang, prioTone: r.prio[0], prioLabel: r.prio[1], of: r.of, mc: r.mc, qte: r.qte, sam: r.sam,
     charge: r.charge, assigne: r.assigne, export: r.export, critTone: r.crit[0], critLabel: r.crit[1],
-  }))));
-  tick(await insertIfEmpty(s.mBr, M.BRS.map((r) => ({
-    br: r.br, date: r.date, facon: r.facon, cmd: r.cmd, recu: r.recu, oknc: r.oknc,
-    controleTone: r.controle[0], controleLabel: r.controle[1],
-  }))));
-  tick(await insertIfEmpty(s.mMagasin, M.MAGASIN.map((r) => ({
-    of: r.of, mc: r.mc, sourceTone: r.source[0], sourceLabel: r.source[1], cmd: r.cmd, recu: r.recu,
-    statutTone: r.statut[0], statutLabel: r.statut[1],
-  }))));
-  tick(await insertIfEmpty(s.mBl, M.BLS.map((r) => ({
-    bl: r.bl, date: r.date, client: r.client, lignes: r.lignes, qte: r.qte, total: r.total,
-    statutTone: r.statut[0], statutLabel: r.statut[1],
-  }))));
-  tick(await insertIfEmpty(s.mArchive, M.ARCHIVES.map((r) => ({
-    of: r.of, modele: r.modele, client: r.client, qte: r.qte, ca: r.ca, marge: r.marge, livre: r.livre,
-    retardTone: r.retard[0], retardLabel: r.retard[1],
   }))));
   tick(await insertIfEmpty(s.mAlerte, M.ALERTS.map((r) => ({
     iconName: r.iconName, tone: r.tone, title: r.title, detail: r.detail,
@@ -231,13 +387,154 @@ async function seedModules() {
   console.log(n ? `  ✓ ${n} module table(s) seeded` : "  • modules already seeded — skipped");
 }
 
+/** Flux aval de démonstration : lâchers de coupe, réceptions sous-traitance,
+ * entrées magasin et bons de livraison, reconstruits à partir de ce que les
+ * commandes déclarent déjà avoir produit.
+ *
+ * Les totaux sont volontairement cohérents avec la règle de recalcul du
+ * service : somme des lâchers = coupe_qte, somme des qte_ok = produit, somme
+ * des mouvements = magasin_qte. Sans ça, la première écriture faite dans
+ * l'application corrigerait les compteurs et les chiffres bougeraient tout
+ * seuls sous les yeux de l'utilisateur. */
+async function seedAval() {
+  if ((await db.$count(coupe)) > 0) {
+    console.log("  • flux aval déjà seedé — skipped");
+    return;
+  }
+  const commandes = await db.select().from(commande).orderBy(commande.id);
+  const faconniers = new Map((await db.select().from(faconnier)).map((f) => [f.id, f.nom]));
+  const clients = new Map((await db.select().from(client)).map((c) => [c.id, c.nom]));
+
+  const decale = (base: string | null, jours: number) => {
+    const d = base ? new Date(`${base}T00:00:00`) : new Date();
+    d.setDate(d.getDate() + jours);
+    return d.toISOString().slice(0, 10);
+  };
+
+  let nBr = 0;
+  let nCoupe = 0;
+  let nMvt = 0;
+  let nBl = 0;
+  let seqBr = 0;
+  let seqBl = 0;
+
+  for (const c of commandes) {
+    if (c.produit <= 0) continue;
+    const dateBase = c.dateExport ?? null;
+
+    // Coupe : au moins ce qui a été produit, plafonné à la quantité commandée.
+    const totalCoupe = Math.min(c.qte, Math.max(c.produit, Math.round(c.qte * 0.7)));
+    const lachers = [Math.ceil(totalCoupe * 0.6), totalCoupe - Math.ceil(totalCoupe * 0.6)].filter((q) => q > 0);
+    for (const [i, qte] of lachers.entries()) {
+      await db.insert(coupe).values({
+        commandeId: c.id, date: decale(dateBase, -40 + i * 6), qte,
+        taille: "", type: "interne", note: i === 0 ? "Lâcher principal" : "Complément",
+      });
+      nCoupe++;
+    }
+
+    // Réceptions : la somme des conformes doit valoir exactement `produit`.
+    const parts = c.produit >= c.qte ? [Math.ceil(c.produit * 0.55), c.produit - Math.ceil(c.produit * 0.55)] : [c.produit];
+    for (const [i, qteOk] of parts.filter((q) => q > 0).entries()) {
+      const qteNc = i === 0 ? Math.round(qteOk * 0.008) : 0;
+      const date = decale(dateBase, -20 + i * 7);
+      const numero = av.numeroBr(++seqBr, Number(date.slice(0, 4)));
+      const [row] = await db
+        .insert(br)
+        .values({
+          numero, commandeId: c.id, date, faconnier: c.faconnierId ? (faconniers.get(c.faconnierId) ?? "") : "",
+          qteRecue: qteOk + qteNc, qteOk, qteNc, controle: qteNc > 0 ? "ecart" : "ok",
+          note: qteNc > 0 ? `${qteNc} pièce(s) écartées au contrôle` : "",
+        })
+        .returning({ id: br.id });
+      nBr++;
+      await db.insert(magasinMouvement).values({
+        commandeId: c.id, date, qte: qteOk, origine: "br", brId: row.id, note: `Réception ${numero}`,
+      });
+      nMvt++;
+    }
+
+    await db
+      .update(commande)
+      .set({ coupeQte: totalCoupe, magasinQte: c.produit, magasinPrepare: c.produit >= c.qte })
+      .where(eq(commande.id, c.id));
+
+    // Un lot complet part : il a son bon de livraison.
+    if (c.produit >= c.qte) {
+      const date = decale(dateBase, -3);
+      const numero = av.numeroBl(++seqBl, Number(date.slice(0, 4)));
+      const [entete] = await db
+        .insert(bl)
+        .values({
+          numero, date, clientId: c.clientId, clientNom: c.clientId ? (clients.get(c.clientId) ?? "") : "",
+          transporteur: "Transport DBS", adresseLivraison: "", statut: "sent", note: "",
+        })
+        .returning({ id: bl.id });
+      await db.insert(blLigne).values({
+        blId: entete.id, commandeId: c.id, of: c.ofNumber, modele: c.modele,
+        refArticle: c.refArticle, couleur: c.couleur, qteLivree: c.qte, prixUnitaire: c.prixVente ?? 0,
+      });
+      await db
+        .update(commande)
+        .set({ magasinExpedie: true, magasinPrepare: true, statutLog: "expedie", dateLivraison: date })
+        .where(eq(commande.id, c.id));
+      nBl++;
+    }
+  }
+
+  console.log(`  ✓ flux aval : ${nCoupe} lâchers, ${nBr} réceptions, ${nMvt} entrées magasin, ${nBl} BL`);
+}
+
+/** Registre du personnel et catalogue des opérations, repris de la sauvegarde
+ * client. Chaque personne reçoit une clé de portail tirée du CSPRNG : c'est
+ * elle, et non le matricule, que le QR de rendement encode. */
+async function seedAtelier() {
+  if ((await db.$count(personnel)) === 0) {
+    for (const p of PERSONNEL_DBS) {
+      await db
+        .insert(personnel)
+        .values({ ...p, portailCle: cleAleatoire() })
+        .onConflictDoNothing({ target: personnel.matricule });
+    }
+    console.log(`  ✓ ${PERSONNEL_DBS.length} personnes au registre`);
+  } else {
+    console.log("  • personnel deja seede - skipped");
+  }
+
+  if ((await db.$count(operation)) === 0) {
+    for (let i = 0; i < OPERATIONS_DBS.length; i += 100) {
+      await db.insert(operation).values(OPERATIONS_DBS.slice(i, i + 100));
+    }
+    console.log(`  ✓ ${OPERATIONS_DBS.length} operations au catalogue`);
+  } else {
+    console.log("  • operations deja seedees - skipped");
+  }
+
+  // Rattachement automatique des ouvrieres de chaine au registre.
+  const ouvs = await db.select({ id: ouvriere.id, nom: ouvriere.nom, personnelId: ouvriere.personnelId }).from(ouvriere);
+  const pers = await db.select({ id: personnel.id, nom: personnel.nom }).from(personnel);
+  const liens = rapprocherParNom(ouvs, pers).filter((r) => r.personnelId !== null);
+  for (const l of liens) {
+    await db.update(ouvriere).set({ personnelId: l.personnelId }).where(eq(ouvriere.id, l.ouvriereId));
+  }
+  const restants = ouvs.filter((o) => o.personnelId === null).length - liens.length;
+  console.log(`  ✓ ${liens.length} ouvriere(s) rattachee(s) au registre (${restants} a faire a la main)`);
+}
+
 async function main() {
   console.log("Seeding database…");
   await seedPermissions();
   await seedUsers();
   await seedFacturation();
   await seedGpao();
+  await seedReferentiel();
+  await seedCommandes();
+  await seedBaremes();
+  await seedFinance();
+  await seedGrandLivre();
   await seedModules();
+  await seedAval();
+  await seedAtelier();
   console.log("Done.");
   await pool.end();
 }

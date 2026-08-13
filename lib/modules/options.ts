@@ -29,16 +29,6 @@ export const STATUT_RECEP: Opt[] = [
   { label: "En attente", tone: "warning" },
   { label: "Bloqué", tone: "danger" },
 ];
-export const CONTROLE_BR: Opt[] = [
-  { label: "Conforme", tone: "success" },
-  { label: "Écart toléré", tone: "warning" },
-  { label: "Non conforme", tone: "danger" },
-];
-export const STATUT_BL: Opt[] = [
-  { label: "Brouillon", tone: "warning" },
-  { label: "Émis", tone: "brand" },
-  { label: "Facturé", tone: "success" },
-];
 export const CAUSE_5M: Opt[] = [
   { label: "Main d'œuvre", tone: "info" },
   { label: "Machine", tone: "info" },

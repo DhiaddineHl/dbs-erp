@@ -3,50 +3,49 @@
 import type {
   ActionRow,
   AlertRow,
-  ArchiveRow,
   BeRow,
-  BlRow,
-  BrRow,
   CapaciteChaineRow,
-  ClientRow,
-  CommandeRow,
   CostingRow,
-  CoupeRow,
-  FaconnierRow,
   FournitureRow,
   GammeRow,
-  MagasinRow,
   OfRow,
   OrdoRow,
   QrqcRow,
   TissuRow,
 } from "./types";
 
-/* Demo rows carry no `id` (assigned by the DB serial) and commande seed
- * predates the façonnier/chaîne link, so those are stripped here too. */
+/* Demo rows carry no `id` — the DB serial assigns it. */
 type Seed<T> = Omit<T, "id">;
 
-export const CLIENTS: Seed<ClientRow>[] = [
-  { code: "CLI-001", nom: "Lacoste France", contact: "M. Dubois", email: "achats@lacoste.fr", ville: "Troyes", cmd: 4, ca: "86 400 €" },
-  { code: "CLI-002", nom: "Celio International", contact: "Mme Martin", email: "prod@celio.com", ville: "Saint-Ouen", cmd: 3, ca: "52 100 €" },
-  { code: "CLI-003", nom: "Kiabi", contact: "M. Bernard", email: "sourcing@kiabi.com", ville: "Lille", cmd: 3, ca: "61 800 €" },
-  { code: "CLI-004", nom: "Jules SA", contact: "Mme Petit", email: "atelier@jules.com", ville: "Roubaix", cmd: 2, ca: "48 300 €" },
+/** Demo dates are relative so the derived retard stays meaningful over time. */
+function dansNJours(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/* ─────────── refactored entities (real columns, no display strings) ─────────── */
+
+export const CLIENTS = [
+  { key: "lacoste_france", code: "CLI-001", nom: "Lacoste France", contact: "M. Dubois", email: "achats@lacoste.fr", tel: "", ville: "Troyes", pays: "France", tva: "" },
+  { key: "celio_international", code: "CLI-002", nom: "Celio International", contact: "Mme Martin", email: "prod@celio.com", tel: "", ville: "Saint-Ouen", pays: "France", tva: "" },
+  { key: "kiabi", code: "CLI-003", nom: "Kiabi", contact: "M. Bernard", email: "sourcing@kiabi.com", tel: "", ville: "Lille", pays: "France", tva: "" },
+  { key: "jules_sa", code: "CLI-004", nom: "Jules SA", contact: "Mme Petit", email: "atelier@jules.com", tel: "", ville: "Roubaix", pays: "France", tva: "" },
 ];
 
-export const COMMANDES: Omit<
-  CommandeRow,
-  "id" | "faconnier" | "chaineId" | "refArticle" | "couleur" | "tailles" | "receptTissu" | "dateExportReel" | "note"
->[] = [
-  { of: "OF-2026-001", modele: "Chemise Oxford", client: "Lacoste France", assigne: "Chaîne 1", qte: 1200, pv: "12,40 €", pf: "3,50 €", marge: "10 680 €", export: "20 juin", retard: ["warning", "J-6"], av: 64, statut: ["brand", "Active"] },
-  { of: "OF-2026-002", modele: "Pantalon Chino", client: "Celio Int.", assigne: "Façonnier Medina", qte: 800, pv: "15,90 €", pf: "4,20 €", marge: "9 360 €", export: "14 juin", retard: ["danger", "Retard 2j"], av: 88, statut: ["danger", "⚠ Retard"] },
-  { of: "OF-2026-003", modele: "Polo piqué", client: "Kiabi", assigne: "Chaîne 2", qte: 2000, pv: "8,60 €", pf: "2,90 €", marge: "11 400 €", export: "28 juin", retard: ["neutral", "J-14"], av: 22, statut: ["brand", "Active"] },
-  { of: "OF-2026-004", modele: "Veste denim", client: "Jules SA", assigne: "—", qte: 450, pv: "24,00 €", pf: "7,80 €", marge: "7 290 €", export: "02 juil", retard: ["neutral", "J-18"], av: 0, statut: ["warning", "Partielle"] },
+export const FACONNIERS = [
+  { nom: "Atelier Medina", specialite: "Pantalon · Chino", contact: "K. Medina", tel: "+212 6 12 34 56", prixFacon: 4.2 },
+  { nom: "Confection Atlas", specialite: "Chemise", contact: "S. Atlas", tel: "+212 6 98 76 54", prixFacon: 3.5 },
+  { nom: "TextilPro Sousse", specialite: "Polo · Maille", contact: "H. Ben Ali", tel: "+216 22 33 44", prixFacon: 2.9 },
 ];
 
-export const FACONNIERS: Seed<FaconnierRow>[] = [
-  { nom: "Atelier Medina", spec: "Pantalon · Chino", contact: "K. Medina", tel: "+212 6 12 34 56", prix: "4,20 €", cmd: 3, charge: 2400 },
-  { nom: "Confection Atlas", spec: "Chemise", contact: "S. Atlas", tel: "+212 6 98 76 54", prix: "3,50 €", cmd: 2, charge: 1800 },
-  { nom: "TextilPro Sousse", spec: "Polo · Maille", contact: "H. Ben Ali", tel: "+216 22 33 44", prix: "2,90 €", cmd: 1, charge: 900 },
+/* Quantities, prices and dates only — statut, retard, marge and avancement are
+ * derived by lib/domain/commande.ts, so seeding them would be meaningless. */
+export const COMMANDES = [
+  { ofNumber: "OF-2026-001", modele: "Chemise Oxford", client: "Lacoste France", faconnier: "", chaine: "Chaîne 3", qte: 1200, produit: 768, prixVente: 12.4, prixFacon: 3.5, dateExport: dansNJours(6), consoTheo: 1.45 },
+  { ofNumber: "OF-2026-002", modele: "Pantalon Chino", client: "Celio International", faconnier: "Atelier Medina", chaine: "", qte: 800, produit: 704, prixVente: 15.9, prixFacon: 4.2, dateExport: dansNJours(-2), consoTheo: 1.2 },
+  { ofNumber: "OF-2026-003", modele: "Polo piqué", client: "Kiabi", faconnier: "", chaine: "Chaîne 3", qte: 2000, produit: 440, prixVente: 8.6, prixFacon: 2.9, dateExport: dansNJours(14), consoTheo: 0.9 },
+  { ofNumber: "OF-2026-004", modele: "Veste denim", client: "Jules SA", faconnier: "", chaine: "", qte: 450, produit: 0, prixVente: 24, prixFacon: 7.8, dateExport: dansNJours(18), consoTheo: 1.8 },
 ];
 
 export const TISSUS: Seed<TissuRow>[] = [
@@ -61,12 +60,6 @@ export const FOURNITURES: Seed<FournitureRow>[] = [
   { date: "11 juin", cmd: "OF-2026-002", type: "Fermetures", design: "YKK 18cm · noir", qte: "800 u", controle: ["warning", "À vérifier"], statut: ["warning", "En attente"] },
   { date: "11 juin", cmd: "OF-2026-001", type: "Étiquettes", design: "Tissée marque", qte: "1 200 u", controle: ["success", "Conforme"], statut: ["success", "Libérée"] },
   { date: "12 juin", cmd: "OF-2026-003", type: "Fil", design: "Polyester 120 · assorti", qte: "240 bob", controle: ["warning", "En cours"], statut: ["warning", "En attente"] },
-];
-
-export const COUPE: Seed<CoupeRow>[] = [
-  { of: "OF-2026-001", mc: "Chemise Oxford · Lacoste", qte: 1200, coupee: 1200, planif: "08 juin", fin: "09 juin", statut: ["success", "Coupé"] },
-  { of: "OF-2026-003", mc: "Polo piqué · Kiabi", qte: 2000, coupee: 850, planif: "12 juin", fin: "—", statut: ["brand", "En cours"] },
-  { of: "OF-2026-005", mc: "Chemisier soie · Jules", qte: 600, coupee: 0, planif: "16 juin", fin: "—", statut: ["warning", "Planifié"] },
 ];
 
 export const BE: Seed<BeRow>[] = [
@@ -101,30 +94,6 @@ export const OFS: Seed<OfRow>[] = [
   { of: "OF-2026-001", article: "Chemise Oxford", chaine: "Chaîne 1", qte: 1200, prod: 768, debut: "08 juin", fin: "20 juin" },
   { of: "OF-2026-003", article: "Polo piqué", chaine: "Chaîne 2", qte: 2000, prod: 440, debut: "12 juin", fin: "28 juin" },
   { of: "OF-2026-002", article: "Pantalon Chino", chaine: "Atelier Medina", qte: 800, prod: 704, debut: "06 juin", fin: "14 juin" },
-];
-
-export const BRS: Seed<BrRow>[] = [
-  { br: "BR-2026-001", date: "12 juin", facon: "Atelier Medina", cmd: "OF-2026-002", recu: 704, oknc: "698 / 6", controle: ["success", "Conforme"] },
-  { br: "BR-2026-002", date: "13 juin", facon: "Confection Atlas", cmd: "OF-2026-006", recu: 540, oknc: "512 / 28", controle: ["warning", "Écart toléré"] },
-  { br: "BR-2026-003", date: "14 juin", facon: "TextilPro Sousse", cmd: "OF-2026-007", recu: 300, oknc: "271 / 29", controle: ["danger", "Non conforme"] },
-];
-
-export const MAGASIN: Seed<MagasinRow>[] = [
-  { of: "OF-2026-002", mc: "Pantalon Chino · Celio", source: ["purple", "Façonnier"], cmd: 800, recu: 698, statut: ["warning", "Préparation"] },
-  { of: "OF-2026-001", mc: "Chemise Oxford · Lacoste", source: ["brand", "Interne"], cmd: 1200, recu: 768, statut: ["brand", "En cours"] },
-  { of: "OF-2026-008", mc: "T-shirt col rond · Kiabi", source: ["brand", "Interne"], cmd: 1500, recu: 1500, statut: ["success", "À expédier"] },
-];
-
-export const BLS: Seed<BlRow>[] = [
-  { bl: "BL-2026-001", date: "10 juin", client: "Lacoste France", lignes: 2, qte: 1200, total: "14 880 €", statut: ["success", "Facturé"] },
-  { bl: "BL-2026-002", date: "12 juin", client: "Kiabi", lignes: 1, qte: 1500, total: "12 900 €", statut: ["brand", "Émis"] },
-  { bl: "BL-2026-003", date: "13 juin", client: "Celio International", lignes: 3, qte: 800, total: "12 720 €", statut: ["warning", "Brouillon"] },
-];
-
-export const ARCHIVES: Seed<ArchiveRow>[] = [
-  { of: "OF-2025-118", modele: "Sweat capuche", client: "Jules SA", qte: 900, ca: "21 600 €", marge: "5 040 €", livre: "28 mai", retard: ["success", "À l'heure"] },
-  { of: "OF-2025-117", modele: "Chemise lin", client: "Lacoste France", qte: 1100, ca: "16 940 €", marge: "4 290 €", livre: "22 mai", retard: ["success", "2j avance"] },
-  { of: "OF-2025-115", modele: "Pantalon cargo", client: "Celio International", qte: 750, ca: "14 250 €", marge: "3 075 €", livre: "19 mai", retard: ["danger", "+3j"] },
 ];
 
 export const ALERTS: Seed<AlertRow>[] = [

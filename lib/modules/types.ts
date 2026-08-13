@@ -5,19 +5,8 @@ import type { Tone } from "@/components/shared/status-badge";
  * Status-style fields keep their `[Tone, label]` tuple (the service rebuilds it
  * from the stored `*Tone` / `*Label` columns). */
 
-export type ClientRow = { id: number; code: string; nom: string; contact: string; email: string; ville: string; cmd: number; ca: string };
-
-export type Taille = { taille: string; qte: number };
-
-export type CommandeRow = {
-  id: number; of: string; modele: string; refArticle: string; couleur: string;
-  client: string; faconnier: string; chaineId: number | null;
-  assigne: string; qte: number; tailles: Taille[]; pv: string; pf: string; marge: string;
-  receptTissu: string; export: string; dateExportReel: string; note: string;
-  retard: [Tone, string]; av: number; statut: [Tone, string];
-};
-
-export type FaconnierRow = { id: number; nom: string; spec: string; contact: string; tel: string; prix: string; cmd: number; charge: number };
+/* ClientRow, CommandeRow and FaconnierRow moved to lib/services/commandes.ts
+ * when those three entities got real columns — they are no longer "module rows". */
 
 export type TissuRow = {
   id: number; date: string; cmd: string; design: string; recue: number; prevue: number;
@@ -29,7 +18,6 @@ export type FournitureRow = {
   controle: [Tone, string]; statut: [Tone, string];
 };
 
-export type CoupeRow = { id: number; of: string; mc: string; qte: number; coupee: number; planif: string; fin: string; statut: [Tone, string] };
 
 export type BeRow = { id: number; of: string; mc: string; envoi: string; ok: string; ref: string; statut: [Tone, string] };
 
@@ -49,13 +37,9 @@ export type OrdoRow = {
 
 export type OfRow = { id: number; of: string; article: string; chaine: string; qte: number; prod: number; debut: string; fin: string };
 
-export type BrRow = { id: number; br: string; date: string; facon: string; cmd: string; recu: number; oknc: string; controle: [Tone, string] };
 
-export type MagasinRow = { id: number; of: string; mc: string; source: [Tone, string]; cmd: number; recu: number; statut: [Tone, string] };
 
-export type BlRow = { id: number; bl: string; date: string; client: string; lignes: number; qte: number; total: string; statut: [Tone, string] };
 
-export type ArchiveRow = { id: number; of: string; modele: string; client: string; qte: number; ca: string; marge: string; livre: string; retard: [Tone, string] };
 
 export type AlertRow = { id: number; iconName: string; tone: Tone; title: string; detail: string; level: [Tone, string] };
 

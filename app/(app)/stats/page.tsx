@@ -1,15 +1,21 @@
-import { TrendingUp, Euro, BarChart3, Package } from "lucide-react";
+import { TrendingUp, Euro, BarChart3, Package, Factory } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { DataTable } from "@/components/shared/data-table";
 import { Progress } from "@/components/ui/progress";
+import { CaParClient } from "@/components/charts/ca-par-client";
+import { RepartitionProductionChart } from "@/components/charts/repartition-production";
 import { getStatsData } from "@/lib/services/dashboard";
 
 const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
 
+/** Nombre de clients tracés : au-delà, l'axe devient une liste. */
+const TETE_CLIENTS = 8;
+
 export default async function StatsPage() {
-  const { rows, totals } = await getStatsData();
+  const { rows, totals, repartition } = await getStatsData();
+  const tete = rows.filter((r) => r.ca > 0).slice(0, TETE_CLIENTS);
 
   return (
     <>
@@ -24,6 +30,27 @@ export default async function StatsPage() {
         <KpiCard label="Marge" value={eur(totals.marge)} icon={BarChart3} tone="purple" />
         <KpiCard label="Pièces" value={totals.pieces.toLocaleString("fr-FR")} icon={Package} tone="info" />
       </KpiGrid>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <SectionPanel
+          title={`CA par client — ${TETE_CLIENTS} premiers`}
+          icon={<Euro className="size-4 text-brand" />}
+        >
+          <CaParClient data={tete.map((r) => ({ client: r.unite, ca: r.ca, pieces: r.pieces }))} />
+        </SectionPanel>
+
+        <SectionPanel
+          title="Répartition de la production"
+          icon={<Factory className="size-4 text-brand" />}
+          actions={
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              {repartition.total.toLocaleString("fr-FR")} pcs actives
+            </span>
+          }
+        >
+          <RepartitionProductionChart repartition={repartition} />
+        </SectionPanel>
+      </div>
 
       <SectionPanel title="Performance par client" flush>
         <DataTable

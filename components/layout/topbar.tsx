@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, Search } from "lucide-react";
 import { PAGE_META } from "@/lib/nav";
-import { ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
 import { authClient } from "@/lib/auth/client";
+import { journaliserDeconnexion } from "@/lib/actions/journal";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
@@ -21,16 +21,18 @@ function useClock() {
   return now;
 }
 
-export function Topbar({ user }: { user: { name: string; email: string; role: string } }) {
+export function Topbar({ user }: { user: { name: string; email: string; role: string; roleLabel: string } }) {
   const pathname = usePathname();
   const router = useRouter();
   const id = pathname.split("/")[1] || "cockpit";
   const meta = PAGE_META[id] ?? PAGE_META.cockpit;
   const now = useClock();
   const initial = (user.name || user.email || "?").charAt(0).toUpperCase();
-  const roleLabel = ROLE_LABELS[user.role as AppRole] ?? user.role;
+  const roleLabel = user.roleLabel || user.role;
 
   async function handleSignOut() {
+    // Avant signOut : après, la session n'existe plus et l'auteur est inconnu.
+    await journaliserDeconnexion();
     await authClient.signOut();
     router.push("/login");
     router.refresh();

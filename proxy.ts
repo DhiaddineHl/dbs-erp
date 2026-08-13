@@ -17,6 +17,13 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Protect everything except the login page, the auth API, and static assets.
-  matcher: ["/((?!login|api/auth|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)"],
+  /* Tout est protégé sauf : la page de connexion, l'API d'authentification, les
+   * fichiers statiques — et `/portail`, le portail de rendement des ouvrières.
+   *
+   * Ce dernier est public par nécessité : on y arrive en scannant un QR depuis
+   * un téléphone personnel, sans compte. Son contrôle d'accès est la clé
+   * opaque de l'URL, vérifiée dans la page elle-même. */
+  matcher: [
+    "/((?!login|portail|api/auth|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+  ],
 };

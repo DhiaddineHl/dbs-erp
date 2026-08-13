@@ -21,6 +21,19 @@ export const auth = betterAuth({
     // Internal ERP tool — accounts are provisioned by admins, no email flow.
     requireEmailVerification: false,
   },
+  /* Les connexions et déconnexions alimentent le journal d'activité. Le hook
+   * tourne après coup et ne peut pas faire échouer l'authentification : un
+   * journal indisponible ne doit empêcher personne de travailler. */
+  databaseHooks: {
+    session: {
+      create: {
+        after: async (session) => {
+          const { journaliserSession } = await import("@/lib/services/activite");
+          await journaliserSession(session.userId, "connexion");
+        },
+      },
+    },
+  },
   plugins: [
     admin({
       ac,

@@ -2,10 +2,12 @@ import {
   AlertCircle,
   TriangleAlert,
   Bell,
+  Boxes,
   Clock,
   Euro,
   Layers,
   PencilRuler,
+  Truck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
@@ -15,7 +17,9 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { getAlertes } from "@/lib/services/dashboard";
 
-const ICONS: Record<string, LucideIcon> = { AlertCircle, TriangleAlert, Clock, Euro, Layers, PencilRuler };
+const ICONS: Record<string, LucideIcon> = {
+  AlertCircle, TriangleAlert, Boxes, Clock, Euro, Layers, PencilRuler, Truck,
+};
 
 export default async function AlertesPage() {
   const { alerts, total, critiques, avertissements } = await getAlertes();

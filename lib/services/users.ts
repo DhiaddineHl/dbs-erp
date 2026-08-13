@@ -32,15 +32,21 @@ export async function listUsers(): Promise<ManagedUser[]> {
   }));
 }
 
+/* Better Auth fige la liste de ses rôles au moment de la compilation. Les rôles
+ * créés en production sont pourtant des valeurs légitimes de la colonne `role` :
+ * on force le type au passage de frontière, et la validation métier (existence
+ * du rôle) est faite en amont, dans l'action. */
+const commeRole = (r: AppRole) => r as "admin";
+
 export async function createUser(input: { email: string; password: string; name: string; role: AppRole }) {
   return auth.api.createUser({
     headers: await headers(),
-    body: { email: input.email, password: input.password, name: input.name, role: input.role },
+    body: { email: input.email, password: input.password, name: input.name, role: commeRole(input.role) },
   });
 }
 
 export async function setUserRole(userId: string, role: AppRole) {
-  return auth.api.setRole({ headers: await headers(), body: { userId, role } });
+  return auth.api.setRole({ headers: await headers(), body: { userId, role: commeRole(role) } });
 }
 
 export async function setUserPassword(userId: string, newPassword: string) {

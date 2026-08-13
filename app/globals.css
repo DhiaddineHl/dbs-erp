@@ -23,6 +23,8 @@
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
 
+  --color-chart-vide: var(--chart-vide);
+  --color-chart-6: var(--chart-6);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -124,12 +126,19 @@
   --s4: #10b981;
   --s5: #ec4899;
 
-  /* Charts */
-  --chart-1: #1d4ed8;
-  --chart-2: #8b5cf6;
-  --chart-3: #16a34a;
-  --chart-4: #f59e0b;
-  --chart-5: #ec4899;
+  /* Charts — palette catégorielle, ordre figé (jamais recyclé).
+   * Validée : bande de clarté, plancher de chroma, séparation daltonisme
+   * (toutes paires) et contraste ≥ 3:1 sur fond blanc. Ne pas réordonner
+   * sans revalider : la couleur suit l'entité, pas son rang. */
+  --chart-1: #1d4ed8; /* bleu   */
+  --chart-2: #d97706; /* ambre  */
+  --chart-3: #8b5cf6; /* violet */
+  --chart-4: #16a34a; /* vert   */
+  --chart-5: #ec4899; /* rose   */
+  --chart-6: #0891b2; /* cyan   */
+  /* Hors palette : gris pour « non renseigné » — une donnée manquante
+   * n'est pas une catégorie de plus. */
+  --chart-vide: #94a3b8;
 
   /* Dark sidebar (fixed regardless of theme) */
   --sidebar: #0f172a;

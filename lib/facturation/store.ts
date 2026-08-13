@@ -8,6 +8,7 @@ import {
   saveFactureAction,
   setCostLineAction,
 } from "@/lib/actions/facturation";
+import type { LigneCoutee } from "@/lib/domain/graphiques";
 
 /* ═══════════════════ TYPES ═══════════════════ */
 export type Ligne = {
@@ -68,6 +69,31 @@ export const typeTagClass = (t: FactType) => (t === "facture" ? "tag-navy" : t =
 /* ═══════════════════ COST-LINE ACCESS ═══════════════════ */
 export const getLine = (couts: Couts, f: Facture, i: number): CostLine =>
   couts[fkey(f)]?.lines?.[i] || { lieu: "", fac: "", cout: "" };
+
+/**
+ * Aplatit factures + annotations en lignes exploitables par
+ * `lib/domain/graphiques`. Le calcul reste ici, côté client, pour que les
+ * graphiques suivent une saisie de coût sans aller-retour serveur.
+ */
+export function lignesCoutees(all: Facture[], couts: Couts): LigneCoutee[] {
+  return all.flatMap((f) =>
+    f.lignes.map((l, i) => {
+      const c = getLine(couts, f, i);
+      const saisi = c.cout !== "" ? parseFloat(c.cout.replace(",", ".")) : NaN;
+      return {
+        date: f.date,
+        type: f.type,
+        qte: l.qte,
+        mt: l.mt,
+        pu: l.pu,
+        lieu: c.lieu,
+        faconnier: c.fac,
+        // En interne le coût vaut le prix facturé : la case n'est pas saisissable.
+        cout: c.lieu === "interne" ? l.pu : Number.isFinite(saisi) ? saisi : null,
+      };
+    }),
+  );
+}
 
 export type Marge = {
   statut: "vide" | "partielle" | "complete";

@@ -22,7 +22,10 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { getCockpitData } from "@/lib/services/dashboard";
+import { BarresProduction } from "@/components/charts/barres-production";
+import { FacturationMensuelle } from "@/components/charts/facturation-mensuelle";
+import { MargesFaconniersChart } from "@/components/charts/marges-faconniers";
+import { getCockpitData, getGraphiquesFinance } from "@/lib/services/dashboard";
 
 const STAGE_META = [
   { key: "commandes", n: "1 · Commandes", icon: Package, lbl: "en cours", href: "/commandes", color: "var(--s1)" },
@@ -43,8 +46,8 @@ const TONE_TEXT: Record<string, string> = {
 const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
 
 export default async function CockpitPage() {
-  const data = await getCockpitData();
-  const maxV = Math.max(...data.week.map((w) => w.v), 1);
+  const [data, finance] = await Promise.all([getCockpitData(), getGraphiquesFinance()]);
+  const totalFacture = finance.facturation.at(-1)?.cumul ?? 0;
 
   return (
     <>
@@ -136,15 +139,7 @@ export default async function CockpitPage() {
       {/* Bottom grid */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
         <SectionPanel title="Production des 7 derniers jours" icon={<TrendingUp className="size-4 text-brand" />}>
-          <div className="flex h-52 items-end justify-around gap-3 pt-2">
-            {data.week.map((w, i) => (
-              <div key={i} className="flex flex-1 flex-col items-center gap-2">
-                <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">{w.v || ""}</span>
-                <div className="w-full max-w-[48px] rounded-md bg-brand transition-all" style={{ height: `${(w.v / maxV) * 150}px` }} />
-                <span className="text-[11px] text-muted-foreground">{w.d}</span>
-              </div>
-            ))}
-          </div>
+          <BarresProduction data={data.week} />
         </SectionPanel>
 
         <SectionPanel title="État des chaînes" icon={<Factory className="size-4 text-brand" />} flush>
@@ -166,6 +161,29 @@ export default async function CockpitPage() {
               </div>
             </div>
           ))}
+        </SectionPanel>
+      </div>
+
+      {/* Les deux séries financières mensuelles, portées du statique */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <SectionPanel
+          title="Facturation par origine de production"
+          icon={<Euro className="size-4 text-brand" />}
+          actions={<StatusBadge tone="brand">{eur(totalFacture)} facturés</StatusBadge>}
+        >
+          <FacturationMensuelle data={finance.facturation} />
+        </SectionPanel>
+
+        <SectionPanel
+          title="Marge sur coût façon, par façonnier"
+          icon={<BarChart3 className="size-4 text-brand" />}
+          actions={<StatusBadge tone="success">{eur(finance.marges.total)}</StatusBadge>}
+        >
+          <MargesFaconniersChart marges={finance.marges} />
+          <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+            Montant facturé moins la façon payée. Ni le tissu, ni les fournitures, ni la coupe
+            ne sont déduits : ce n&apos;est pas la marge nette.
+          </p>
         </SectionPanel>
       </div>
     </>

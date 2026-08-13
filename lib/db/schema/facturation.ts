@@ -9,20 +9,11 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core";
+import { commande } from "./commande";
+import { client, faconnier } from "./referentiel";
 
-/* ─────────── Reference data ─────────── */
-export const client = pgTable("client", {
-  key: text().primaryKey(), // e.g. "gerard_darel"
-  nom: text().notNull(),
-  adresse: text().notNull().default(""),
-  livraison: text().notNull().default(""),
-  marque: text().notNull().default(""),
-});
-
-export const faconnier = pgTable("faconnier", {
-  id: serial().primaryKey(),
-  name: text().notNull().unique(),
-});
+/* Reference data (client, faconnier) now lives in schema/referentiel.ts —
+ * it is shared with the commandes and no longer facturation-specific. */
 
 /* ─────────── Invoices ─────────── */
 export const facture = pgTable(
@@ -91,8 +82,14 @@ export const factureCostLine = pgTable(
 );
 
 /* ─────────── Relations ─────────── */
+/* Declared here rather than in referentiel.ts because this file is the only
+ * one that can see both the invoices and the commandes. */
 export const clientRelations = relations(client, ({ many }) => ({
   factures: many(facture),
+  commandes: many(commande),
+}));
+export const faconnierRelations = relations(faconnier, ({ many }) => ({
+  commandes: many(commande),
 }));
 export const factureRelations = relations(facture, ({ one, many }) => ({
   client: one(client, { fields: [facture.clientKey], references: [client.key] }),
