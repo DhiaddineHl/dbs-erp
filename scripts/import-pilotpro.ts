@@ -42,7 +42,20 @@ import { importerGpao } from "./import/gpao";
 import { importerEncaissements, importerFacturation, importerGrandLivre } from "./import/facturation";
 import { importerComptes } from "./import/comptes";
 
-const DEFAUT = "draft/PilotPro_sauvegarde_complete_2026-08-12.json";
+/* Trois sauvegardes coexistent dans `draft/`, et une seule est complète.
+ *
+ * Celle du 15/08 a perdu les 183 lignes « _pre » — les commandes reconstruites
+ * depuis les factures, qui portent l'historique facturé (701 813,39 de CA).
+ * Aucune commande de production n'y manque, mais le pont vers la facturation,
+ * si. Celle du 12/08 les a toutes, et ignore en revanche cinq factures
+ * (103–107/2026, 41 048,40), quinze écritures du grand livre et onze journées
+ * de production postérieures.
+ *
+ * `_fusionne` est la réunion des deux, vérifiée : elle couvre les 294 numéros
+ * d'OF des deux fichiers et reprend, à l'identique, les données de facturation,
+ * de grand livre et de GPAO les plus récentes. C'est la seule qui ne perd
+ * rien. */
+const DEFAUT = "draft/PilotPro_sauvegarde_complete_2026-08-15_fusionne.json";
 
 /** Tables vidées par `--reset`, dans l'ordre des dépendances. */
 const TABLES_REPRISES = [

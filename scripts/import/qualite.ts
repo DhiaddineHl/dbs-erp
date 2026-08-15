@@ -1,6 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
-import { Rapport, type Sauvegarde, dateOuNull, entier, nombreOuNull } from "./source";
+import { Rapport, type Sauvegarde, dateOuNull, entier, nombre, nombreOuNull } from "./source";
 import type { IndexCommandes } from "./commandes";
 
 const { commande, qcInspection, qcDefaut, qcMesure, mQrqc } = schema;
@@ -25,10 +25,20 @@ export async function importerTissus(src: Sauvegarde, idx: IndexCommandes, r: Ra
         : r.texte(t.ctrl)
       : "";
 
+    /* Les lignes du magasin tissu sont des jetons de passage : les six portent
+     * `qte_recue: 1`, là où la commande elle-même connaît le métrage (430 m,
+     * 2400 m). Écraser l'un par l'autre perdait la quantité et faussait le
+     * calcul de pièces coupables. On garde la meilleure information connue. */
+    const [dejaLa] = await db
+      .select({ tissuRecu: commande.tissuRecu })
+      .from(commande)
+      .where(eq(commande.id, commandeId));
+    const metrage = Math.max(dejaLa?.tissuRecu ?? 0, nombre(t.qte_recue));
+
     await db
       .update(commande)
       .set({
-        tissuRecu: entier(t.qte_recue),
+        tissuRecu: metrage,
         tissuDateReelle: dateOuNull(t.date),
         tissuControle: controle,
         tissuNote: [r.texte(t.designation), r.texte(t.note)].filter(Boolean).join(" · "),
@@ -93,13 +103,13 @@ export async function importerQualite(src: Sauvegarde, idx: IndexCommandes, r: R
     inspections++;
 
     for (const d of i.defects ?? []) {
-      const famille = r.texte(d.famille) || "Aspect / Matière";
+      const famille = r.texte(d.fam) || "Aspect / Matière";
       await db.insert(qcDefaut).values({
         inspectionId: ligne.id,
         famille,
         description: r.texte(d.desc),
-        gravite: GRAVITES.includes(r.texte(d.gravite)) ? r.texte(d.gravite) : "majeur",
-        nombre: entier(d.nb, 1) || 1,
+        gravite: GRAVITES.includes(r.texte(d.grav)) ? r.texte(d.grav) : "majeur",
+        nombre: entier(d.n, 1) || 1,
       });
       defauts++;
     }
@@ -130,6 +140,13 @@ export async function importerQualite(src: Sauvegarde, idx: IndexCommandes, r: R
 
   r.ok("inspections", inspections, `${defauts} défaut(s), ${mesures} mesure(s)`);
   if (recontroles) r.ok("re-contrôles chaînés", recontroles);
+
+  /* Les photos vivent dans les `blobs` de la sauvegarde, que cette reprise ne
+   * lit pas : les citer sans les stocker donnerait des vignettes mortes. */
+  const photos =
+    src.qcInspections.reduce((n, i) => n + (i.photosGen?.length ?? 0), 0) +
+    src.qcInspections.reduce((n, i) => n + (i.defects ?? []).reduce((m, d) => m + (d.photos?.length ?? 0), 0), 0);
+  if (photos) r.alerte(`${photos} photo(s) de contrôle non reprises — les blobs de la sauvegarde ne sont pas importés`);
 
   /* ── QRQC ── */
   let qrqcs = 0;

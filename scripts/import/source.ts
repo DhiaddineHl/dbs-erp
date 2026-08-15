@@ -56,13 +56,29 @@ export function reparerTexte(s: string): ReparationTexte {
 
 /* ─────────── normalisation ─────────── */
 
-/** Date ISO ou null. Les chaînes vides et les dates aberrantes deviennent null. */
+/** Date ISO ou null. Les chaînes vides et les dates aberrantes deviennent null.
+ *
+ * Une partie des saisies est au format français (« 28/04/2026 ») : l'ancienne
+ * application acceptait les deux et stockait ce qu'on lui donnait. Les refuser
+ * perdrait 16 dates réelles, dont des réceptions de tissu qui commandent les
+ * feux. On les convertit — et on continue de rejeter ce qui n'existe pas
+ * (« 31/04/2026 », « 0/06/2026 »), que le contrôle de validité attrape. */
 export function dateOuNull(v: unknown): string | null {
   if (typeof v !== "string") return null;
-  const s = v.trim();
+  let s = v.trim();
+
+  const fr = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if (fr) {
+    const [, j, m, a] = fr;
+    s = `${a}-${m.padStart(2, "0")}-${j.padStart(2, "0")}`;
+  }
+
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   const t = Date.parse(`${s}T00:00:00Z`);
   if (Number.isNaN(t)) return null;
+  // Date.parse accepte le 31 avril en le reportant au 1er mai : on exige que
+  // la date relue soit bien celle écrite, sinon elle n'existait pas.
+  if (new Date(t).toISOString().slice(0, 10) !== s) return null;
   const annee = Number(s.slice(0, 4));
   return annee >= 2000 && annee <= 2100 ? s : null;
 }
@@ -107,7 +123,9 @@ export type OrderSrc = {
   coupe_qte?: number;
   magasin_qte?: number;
   facture_qte?: number;
-  tissu_recu?: number;
+  /** Métrage reçu. Les saisies anciennes n'ont qu'un drapeau `true` : la
+   * réception est alors portée par `recept_tissu`, pas par une quantité. */
+  tissu_recu?: number | boolean;
   prix_vente?: number | string;
   prix_facon?: number | string;
   conso_theo?: number | string;
@@ -169,8 +187,14 @@ export type QcSrc = {
   client?: string; modele?: string; couleur?: string; faconnier?: string; controleur?: string;
   statut?: string; verdict?: string; note?: string; qrqcId?: number | null;
   recontroleDe?: number | null;
-  defects?: { famille?: string; desc?: string; gravite?: string; nb?: number }[];
-  mesures?: { point?: string; taille?: string; spec?: number; tol?: number; mesure?: number }[];
+  /** Références de blobs (`qcb:…`) — comptées, pas encore reprises. */
+  photosGen?: string[];
+  /* Noms abrégés : c'est la forme écrite par l'ancienne application
+   * (`{fam, desc, grav, n, photos}`), et la seule présente dans les
+   * sauvegardes. `photos` cite des blobs `qcb:…` que la reprise ne suit pas
+   * encore. */
+  defects?: { fam?: string; desc?: string; grav?: string; n?: number; photos?: string[] }[];
+  mesures?: { point?: string; taille?: string; spec?: number | string; tol?: number | string; mesure?: number | string }[];
 };
 
 export type QrqcSrc = { id: number; date?: string; probleme?: string; cause?: string; cmdId?: number; action?: string; statut?: string };

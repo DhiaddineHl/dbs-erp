@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "./db";
-import { Rapport, type OrderSrc, type Sauvegarde, dateOuNull, entier, nombreOuNull } from "./source";
+import { Rapport, type OrderSrc, type Sauvegarde, dateOuNull, entier, nombre, nombreOuNull } from "./source";
 import { assurerClient, assurerFaconnier, type IndexReferentiel } from "./referentiel";
 import { isStatut } from "@/lib/domain/commande";
 import { estStatutLogistique } from "@/lib/domain/aval";
@@ -106,7 +106,10 @@ export async function importerCommandes(
       coupeQte: entier(o.coupe_qte),
       magasinQte,
       factureQte: entier(o.facture_qte),
-      tissuRecu: entier(o.tissu_recu),
+      /* Métrage, pas un compte : la colonne est en double précision et les
+       * consommations réelles sont fractionnaires (413,8 m). Un `true` hérité
+       * ne dit aucune quantité — la réception reste portée par sa date. */
+      tissuRecu: typeof o.tissu_recu === "boolean" ? 0 : nombre(o.tissu_recu),
 
       tissuLibere: Boolean(o.tissu_libere),
       /* La sauvegarde ne connaît pas l'état du magasin : on le déduit du statut
