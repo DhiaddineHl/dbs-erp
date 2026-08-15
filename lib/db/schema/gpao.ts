@@ -48,6 +48,10 @@ export const operation = pgTable(
     /** Temps standard en secondes. */
     sam: integer().notNull().default(0),
     archive: boolean().notNull().default(false),
+    /** D'où vient le libellé : "" (inconnu, reprise), "import" (fichier),
+     * "saisie" (capturé automatiquement en chaîne) ou "manuel". Sert à
+     * distinguer le catalogue voulu de ce que la saisie a ramassé. */
+    source: text().notNull().default(""),
   },
   (t) => [index("operation_archive_idx").on(t.archive)],
 );
@@ -59,6 +63,13 @@ export const modele = pgTable("modele", {
   client: text().notNull().default(""),
   sam: integer().notNull().default(1800),
   qte: integer().notNull().default(0),
+  /** Modèle terminé, rangé : il disparaît des listes et du choix d'une
+   * nouvelle journée, sans que rien ne soit supprimé. Un modèle produit une
+   * fois par an sinon encombre l'écran onze mois sur douze. */
+  archive: boolean().notNull().default(false),
+  /** Effectif servant à estimer les pièces/heure dans la fiche modèle.
+   * 0 = reprendre l'effectif de la première chaîne. */
+  estimEff: integer().notNull().default(0),
 });
 
 export const chaine = pgTable("chaine", {
@@ -83,6 +94,24 @@ export const ouvriere = pgTable("ouvriere", {
 /** One production day. The sparse per-hour matrices are stored as jsonb keyed
  * by hour column (sortie) or by ouvriere id then hour (ops/opsSam/...). */
 type OpDetail = { poste: string; sam: number; qte: number };
+
+/** Une ligne de l'effectif figé d'une journée.
+ *
+ * `id` indexe les matrices `ops` / `ret` / `opsSam` / `opsPoste` / `opsDetail`.
+ * Positif = l'identifiant de la ligne `ouvriere` recopiée ; négatif = une
+ * ouvrière ajoutée pour cette journée seulement (renfort, remplaçante), qui
+ * n'existe pas dans la chaîne. Les deux espaces ne peuvent pas se croiser,
+ * `ouvriere.id` étant un serial. */
+export type JourneeOuvriere = {
+  id: number;
+  nom: string;
+  poste: string;
+  sam: number;
+  /** Rattachement au registre, recopié pour que l'historique survive à une
+   * ouvrière qui change de chaîne ou dont on corrige l'orthographe. */
+  personnelId?: number | null;
+};
+
 export const journee = pgTable("journee", {
   id: serial().primaryKey(),
   date: text().notNull(),
@@ -97,6 +126,14 @@ export const journee = pgTable("journee", {
   cloture: boolean().notNull().default(false),
   objManuel: doublePrecision(),
   cols: jsonb().$type<string[]>().notNull().default([]),
+  /** Effectif de la journée, figé au moment où elle est créée.
+   *
+   * Sans lui, une journée lisait l'effectif *courant* de sa chaîne : retirer
+   * une ouvrière aujourd'hui réécrivait le rendement de toutes les journées
+   * passées, et les clés de `ops` pointaient vers des lignes disparues. Un
+   * tableau vide veut dire « journée d'avant ce champ » — la lecture retombe
+   * alors sur `chaine.ouvrieres`, comme avant. */
+  ouvrieres: jsonb().$type<JourneeOuvriere[]>().notNull().default([]),
   sortie: jsonb().$type<Record<string, number>>().notNull().default({}),
   ops: jsonb().$type<Record<number, Record<string, number | "RI" | "ABS">>>().notNull().default({}),
   ret: jsonb().$type<Record<number, number>>().notNull().default({}),

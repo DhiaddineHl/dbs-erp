@@ -28,6 +28,7 @@ import { Encaissements } from "./encaissements";
 import { Relances } from "./relances";
 import { DetailModal } from "./detail-modal";
 import { Generateur } from "./generateur";
+import { BoutonVentiler } from "./ventilation";
 import { buildReportHTML, printDocument } from "@/lib/facturation/print";
 
 type Tab = "dashboard" | "registre" | "generateur" | "encaissements" | "relances" | "marges" | "stats" | "rapports";
@@ -418,6 +419,7 @@ function Registre({
           <div className="table-title">
             {res.length} documents — CA net {nb(tot)} €
           </div>
+          <BoutonVentiler toast={toast} />
           {store.deleted.length > 0 && (
             <button
               className="btn btn-outline btn-sm"

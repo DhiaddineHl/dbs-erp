@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { chaine, client, commande, commandePrixJournal, faconnier, modele, ofSupprime } from "@/lib/db/schema";
 import type { Taille } from "@/lib/db/schema";
@@ -64,6 +64,8 @@ export type CommandeRow = {
   archived: boolean;
   statutLog: string;
   facNums: string[];
+  /** Hash de la photo du modèle, null quand il n'y en a pas. */
+  photoHash: string | null;
 
   /* derived status — [tone, label] tuples for the shared badge components */
   statutKey: biz.Statut;
@@ -201,6 +203,7 @@ export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow
         archived: c.archived,
         statutLog: c.statutLog,
         facNums: c.facNums,
+        photoHash: c.photoHash,
 
         statutKey,
         statut: biz.statutBadge(statutKey),
@@ -403,6 +406,13 @@ export async function deleteCommandes(ids: number[], parUserId?: string) {
   });
 }
 
+/** Nom du modèle porté par une commande. Sert à rafraîchir la fiche GPAO du
+ * bon modèle après un renommage — l'ancien nom comme le nouveau. */
+export async function nomModele(id: number): Promise<string> {
+  const [row] = await db.select({ modele: commande.modele }).from(commande).where(eq(commande.id, id));
+  return row?.modele ?? "";
+}
+
 export async function setArchived(ids: number[], archived: boolean) {
   if (!ids.length) return;
   await db
@@ -425,6 +435,23 @@ export async function detecterDoublons() {
   return [...groups.values()].filter((g) => g.length > 1);
 }
 
+/** Inscrit une sélection au planning d'export.
+ *
+ * `exportPrev` est la date *prévue*, distincte de `dateExport` qui est la date
+ * contractuelle : Prévision Export affiche la première quand elle existe. On
+ * ne touche donc jamais à l'engagement pris envers le client — on note ce que
+ * l'atelier pense pouvoir tenir. Une date vide remet la ligne sur sa date
+ * contractuelle. */
+export async function planifierExport(ids: number[], date: string | null) {
+  if (!ids.length) return 0;
+  const r = await db
+    .update(commande)
+    .set({ exportPrev: date, updatedAt: new Date() })
+    .where(inArray(commande.id, ids))
+    .returning({ id: commande.id });
+  return r.length;
+}
+
 /* ─────────── reference writes ─────────── */
 
 export const insertClient = (v: typeof client.$inferInsert) => db.insert(client).values(v);
@@ -443,6 +470,48 @@ export async function deleteClients(ids: number[]) {
 }
 export async function deleteFaconniers(ids: number[]) {
   if (ids.length) await db.delete(faconnier).where(inArray(faconnier.id, ids));
+}
+
+/* ─────────── photo du modèle (B7) ─────────── */
+
+export async function attacherPhoto(id: number, hash: string) {
+  await db.update(commande).set({ photoHash: hash, updatedAt: new Date() }).where(eq(commande.id, id));
+}
+
+export async function retirerPhoto(id: number) {
+  await db.update(commande).set({ photoHash: null, updatedAt: new Date() }).where(eq(commande.id, id));
+}
+
+/** Retire la photo des commandes livrées ou archivées.
+ *
+ * Une photo sert à reconnaître l'article pendant la production ; la
+ * marchandise partie, elle n'est plus qu'un poids en base. Seule la référence
+ * est retirée : les octets sont adressés par leur contenu et peuvent être
+ * partagés avec une inspection qualité, qui, elle, doit les garder. */
+export async function purgerPhotosLivrees(): Promise<number> {
+  /* `statut_manuel` est NULL sur la plupart des lignes, et `NULL = 'livree'`
+   * vaut NULL, pas faux : sans le coalesce, tout le OR retomberait sur NULL
+   * dès que le statut n'est pas forcé. Le WHERE traiterait ce NULL comme faux
+   * — donc au bon endroit ici, mais par accident. On l'écrit explicitement. */
+  const candidates = await db
+    .select({ id: commande.id })
+    .from(commande)
+    .where(
+      and(
+        isNotNull(commande.photoHash),
+        or(
+          eq(commande.archived, true),
+          sql`coalesce(${commande.statutManuel}, '') = 'livree'`,
+          sql`${commande.qte} > 0 and ${commande.factureQte} >= ${commande.qte}`,
+        ),
+      ),
+    );
+  if (!candidates.length) return 0;
+  await db
+    .update(commande)
+    .set({ photoHash: null, updatedAt: new Date() })
+    .where(inArray(commande.id, candidates.map((c) => c.id)));
+  return candidates.length;
 }
 
 /* ─────────── price journal ─────────── */

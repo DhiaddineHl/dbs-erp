@@ -10,10 +10,13 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { STATUTS_PERSONNEL, type StatutPersonnel } from "@/lib/domain/atelier";
+import { GabaritButton } from "@/components/shared/gabarit-button";
+import { STATUTS_PERSONNEL, estMatriculeProvisoire, type StatutPersonnel } from "@/lib/domain/atelier";
 import type { OuvriereRow, PersonneRow } from "@/lib/services/atelier";
 import * as A from "@/lib/actions/atelier";
 import { BoutonAction, Kpi, SelectAction, Tuiles } from "../aval/ui";
+import { ImportPersonnelButton, type ChaineChoix } from "./import-personnel";
+import { Fusion, type NomSaisi } from "./fusion";
 
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-").reverse().join("/") : "—");
 
@@ -22,15 +25,28 @@ const OPTIONS_STATUT = (Object.keys(STATUTS_PERSONNEL) as StatutPersonnel[]).map
   label: STATUTS_PERSONNEL[k].label,
 }));
 
-type Onglet = "registre" | "rattachement";
+type Onglet = "registre" | "rattachement" | "fusion";
+
+/* Colonnes du gabarit d'import, reprises telles quelles de l'application
+ * d'origine : les fichiers que l'atelier a déjà sous la main continuent de
+ * passer sans être retouchés. */
+const GABARIT_ENTETES = ["Matricule", "Nom", "Atelier", "Fonction", "DateEntree", "Statut", "Poste", "SAM"];
+const GABARIT_EXEMPLES = [
+  ["MAT001", "Exemple Prénom Nom", "Atelier 1", "Couturière", "2026-01-15", "active", "Assemblage manche", "120"],
+  ["MAT002", "Autre Personne", "Atelier 1", "Repasseuse", "2026-02-01", "active", "Repassage", "90"],
+];
 
 export function PersonnelClient({
   personnes,
   ouvrieres,
+  saisies,
+  chaines,
   peutSaisir,
 }: {
   personnes: PersonneRow[];
   ouvrieres: OuvriereRow[];
+  saisies: NomSaisi[];
+  chaines: ChaineChoix[];
   peutSaisir: boolean;
 }) {
   const [onglet, setOnglet] = useState<Onglet>("registre");
@@ -48,6 +64,10 @@ export function PersonnelClient({
   }, [personnes, q, statut]);
 
   const nonRattachees = ouvrieres.filter((o) => o.personnelId === null);
+  /* Noms distincts saisis en atelier et encore reliés à aucune fiche : c'est
+   * ce chiffre-là que l'assistant de fusion doit ramener à zéro. */
+  const nomsOrphelins = saisies.filter((s) => !s.rattachee).length;
+  const provisoires = personnes.filter((p) => estMatriculeProvisoire(p.matricule)).length;
 
   return (
     <>
@@ -57,9 +77,13 @@ export function PersonnelClient({
         description="Registre de l'atelier — matricules, fonctions et rattachement aux chaînes"
         actions={
           peutSaisir && (
-            <Button size="sm" onClick={() => setCreation(true)}>
-              + Nouvelle personne
-            </Button>
+            <>
+              <GabaritButton nom="gabarit_personnel" entetes={GABARIT_ENTETES} exemples={GABARIT_EXEMPLES} />
+              <ImportPersonnelButton chaines={chaines} />
+              <Button size="sm" onClick={() => setCreation(true)}>
+                + Nouvelle personne
+              </Button>
+            </>
           )
         }
       />
@@ -71,7 +95,12 @@ export function PersonnelClient({
           valeur={String(personnes.filter((p) => p.statut === "active").length)}
           tone="success"
         />
-        <Kpi label="Affectées à une chaîne" valeur={String(ouvrieres.length - nonRattachees.length)} tone="brand" />
+        <Kpi
+          label="Matricules provisoires"
+          valeur={String(provisoires)}
+          tone={provisoires ? "warning" : "neutral"}
+          sub="créés depuis l'atelier — à compléter"
+        />
         <Kpi
           label="Ouvrières non rattachées"
           valeur={String(nonRattachees.length)}
@@ -85,6 +114,7 @@ export function PersonnelClient({
           [
             ["registre", "Registre"],
             ["rattachement", `Rattachement chaînes${nonRattachees.length ? ` (${nonRattachees.length})` : ""}`],
+            ["fusion", `Fusion des noms${nomsOrphelins ? ` (${nomsOrphelins})` : ""}`],
           ] as [Onglet, string][]
         ).map(([k, l]) => (
           <Button key={k} size="sm" variant={onglet === k ? "default" : "outline"} onClick={() => setOnglet(k)}>
@@ -144,7 +174,18 @@ export function PersonnelClient({
                 ) : (
                   filtrees.map((p) => (
                     <tr key={p.id} className="border-b last:border-0">
-                      <td className="px-3 py-2 font-mono font-bold text-brand">{p.matricule}</td>
+                      <td
+                        className={`px-3 py-2 font-mono font-bold ${
+                          estMatriculeProvisoire(p.matricule) ? "text-[var(--warning-d,#9a6510)]" : "text-brand"
+                        }`}
+                        title={
+                          estMatriculeProvisoire(p.matricule)
+                            ? "Matricule provisoire, attribué depuis l'atelier — à remplacer par le matricule de paie"
+                            : undefined
+                        }
+                      >
+                        {p.matricule}
+                      </td>
                       <td className="px-3 py-2 font-semibold">
                         {peutSaisir ? (
                           <ChampTexte valeur={p.nom} onSave={(v) => A.majPersonne(p.id, { nom: v })} />
@@ -214,8 +255,10 @@ export function PersonnelClient({
             </table>
           </div>
         </SectionPanel>
-      ) : (
+      ) : onglet === "rattachement" ? (
         <Rattachement ouvrieres={ouvrieres} personnes={personnes} peutSaisir={peutSaisir} />
+      ) : (
+        <Fusion saisies={saisies} personnes={personnes} peutSaisir={peutSaisir} />
       )}
 
       {creation && <DialogPersonne onFermer={() => setCreation(false)} />}

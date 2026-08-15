@@ -52,11 +52,28 @@ export const norm = (s: string) =>
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]/g, "");
 
+/** Rend une cellule sous forme de texte.
+ *
+ * Les lecteurs de tableur rendent une cellule date en objet Date ; le
+ * `String()` par défaut en ferait « Sun Feb 01 2026 00:00:00 GMT+0100 », que
+ * plus aucun analyseur de date ne reconnaît. On la ramène donc en AAAA-MM-JJ,
+ * la forme que toutes les colonnes `date` attendent. Composantes locales :
+ * passer par l'UTC reculerait la date d'un jour. */
+function cellule(v: unknown): string {
+  if (v == null) return "";
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return "";
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`;
+  }
+  return String(v).trim();
+}
+
 /** Build a {fieldKey: value} record from a raw imported row, matching its
  * headers against each column's label or key (normalized). */
 export function mapRow(columns: Column[], raw: Record<string, unknown>): Record<string, string> {
   const byNorm = new Map<string, string>();
-  for (const [k, v] of Object.entries(raw)) byNorm.set(norm(k), v == null ? "" : String(v).trim());
+  for (const [k, v] of Object.entries(raw)) byNorm.set(norm(k), cellule(v));
   const out: Record<string, string> = {};
   for (const c of columns) {
     out[c.key] = byNorm.get(norm(c.label)) ?? byNorm.get(norm(c.key)) ?? "";

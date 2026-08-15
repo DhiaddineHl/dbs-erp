@@ -16,29 +16,54 @@ type Result = { ok: true } | { ok: false; error: string };
 
 type Choice = { value: string; label: string };
 
+type Valeurs = Record<string, string>;
+
+/** Règles propres à un formulaire donné.
+ *
+ * Le dialogue reste générique — il ne connaît ni la marge ni la façon. Un
+ * écran qui a des règles métier les fournit ici, et elles s'appliquent à
+ * chaque frappe plutôt qu'à l'enregistrement : une saisie qu'on corrige au
+ * moment de valider a déjà fait prendre une décision sur un chiffre faux. */
+export type ReglesFormulaire = {
+  /** Recalcule les valeurs après chaque changement. */
+  ajuster?: (v: Valeurs) => Valeurs;
+  /** Champs à verrouiller dans l'état courant : nom → raison affichée. */
+  verrous?: (v: Valeurs) => Record<string, string>;
+  /** Bandeau de synthèse rendu sous les champs. */
+  apercu?: (v: Valeurs) => React.ReactNode;
+};
+
 export function EntityFormDialog({
   triggerLabel,
   title,
   fields,
   action,
   dynamicOptions,
+  regles,
   successMessage = "Enregistré",
 }: {
   triggerLabel: string;
   title: string;
   fields: Field[];
   /** Server action that inserts the row. */
-  action: (data: Record<string, string>) => Promise<Result>;
+  action: (data: Valeurs) => Promise<Result>;
   /** Runtime dropdown sources for fields marked `dynamic` (keyed by field name). */
   dynamicOptions?: Record<string, Choice[]>;
+  regles?: ReglesFormulaire;
   successMessage?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Valeurs>({});
   const [pending, startTransition] = useTransition();
 
-  const set = (name: string, v: string) => setValues((s) => ({ ...s, [name]: v }));
+  const set = (name: string, v: string) =>
+    setValues((s) => {
+      const next = { ...s, [name]: v };
+      return regles?.ajuster ? regles.ajuster(next) : next;
+    });
+
+  const verrous = regles?.verrous?.(values) ?? {};
 
   const submit = () => {
     for (const f of fields) {
@@ -83,7 +108,15 @@ export function EntityFormDialog({
                 {f.label}
                 {f.required && " *"}
               </Label>
-              {f.type === "tailles" ? (
+              {verrous[f.name] ? (
+                /* Verrouillé : on montre la valeur imposée et pourquoi, plutôt
+                 * que de masquer le champ — sinon l'utilisateur cherche où il
+                 * est passé. */
+                <>
+                  <Input value={values[f.name] ?? ""} readOnly disabled className="bg-muted" />
+                  <span className="text-[10.5px] text-muted-foreground">🔒 {verrous[f.name]}</span>
+                </>
+              ) : f.type === "tailles" ? (
                 <TaillesField value={values[f.name] ?? ""} onChange={(v) => set(f.name, v)} />
               ) : f.type === "select" ? (
                 <Select value={values[f.name] ?? ""} onValueChange={(v) => set(f.name, v ?? "")}>
@@ -116,6 +149,7 @@ export function EntityFormDialog({
             </div>
           ))}
         </div>
+        {regles?.apercu?.(values)}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
             Annuler

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import "./gpao.css";
 import * as gpao from "./actions";
@@ -12,7 +12,12 @@ import {
   type Ouvriere,
   SEUIL_B,
   SEUIL_H,
+  SEUIL_ALERTE_DEFAUT,
   SEUIL_RET,
+  TV_ROTATION_DEFAUT,
+  alertesRendement,
+  alertesRetouche,
+  bilanSam,
   cellDetail,
   chObjH,
   chObjJour,
@@ -20,10 +25,14 @@ import {
   chRetTotal,
   chSortieTotal,
   cumulModele,
+  dayOuvrieres,
+  derniereDateModele,
   findC,
+  findDayOuv,
   findJ,
   findM,
   fmtDate,
+  nextDayOuvId,
   ouvCellQte,
   ouvHasMulti,
   ouvObjAjuste,
@@ -37,12 +46,17 @@ import {
   rcls,
   rcol,
   retcol,
+  rosterPourEdition,
   useGpaoStore,
 } from "./store";
+import { cleNom } from "@/lib/domain/atelier";
+import { assurerOperations } from "@/lib/actions/atelier";
 import { ChaineModal, ModeleModal, NewDayModal, OuvriereModal } from "./modals";
+import { ImportOuvrieresModal } from "./import-ouvrieres";
 import { PostesHeureModal } from "./postes-heure";
 import { HistoView } from "./histo";
 import { TvMode } from "./tv-mode";
+import { imprimerFicheModele, imprimerResumeProduction } from "./impressions";
 
 type View = "jours" | "jour" | "chaines" | "modeles" | "cumul" | "histo";
 
@@ -77,7 +91,13 @@ export default function GpaoApp({
     chaineId: 0,
     ouv: null,
   });
+  /** Édition de l'effectif du jour — distincte de `ouvModal`, qui touche la chaîne. */
+  const [ouvJourModal, setOuvJourModal] = useState<{ open: boolean; ouv: Ouvriere | null }>({
+    open: false,
+    ouv: null,
+  });
   const [posteHeureOuv, setPosteHeureOuv] = useState<number | null>(null);
+  const [importOuv, setImportOuv] = useState<number | null>(null);
 
   // toast
   const [toastMsg, setToastMsg] = useState("");
@@ -190,6 +210,89 @@ export default function GpaoApp({
     patchDay(j.id, { cloture: nowClosed });
     toast(nowClosed ? "✓ Journée clôturée" : "🔓 Journée réouverte");
   };
+  /* ─────────── effectif du jour ───────────
+     Ces trois opérations ne touchent QUE la journée ouverte : la chaîne et les
+     autres journées ne bougent pas. Une journée qui n'avait pas encore
+     d'effectif propre le fige au premier changement (rosterPourEdition). */
+
+  /** Rattache un nom à sa fiche du registre quand la correspondance est sûre.
+   * Un homonyme au registre ⇒ on ne choisit pas (même règle que
+   * `rapprocherParNom` : relier la mauvaise personne fausse un rendement
+   * individuel sans que personne ne le voie). */
+  const lierAuRegistre = (nom: string): number | null => {
+    const c = cleNom(nom);
+    if (!c) return null;
+    const trouves = state.personnes.filter((p) => cleNom(p.nom) === c);
+    return trouves.length === 1 ? trouves[0].id : null;
+  };
+
+  const saveOuvJour = async (data: { nom: string; poste: string; sam: number }) => {
+    const j = currentDayId != null ? findJ(state, currentDayId) : null;
+    if (!j) return;
+    if (j.cloture) return toast("Journée clôturée — rouvrez-la pour modifier");
+    if (!data.nom) return toast("⚠ Nom requis");
+
+    const roster = rosterPourEdition(state, j);
+    const editId = ouvJourModal.ouv?.id;
+    let cibleId: number;
+    if (editId != null) {
+      const o = roster.find((x) => x.id === editId);
+      if (!o) return;
+      Object.assign(o, data, { personnelId: o.personnelId ?? lierAuRegistre(data.nom) });
+      cibleId = editId;
+    } else {
+      cibleId = nextDayOuvId(roster);
+      roster.push({ id: cibleId, ...data, personnelId: lierAuRegistre(data.nom) });
+    }
+
+    /* Passe par le serveur plutôt que par patchDay : c'est lui qui complète le
+     * catalogue d'opérations et le registre du personnel, et qui renvoie
+     * l'effectif enrichi du rattachement qu'il a pu établir. */
+    setOuvJourModal({ open: false, ouv: null });
+    const res = await gpao.enregistrerEffectifJour(j.id, roster, cibleId);
+    if (!res.ok) {
+      toast("⚠ " + res.error);
+      router.refresh();
+      return;
+    }
+    mutate((s) => {
+      const cible = findJ(s, j.id);
+      if (cible) cible.ouvrieres = res.roster;
+    });
+    markSaved();
+    if (res.personne.creee) {
+      toast(`✅ Enregistrée · fiche personnel créée (matricule provisoire ${res.personne.matricule})`);
+      router.refresh();
+    } else {
+      toast(editId != null ? "✅ Ouvrière du jour modifiée" : "✅ Ouvrière ajoutée à cette journée");
+    }
+  };
+
+  const delOuvJour = (ouvId: number) => {
+    const j = currentDayId != null ? findJ(state, currentDayId) : null;
+    if (!j) return;
+    if (j.cloture) return toast("Journée clôturée — rouvrez-la pour modifier");
+    const o = findDayOuv(state, j, ouvId);
+    if (!confirm(`Retirer ${o?.nom ?? "cette ouvrière"} de cette journée uniquement ?`)) return;
+    const roster = rosterPourEdition(state, j).filter((x) => x.id !== ouvId);
+    /* La saisie de l'ouvrière retirée part avec elle : la laisser en place
+     * gonflerait la sortie chaîne sans qu'aucune ligne ne l'explique. */
+    const sansOuv = <T,>(m: Record<number, T> | undefined) => {
+      const out = { ...(m || {}) };
+      delete out[ouvId];
+      return out;
+    };
+    patchDay(j.id, {
+      ouvrieres: roster,
+      ops: sansOuv(j.ops),
+      ret: sansOuv(j.ret),
+      opsSam: sansOuv(j.opsSam),
+      opsPoste: sansOuv(j.opsPoste),
+      opsDetail: sansOuv(j.opsDetail),
+    });
+    toast("🗑 Retirée de cette journée");
+  };
+
   const dupDay = async (id: number) => {
     const src = findJ(state, id);
     if (!src) return;
@@ -202,6 +305,7 @@ export default function GpaoApp({
       effectif: src.effectif,
       nbHeures: src.nbHeures,
       cols: src.cols.slice(),
+      ouvrieres: dayOuvrieres(state, src).map((o) => ({ ...o })),
       objManuel: src.objManuel || null,
     });
     if (!res.ok) return toast("⚠ " + res.error);
@@ -241,6 +345,15 @@ export default function GpaoApp({
     patchDay(j.id, { ops, opsSam, opsPoste, opsDetail });
     setPosteHeureOuv(null);
     toast("✅ Opérations par heure enregistrées");
+
+    /* Les libellés tapés ici entrent au catalogue. C'est le point de saisie qui
+     * en produisait le plus de variantes : une ouvrière qui dépanne ailleurs
+     * tape le poste de la collègue, à sa façon. */
+    const postes = [
+      ...Object.entries(result.pm).map(([h, nom]) => ({ nom, sam: result.sm[h] ?? 0 })),
+      ...Object.values(result.dt).flatMap((d) => d.map((x) => ({ nom: x.poste, sam: x.sam }))),
+    ];
+    if (postes.length) void assurerOperations(postes);
   };
   const resetPosteHeure = (ouvId: number) => {
     const j = currentDayId != null ? findJ(state, currentDayId) : null;
@@ -301,13 +414,52 @@ export default function GpaoApp({
         const o = c.ouvrieres.find((x) => x.id === editId);
         if (o) Object.assign(o, data);
       } else {
-        c.ouvrieres.push({ id: res.id, ...data });
+        c.ouvrieres.push({ id: res.id, ...data, personnelId: res.personne.personnelId });
       }
     });
     markSaved();
     setOuvModal({ open: false, chaineId: 0, ouv: null });
-    toast("✅ Ouvrière enregistrée");
+    if (res.personne.creee) {
+      toast(`✅ Enregistrée · fiche personnel créée (matricule provisoire ${res.personne.matricule})`);
+      router.refresh();
+    } else toast("✅ Ouvrière enregistrée");
   };
+  /** Cadence de rotation TV : réglée une fois, partagée par tous les postes. */
+  const majTvRotSec = async (v: number) => {
+    const tvRotSec = Math.max(3, Math.min(300, Math.round(v) || TV_ROTATION_DEFAUT));
+    if (tvRotSec === state.reglages.tvRotSec) return;
+    mutate((s) => {
+      s.reglages.tvRotSec = tvRotSec;
+    });
+    const res = await gpao.enregistrerReglages({ tvRotSec });
+    if (!res.ok) return toast("⚠ " + res.error);
+    toast(`⏱ Rotation TV : ${tvRotSec} s par chaîne`);
+  };
+
+  /** Seuil d'alerte de rendement, commun à tous les postes. */
+  const majSeuilAlerte = async (v: number) => {
+    const seuilAlerte = Math.max(1, Math.min(200, Math.round(v) || SEUIL_ALERTE_DEFAUT));
+    if (seuilAlerte === state.reglages.seuilAlerte) return;
+    mutate((s) => {
+      s.reglages.seuilAlerte = seuilAlerte;
+    });
+    const res = await gpao.enregistrerReglages({ seuilAlerte });
+    if (!res.ok) return toast("⚠ " + res.error);
+    toast(`⚠ Alerte rendement sous ${seuilAlerte} %`);
+  };
+
+  const importerOuvrieres = async (chaineId: number, lignes: { nom: string; poste: string; sam: number }[]) => {
+    setImportOuv(null);
+    const res = await gpao.importerOuvrieres(chaineId, lignes);
+    if (!res.ok) return toast("⚠ " + res.error);
+    markSaved();
+    router.refresh();
+    toast(
+      `✅ ${res.creees} ouvrière(s) importée(s)` +
+        (res.fiches ? ` · ${res.fiches} fiche(s) personnel créée(s)` : ""),
+    );
+  };
+
   const delOuv = async (chId: number, ouvId: number) => {
     if (!confirm("Supprimer cette ouvrière de la chaîne ?")) return;
     const res = await gpao.deleteOuvriere(ouvId);
@@ -319,7 +471,14 @@ export default function GpaoApp({
     markSaved();
     toast("🗑 Supprimée");
   };
-  const saveModele = async (data: { nom: string; ref: string; client: string; sam: number; qte: number }) => {
+  const saveModele = async (data: {
+    nom: string;
+    ref: string;
+    client: string;
+    sam: number;
+    qte: number;
+    estimEff: number;
+  }) => {
     if (!data.nom) return toast("⚠ Nom requis");
     const editId = modeleModal.edit?.id;
     const res = await gpao.saveModele({ id: editId, ...data });
@@ -329,13 +488,38 @@ export default function GpaoApp({
         const m = findM(s, editId);
         if (m) Object.assign(m, data);
       } else {
-        s.modeles.push({ id: res.id, ...data });
+        s.modeles.push({ id: res.id, ...data, archive: false });
       }
     });
     markSaved();
     setModeleModal({ open: false, edit: null });
     toast("✅ Modèle enregistré");
   };
+  /** Archiver n'efface rien : le modèle quitte les listes actives et le choix
+   * d'une nouvelle journée, et se retrouve par le filtre « Archivés ». */
+  const archiverModele = async (m: Modele) => {
+    if (!m.archive) {
+      const prod = cumulModele(state, m.id);
+      const pct = m.qte > 0 ? Math.round((prod / m.qte) * 100) : 0;
+      if (
+        pct < 100 &&
+        !confirm(
+          `Ce modèle n'est qu'à ${pct} % (${prod}/${m.qte}).\nL'archiver quand même ?\n\n` +
+            "Il restera consultable dans le filtre « Archivés » : rien n'est supprimé.",
+        )
+      )
+        return;
+    }
+    const res = await gpao.archiverModele(m.id, !m.archive);
+    if (!res.ok) return toast("⚠ " + res.error);
+    mutate((s) => {
+      const cible = findM(s, m.id);
+      if (cible) cible.archive = !m.archive;
+    });
+    markSaved();
+    toast(m.archive ? "♻ Modèle réactivé" : "📦 Modèle archivé — filtre « Archivés » pour le retrouver");
+  };
+
   const delModele = async (id: number) => {
     if (state.journees.some((j) => j.modeleId === id))
       return toast("⚠ Modèle utilisé dans des journées — suppression impossible");
@@ -429,6 +613,11 @@ export default function GpaoApp({
           onToggleCloture={toggleCloture}
           onPrint={printReport}
           onTv={() => setTvOpen(true)}
+          onAddOuvJour={() => setOuvJourModal({ open: true, ouv: null })}
+          onEditOuvJour={(o) => setOuvJourModal({ open: true, ouv: o })}
+          onDelOuvJour={delOuvJour}
+          onTvRotSec={majTvRotSec}
+          onSeuilAlerte={majSeuilAlerte}
         />
       )}
 
@@ -443,6 +632,7 @@ export default function GpaoApp({
           onNewOuv={(chId) => setOuvModal({ open: true, chaineId: chId, ouv: null })}
           onEditOuv={(chId, o) => setOuvModal({ open: true, chaineId: chId, ouv: o })}
           onDeleteOuv={delOuv}
+          onImport={(chId) => setImportOuv(chId)}
         />
       )}
 
@@ -455,10 +645,16 @@ export default function GpaoApp({
         />
       )}
 
-      {view === "cumul" && <CumulView state={state} onOpenDay={(id) => {
-        setCurrentDayId(id);
-        setView("jour");
-      }} />}
+      {view === "cumul" && (
+        <CumulView
+          state={state}
+          onArchiver={archiverModele}
+          onOpenDay={(id) => {
+            setCurrentDayId(id);
+            setView("jour");
+          }}
+        />
+      )}
 
       {view === "histo" && (
         <HistoView
@@ -479,22 +675,47 @@ export default function GpaoApp({
         <ModeleModal
           edit={modeleModal.edit}
           clients={clients}
+          effectifDefaut={state.chaines[0]?.ouvrieres.length}
           onClose={() => setModeleModal({ open: false, edit: null })}
           onSave={saveModele}
+        />
+      )}
+
+      {importOuv !== null && (
+        <ImportOuvrieresModal
+          chaines={state.chaines}
+          chaineId={importOuv}
+          onClose={() => setImportOuv(null)}
+          onImport={importerOuvrieres}
         />
       )}
       {ouvModal.open && (
         <OuvriereModal
           edit={ouvModal.ouv}
+          noms={state.personnes.map((p) => p.nom)}
+          operations={state.operations}
           onClose={() => setOuvModal({ open: false, chaineId: 0, ouv: null })}
           onSave={saveOuv}
+        />
+      )}
+
+      {ouvJourModal.open && (
+        <OuvriereModal
+          edit={ouvJourModal.ouv}
+          noms={state.personnes.map((p) => p.nom)}
+          operations={state.operations}
+          titre={ouvJourModal.ouv ? "✏ Ouvrière — cette journée" : "👤 Ajouter une ouvrière — cette journée"}
+          aide="Ne modifie que cette journée : ni la chaîne, ni les autres jours."
+          onClose={() => setOuvJourModal({ open: false, ouv: null })}
+          onSave={saveOuvJour}
         />
       )}
 
       {posteHeureOuv !== null && journee && (
         <PostesHeureModal
           journee={journee}
-          chaine={findC(state, journee.chaineId)}
+          roster={dayOuvrieres(state, journee)}
+          operations={state.operations}
           ouvId={posteHeureOuv}
           onClose={() => setPosteHeureOuv(null)}
           onSave={savePosteHeure}
@@ -510,6 +731,8 @@ export default function GpaoApp({
 }
 
 /* ═══════════════════ JOURNÉES (liste) ═══════════════════ */
+type TriJour = "datedesc" | "dateasc" | "rend" | "sortie";
+
 function JoursView({
   state,
   onOpen,
@@ -521,16 +744,83 @@ function JoursView({
   onDelete: (id: number) => void;
   onNew: () => void;
 }) {
-  const sorted = state.journees.slice().sort((a, b) => b.date.localeCompare(a.date));
+  const [q, setQ] = useState("");
+  const [modeleId, setModeleId] = useState("");
+  const [etat, setEtat] = useState<"" | "encours" | "cloturees">("");
+  const [tri, setTri] = useState<TriJour>("datedesc");
+
+  /* 128 journées à l'écran : sans recherche ni filtre, retrouver « la chaîne 2
+   * du 7 août » se fait à l'œil, en faisant défiler. */
+  const sorted = useMemo(() => {
+    const n = q.trim().toLowerCase();
+    return state.journees
+      .filter((j) => {
+        if (modeleId && String(j.modeleId) !== modeleId) return false;
+        if (etat === "encours" && j.cloture) return false;
+        if (etat === "cloturees" && !j.cloture) return false;
+        if (!n) return true;
+        const c = findC(state, j.chaineId);
+        const m = findM(state, j.modeleId);
+        const texte = `${j.date} ${c?.nom ?? ""} ${m ? `${m.nom} ${m.ref} ${m.client}` : ""}`.toLowerCase();
+        return texte.includes(n);
+      })
+      .sort((a, b) => {
+        if (tri === "dateasc") return a.date.localeCompare(b.date);
+        if (tri === "rend") return chRend(state, b) - chRend(state, a);
+        if (tri === "sortie") return chSortieTotal(b) - chSortieTotal(a);
+        return b.date.localeCompare(a.date);
+      });
+  }, [state, q, modeleId, etat, tri]);
+
+  const modelesTries = useMemo(
+    () => state.modeles.slice().sort((a, b) => a.nom.localeCompare(b.nom, "fr")),
+    [state.modeles],
+  );
+
   return (
     <div className="page">
       <h2 className="sec">
-        📅 Journées de production <span className="cnt">{state.journees.length}</span>
+        📅 Journées de production <span className="cnt">{sorted.length}</span>
         <button className="btn primary" style={{ marginLeft: "auto" }} onClick={onNew}>
           ＋ Nouvelle journée
         </button>
       </h2>
-      {!sorted.length ? (
+
+      {state.journees.length > 0 && (
+        <div className="gp-filtres">
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="🔎 Modèle, réf, client ou chaîne…"
+            style={{ flex: 1, minWidth: 180 }}
+          />
+          <select value={modeleId} onChange={(e) => setModeleId(e.target.value)} style={{ maxWidth: 230 }}>
+            <option value="">Tous les modèles</option>
+            {modelesTries.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.nom} — {m.ref}
+                {m.archive ? " (archivé)" : ""}
+              </option>
+            ))}
+          </select>
+          <select value={etat} onChange={(e) => setEtat(e.target.value as typeof etat)}>
+            <option value="">Toutes</option>
+            <option value="encours">⏳ En cours</option>
+            <option value="cloturees">✓ Clôturées</option>
+          </select>
+          <select value={tri} onChange={(e) => setTri(e.target.value as TriJour)}>
+            <option value="datedesc">Tri : date ↓ (récent d&apos;abord)</option>
+            <option value="dateasc">Tri : date ↑</option>
+            <option value="rend">Tri : rendement</option>
+            <option value="sortie">Tri : sortie</option>
+          </select>
+        </div>
+      )}
+
+      {state.journees.length > 0 && !sorted.length ? (
+        <div className="empty">Aucune journée ne correspond à la recherche ou au filtre.</div>
+      ) : !sorted.length ? (
         <div className="empty">
           Aucune journée de production.
           <br />
@@ -548,6 +838,7 @@ function JoursView({
             const m = findM(state, j.modeleId);
             const r = chRend(state, j);
             const pcls = r >= SEUIL_H ? "g" : r >= SEUIL_B ? "a" : "r";
+            const alertes = alertesRendement(state, j, state.reglages.seuilAlerte);
             return (
               <div className="gc" key={j.id} onClick={() => onOpen(j.id)}>
                 <button
@@ -566,7 +857,12 @@ function JoursView({
                 </div>
                 <div style={{ marginTop: 8 }}>
                   <span className={`pill ${pcls}`}>Rendement {r}%</span>{" "}
-                  {j.cloture ? <span className="pill b">✓ Clôturée</span> : <span className="pill a">En cours</span>}
+                  {j.cloture ? <span className="pill b">✓ Clôturée</span> : <span className="pill a">En cours</span>}{" "}
+                  {alertes.length > 0 && (
+                    <span className="pill r" title={alertes.map((a) => `${a.ouv.nom} ${a.rend}%`).join(" · ")}>
+                      ⚠ {alertes.length} &lt;{state.reglages.seuilAlerte}%
+                    </span>
+                  )}
                 </div>
                 <div className="grow">
                   <span>
@@ -576,7 +872,7 @@ function JoursView({
                     Objectif <b>{chObjJour(state, j)}</b>
                   </span>
                   <span>
-                    Effectif <b>{j.effectif}</b>
+                    Ret. <b>{chRetTotal(j)}</b>
                   </span>
                 </div>
               </div>
@@ -602,6 +898,11 @@ function JourDetail({
   onToggleCloture,
   onPrint,
   onTv,
+  onAddOuvJour,
+  onEditOuvJour,
+  onDelOuvJour,
+  onTvRotSec,
+  onSeuilAlerte,
 }: {
   state: GpaoState;
   journee: Journee;
@@ -615,9 +916,15 @@ function JourDetail({
   onToggleCloture: () => void;
   onPrint: () => void;
   onTv: () => void;
+  onAddOuvJour: () => void;
+  onEditOuvJour: (o: Ouvriere) => void;
+  onDelOuvJour: (ouvId: number) => void;
+  onTvRotSec: (v: number) => void;
+  onSeuilAlerte: (v: number) => void;
 }) {
   const c = findC(state, j.chaineId);
   const m = findM(state, j.modeleId);
+  const roster = dayOuvrieres(state, j);
   const objH = chObjH(state, j);
   const objJ = chObjJour(state, j);
   const sortie = chSortieTotal(j);
@@ -629,8 +936,27 @@ function JourDetail({
   const dis = j.cloture;
   const disStyle = dis ? { opacity: 0.55, pointerEvents: "none" as const } : undefined;
 
+  const alertes = alertesRendement(state, j, state.reglages.seuilAlerte);
+  const retouches = alertesRetouche(state, j);
+  const sam = bilanSam(state, j);
+
   return (
     <div className="page">
+      {(alertes.length > 0 || retouches.length > 0) && (
+        <div className="gp-alerte">
+          {alertes.length > 0 && (
+            <div>
+              <b>⚠ Rendement sous {state.reglages.seuilAlerte} %</b> — {alertes.map((a) => `${a.ouv.nom} (${a.rend} %)`).join(" · ")}
+            </div>
+          )}
+          {retouches.length > 0 && (
+            <div style={{ marginTop: alertes.length ? 6 : 0 }}>
+              <b>🔧 Retouches au-dessus de {SEUIL_RET} %</b> —{" "}
+              {retouches.map((a) => `${a.ouv.nom} (${a.pct} %)`).join(" · ")}
+            </div>
+          )}
+        </div>
+      )}
       <div className="daybar">
         <button
           className="btn sm"
@@ -666,15 +992,57 @@ function JourDetail({
           <button className="btn amber sm" onClick={onPrint}>
             🖨 Rapport
           </button>
-          <button className="btn tv sm" onClick={onTv}>
-            📺 Mode TV
+          <button className="btn tv sm" onClick={onTv} title="Afficher ici, en plein écran">
+            📺 TV ici
           </button>
+          <a
+            className="btn tv sm"
+            href={`/gpao_prod/tv/${j.id}`}
+            target="_blank"
+            rel="noreferrer"
+            title="Ouvrir dans un onglet à poser sur l'écran d'atelier — il se rafraîchit tout seul"
+          >
+            📺 Écran séparé
+          </a>
+          <label
+            className="btn sm"
+            style={{ background: "#1a2540", color: "#9fb0d0", borderColor: "#2a3f6e", cursor: "default" }}
+            title="Secondes d'affichage par chaîne avant rotation sur l'écran d'atelier"
+          >
+            ⏱{" "}
+            <input
+              type="number"
+              min={3}
+              max={300}
+              defaultValue={state.reglages.tvRotSec}
+              onBlur={(e) => onTvRotSec(+e.target.value)}
+              style={{
+                width: 46,
+                background: "#0f1830",
+                color: "#fff",
+                border: "1px solid #2a3f6e",
+                borderRadius: 5,
+                textAlign: "center",
+                fontWeight: 700,
+              }}
+            />{" "}
+            s/chaîne
+          </label>
           <button
             className="btn sm"
             style={{ background: "#5b3fae", color: "#fff", borderColor: "#5b3fae" }}
             onClick={() => onDup(j.id)}
           >
             ⎘ Dupliquer
+          </button>
+          <button
+            className="btn sm"
+            style={{ background: "#0f7a52", color: "#fff", borderColor: "#0f7a52" }}
+            onClick={onAddOuvJour}
+            disabled={j.cloture}
+            title="Ajouter une ouvrière pour cette journée seulement (renfort, remplaçante)"
+          >
+            ＋ Ouvrière (jour)
           </button>
           {j.cloture ? (
             <button className="btn sm" onClick={onToggleCloture}>
@@ -824,8 +1192,8 @@ function JourDetail({
               <td style={{ fontWeight: 800, color: retcol(retPctCh) }}>{retPctCh}%</td>
             </tr>
 
-            {/* ouvrières */}
-            {c?.ouvrieres.map((o, k) => {
+            {/* ouvrières — effectif figé de la journée, pas celui de la chaîne */}
+            {roster.map((o, k) => {
               const oH = ouvObjH(o);
               const d = j.ops[o.id] || {};
               const prod = ouvProd(j, o.id);
@@ -847,6 +1215,24 @@ function JourDetail({
                         onClick={() => onPostesHeure(o.id)}
                       >
                         ⚙
+                      </button>{" "}
+                      <button
+                        className="btn-ic"
+                        style={{ padding: "0 4px", fontSize: 11 }}
+                        title="Modifier nom / poste / SAM — cette journée seulement"
+                        onClick={() => onEditOuvJour(o)}
+                        disabled={dis}
+                      >
+                        ✏
+                      </button>{" "}
+                      <button
+                        className="btn-ic"
+                        style={{ padding: "0 4px", fontSize: 11, color: "#c33" }}
+                        title="Retirer de cette journée"
+                        onClick={() => onDelOuvJour(o.id)}
+                        disabled={dis}
+                      >
+                        ×
                       </button>
                     </div>
                     <div className="oppost">
@@ -946,12 +1332,57 @@ function JourDetail({
           </tbody>
         </table>
       </div>
+      <div className="gp-sam">
+        <b>⏱ SAM du modèle « {m ? m.nom : "—"} »</b>
+        <div>
+          Total SAM saisi (temps standard) : <b>{sam.sommeSam} s</b> = <b>{(sam.sommeSam / 60).toFixed(2)} min / pièce</b>{" "}
+          sur {sam.nbOperations} opérations
+          {m && m.sam > 0 && sam.sommeSam > 0 && (
+            <span
+              style={{ marginLeft: 8, color: Math.abs(sam.sommeSam - m.sam) > m.sam * 0.1 ? "var(--red)" : "var(--muted)" }}
+            >
+              (SAM déclaré du modèle : {m.sam} s — écart {sam.sommeSam - m.sam >= 0 ? "+" : ""}
+              {sam.sommeSam - m.sam} s)
+            </span>
+          )}
+        </div>
+        <div>
+          SAM produit ce jour : <b>{sam.minutesJour.toFixed(0)} min</b> pour <b>{sortie}</b> pièces sorties
+        </div>
+        <div>
+          SAM produit cumulé (toutes les journées de ce modèle) : <b>{sam.minutesCumul.toFixed(0)} min</b> pour{" "}
+          <b>{sam.piecesCumul}</b> pièces
+        </div>
+      </div>
+
       <div className="note" style={{ marginTop: 10 }}>
         💡 <b>RI</b>/<b>ABS</b> dans une cellule = heure exclue de l&apos;objectif ajusté. Le bouton <b>⚙</b> d&apos;une
         ouvrière ouvre la saisie <b>multi-postes / poste par heure</b> (rendement = temps standard gagné ÷ temps
         travaillé). La colonne <b>Ret.</b> = pièces retouchées dans la journée ; <b>% Ret.</b> = retouches ÷ production
         (alerte rouge &gt; {SEUIL_RET}%). L&apos;objectif /H est modifiable directement. Sauvegarde automatique à chaque
         saisie.
+        <br />
+        👥 L&apos;effectif ci-dessus appartient à <b>cette journée</b> : les boutons ✏ et × et «&nbsp;＋ Ouvrière
+        (jour)&nbsp;» ne touchent ni la chaîne {c ? <b>{c.nom}</b> : null} ni les autres jours.
+        <br />⚠ Une ouvrière est signalée en tête de journée et sur l&apos;écran d&apos;atelier sous{" "}
+        <input
+          type="number"
+          min={1}
+          max={200}
+          defaultValue={state.reglages.seuilAlerte}
+          onBlur={(e) => onSeuilAlerte(+e.target.value)}
+          title="Seuil d'alerte de rendement, commun à tous les postes"
+          style={{
+            width: 52,
+            padding: "1px 4px",
+            border: "1px solid var(--border)",
+            borderRadius: 5,
+            textAlign: "center",
+            fontWeight: 700,
+            fontSize: 11,
+          }}
+        />{" "}
+        % de rendement — réglage commun à tous les postes.
       </div>
     </div>
   );
@@ -968,6 +1399,7 @@ function ChainesView({
   onNewOuv,
   onEditOuv,
   onDeleteOuv,
+  onImport,
 }: {
   state: GpaoState;
   currentChaineId: number | null;
@@ -978,6 +1410,7 @@ function ChainesView({
   onNewOuv: (chId: number) => void;
   onEditOuv: (chId: number, o: Ouvriere) => void;
   onDeleteOuv: (chId: number, ouvId: number) => void;
+  onImport: (chId: number) => void;
 }) {
   const c = currentChaineId !== null ? findC(state, currentChaineId) : null;
   return (
@@ -1032,6 +1465,9 @@ function ChainesView({
             👥 Ouvrières — {c.nom} <span className="cnt">{c.ouvrieres.length}</span>
             <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => onEditChaine(c)}>
               ✏ Modifier chaîne
+            </button>
+            <button className="btn sm" onClick={() => onImport(c.id)} title="Depuis un fichier Excel ou un copier-coller">
+              📥 Importer
             </button>
             <button className="btn primary sm" onClick={() => onNewOuv(c.id)}>
               ＋ Ouvrière
@@ -1148,14 +1584,107 @@ function ModelesView({
 }
 
 /* ═══════════════════ CUMUL ═══════════════════ */
-function CumulView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (id: number) => void }) {
+type EtatCumul = "actifs" | "encours" | "finis" | "archives" | "tous";
+type TriCumul = "recent" | "nom" | "pct" | "reste" | "prod";
+
+const LIBELLE_ETAT: Record<EtatCumul, string> = {
+  actifs: "Modèles actifs",
+  encours: "Modèles en cours",
+  finis: "Modèles finis",
+  archives: "Modèles archivés",
+  tous: "Tous les modèles",
+};
+
+function CumulView({
+  state,
+  onOpenDay,
+  onArchiver,
+}: {
+  state: GpaoState;
+  onOpenDay: (id: number) => void;
+  onArchiver: (m: Modele) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [etat, setEtat] = useState<EtatCumul>("actifs");
+  const [tri, setTri] = useState<TriCumul>("recent");
+
+  const liste = useMemo(() => {
+    const n = q.trim().toLowerCase();
+    return state.modeles
+      .map((m) => {
+        const prod = cumulModele(state, m.id);
+        return {
+          m,
+          prod,
+          pct: m.qte > 0 ? Math.round((prod / m.qte) * 100) : 0,
+          reste: Math.max(m.qte - prod, 0),
+          derniere: derniereDateModele(state, m.id),
+        };
+      })
+      .filter((x) => !n || `${x.m.nom} ${x.m.ref} ${x.m.client}`.toLowerCase().includes(n))
+      .filter((x) => {
+        if (etat === "archives") return x.m.archive;
+        if (etat === "tous") return true;
+        if (x.m.archive) return false; // actifs / en cours / finis excluent les archivés
+        if (etat === "encours") return x.pct < 100;
+        if (etat === "finis") return x.pct >= 100;
+        return true;
+      })
+      .sort((a, b) => {
+        if (tri === "nom") return a.m.nom.localeCompare(b.m.nom, "fr");
+        if (tri === "pct") return b.pct - a.pct;
+        if (tri === "reste") return b.reste - a.reste;
+        if (tri === "prod") return b.prod - a.prod;
+        return (b.derniere || "").localeCompare(a.derniere || "");
+      });
+  }, [state, q, etat, tri]);
+
   return (
     <div className="page">
-      <h2 className="sec">📊 Cumul de production par modèle</h2>
+      <h2 className="sec">
+        📊 Cumul de production par modèle <span className="cnt">{liste.length}</span>
+        <button
+          className="btn amber"
+          style={{ marginLeft: "auto" }}
+          disabled={!liste.length}
+          onClick={() => imprimerResumeProduction(state, liste.map((x) => x.m), LIBELLE_ETAT[etat])}
+        >
+          🖨 Résumé de production
+        </button>
+      </h2>
+
+      {state.modeles.length > 0 && (
+        <div className="gp-filtres">
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="🔎 Modèle, réf ou client…"
+            style={{ flex: 1, minWidth: 180 }}
+          />
+          <select value={etat} onChange={(e) => setEtat(e.target.value as EtatCumul)}>
+            <option value="actifs">Actifs (non archivés)</option>
+            <option value="encours">⏳ En cours (&lt;100%)</option>
+            <option value="finis">✅ Finis (≥100%)</option>
+            <option value="archives">📦 Archivés</option>
+            <option value="tous">Tous</option>
+          </select>
+          <select value={tri} onChange={(e) => setTri(e.target.value as TriCumul)}>
+            <option value="recent">Tri : activité récente</option>
+            <option value="nom">Tri : nom A→Z</option>
+            <option value="pct">Tri : % avancement</option>
+            <option value="reste">Tri : reste à produire</option>
+            <option value="prod">Tri : pièces produites</option>
+          </select>
+        </div>
+      )}
+
       {!state.modeles.length ? (
         <div className="empty">Aucun modèle créé.</div>
+      ) : !liste.length ? (
+        <div className="empty">Aucun modèle ne correspond à la recherche ou au filtre.</div>
       ) : (
-        state.modeles.map((m) => {
+        liste.map(({ m }) => {
           const jours = state.journees
             .filter((j) => j.modeleId === m.id)
             .sort((a, b) => a.date.localeCompare(b.date));
@@ -1168,7 +1697,14 @@ function CumulView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (id: num
           return (
             <div
               key={m.id}
-              style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 13, padding: 18, marginBottom: 16 }}
+              style={{
+                background: "#fff",
+                border: "1px solid var(--border)",
+                borderRadius: 13,
+                padding: 18,
+                marginBottom: 16,
+                opacity: m.archive ? 0.65 : 1,
+              }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
                 <div style={{ fontWeight: 800, fontSize: 15, color: "var(--navy)" }}>
@@ -1176,6 +1712,23 @@ function CumulView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (id: num
                 </div>
                 {m.client && <span className="pill b">{m.client}</span>}
                 <span className={`pill ${pct >= 100 ? "g" : pct >= 50 ? "b" : "a"}`}>{pct}%</span>
+                {m.archive && <span className="pill">📦 Archivé</span>}
+                <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                  <button
+                    className="btn sm"
+                    title="Imprimer la fiche complète : résumé et toutes les journées"
+                    onClick={() => imprimerFicheModele(state, m)}
+                  >
+                    🖨 Fiche
+                  </button>
+                  <button
+                    className="btn sm"
+                    title={m.archive ? "Remettre ce modèle dans les listes actives" : "Ranger ce modèle fini (rien n'est supprimé)"}
+                    onClick={() => onArchiver(m)}
+                  >
+                    {m.archive ? "♻ Réactiver" : "📦 Archiver"}
+                  </button>
+                </span>
               </div>
               <div className="prog" style={{ height: 16, marginBottom: 8 }}>
                 <div
@@ -1214,6 +1767,7 @@ function CumulView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (id: num
                         <th>Sortie</th>
                         <th>Écart</th>
                         <th>Rendement</th>
+                        <th>Ret.</th>
                         <th>Cumul</th>
                         <th />
                       </tr>
@@ -1225,6 +1779,7 @@ function CumulView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (id: num
                         const oj = chObjJour(state, j);
                         const rr = chRend(state, j);
                         const e = s - oj;
+                        const ret = chRetTotal(j);
                         run += s;
                         return (
                           <tr key={j.id}>
@@ -1248,6 +1803,9 @@ function CumulView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (id: num
                               <span className="rendpct" style={{ color: rcol(rr) }}>
                                 {rr}%
                               </span>
+                            </td>
+                            <td style={{ color: ret ? retcol(s > 0 ? Math.round((ret / s) * 1000) / 10 : 0) : undefined }}>
+                              {ret || "—"}
                             </td>
                             <td style={{ fontWeight: 800 }}>{run}</td>
                             <td>
@@ -1306,7 +1864,9 @@ function printJournee(state: GpaoState, dayId: number) {
   h += `<table><thead><tr><th>N°</th><th style="text-align:left">Ouvrière</th><th style="text-align:left">Poste</th><th>SAM</th><th>Obj/H</th>${j.cols
     .map((x) => `<th>${esc(x)}</th>`)
     .join("")}<th>Total</th><th>Obj.aj.</th><th>Rend.%</th><th>Ret.</th><th>%Ret.</th></tr></thead><tbody>`;
-  c?.ouvrieres.forEach((o, k) => {
+  /* Les ouvrières viennent de LA JOURNÉE, comme à l'écran — sinon le rapport
+   * sort vide, ou faux, dès que l'effectif de la chaîne a changé depuis. */
+  dayOuvrieres(state, j).forEach((o, k) => {
     const d = j.ops[o.id] || {};
     const ro = ouvRend(j, o);
     const retP = ouvRetPct(j, o.id);

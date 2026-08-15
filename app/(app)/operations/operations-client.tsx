@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { GabaritButton } from "@/components/shared/gabarit-button";
+import { ImportButton } from "@/components/shared/import-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { doublonsOperations } from "@/lib/domain/atelier";
@@ -55,6 +57,42 @@ export function OperationsClient({
         icon={ListChecks}
         title="Catalogue d'opérations"
         description="Libellés normalisés et temps standards — la référence des saisies horaires en chaîne"
+        actions={
+          peutSaisir && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                title="Parcourir les chaînes et toutes les journées pour récupérer les postes déjà saisis"
+                onClick={() =>
+                  start(async () => {
+                    const r = await A.synchroniserOperations();
+                    if (!r.ok) {
+                      toast.error(r.error);
+                      return;
+                    }
+                    toast.success(
+                      r.data ? `${r.data} opération(s) récupérée(s) des saisies` : "Catalogue déjà complet",
+                    );
+                    router.refresh();
+                  })
+                }
+              >
+                🧲 Récupérer depuis les saisies
+              </Button>
+              <GabaritButton
+                nom="gabarit_operations"
+                entetes={["Operation", "SAM"]}
+                exemples={[
+                  ["Assemblage manche", "220"],
+                  ["Surpiqure col", "95"],
+                ]}
+              />
+              <ImportButton action={A.importerOperations} label="Importer (CSV/Excel)" />
+            </>
+          )
+        }
       />
 
       <Tuiles>

@@ -1,0 +1,1 @@
+ALTER TABLE "commande" ADD COLUMN "photo_hash" text;

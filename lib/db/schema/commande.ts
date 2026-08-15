@@ -106,6 +106,14 @@ export const commande = pgTable(
     /** Invoice numbers this commande was matched against ("79/2026", …). */
     facNums: jsonb().$type<string[]>().notNull().default([]),
 
+    /** Photo du modèle, adressée par le hash de son contenu dans `fichier`.
+     *
+     * Simple colonne et non table de liaison : une commande n'a qu'une photo,
+     * celle qui permet à l'atelier de reconnaître l'article sans ouvrir le
+     * dossier technique. Elle est purgée à la livraison — elle n'a plus
+     * d'utilité une fois la marchandise partie. */
+    photoHash: text(),
+
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow(),
   },

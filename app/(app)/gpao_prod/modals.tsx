@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { type Chaine, type GpaoState, type Modele, findC, findM } from "./store";
+import { type Chaine, type GpaoState, type Modele, type OperationRef, findC, findM } from "./store";
+import { cleOperation } from "@/lib/domain/atelier";
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
@@ -23,9 +24,16 @@ export function NewDayModal({
 }) {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [chaineId, setChaineId] = useState(state.chaines[0]?.id ?? 0);
-  const [modeleId, setModeleId] = useState(state.modeles[0]?.id ?? 0);
+  const [modeleId, setModeleId] = useState(
+    () => (state.modeles.find((m) => !m.archive) ?? state.modeles[0])?.id ?? 0,
+  );
   const [effectif, setEffectif] = useState(state.chaines[0]?.ouvrieres.length ?? 22);
   const [nbHeures, setNbHeures] = useState(8);
+
+  /* Les modèles archivés (finis) ne sont plus proposés : on les réactive
+   * depuis Cumul si l'on doit vraiment relancer une série. */
+  const modelesProposes = state.modeles.filter((mm) => !mm.archive);
+  const choix = modelesProposes.length ? modelesProposes : state.modeles;
 
   const m = findM(state, modeleId);
   const objH = m && m.sam > 0 ? (effectif * 3600) / m.sam : 0;
@@ -50,7 +58,7 @@ export function NewDayModal({
       <div className="fld">
         <label>Modèle attribué</label>
         <select value={modeleId} onChange={(e) => setModeleId(+e.target.value)}>
-          {state.modeles.map((mm) => (
+          {choix.map((mm) => (
             <option key={mm.id} value={mm.id}>
               {mm.nom} — {mm.ref} (SAM {mm.sam}s)
             </option>
@@ -139,6 +147,7 @@ export function ChaineModal({
 export function ModeleModal({
   edit,
   clients,
+  effectifDefaut,
   onClose,
   onSave,
 }: {
@@ -146,13 +155,16 @@ export function ModeleModal({
   /** Client names from the shared Clients module (kept in sync). */
   clients: string[];
   onClose: () => void;
-  onSave: (data: { nom: string; ref: string; client: string; sam: number; qte: number }) => void;
+  onSave: (data: { nom: string; ref: string; client: string; sam: number; qte: number; estimEff: number }) => void;
+  /** Effectif proposé par défaut pour l'estimation (celui de la 1re chaîne). */
+  effectifDefaut?: number;
 }) {
   const [nom, setNom] = useState(edit?.nom ?? "");
   const [ref, setRef] = useState(edit?.ref ?? "");
   const [client, setClient] = useState(edit?.client ?? "");
   const [sam, setSam] = useState(edit?.sam ?? 1800);
   const [qte, setQte] = useState(edit?.qte ?? 5000);
+  const [estimEff, setEstimEff] = useState(edit?.estimEff || effectifDefaut || 22);
   return (
     <Overlay onClose={onClose}>
       <h2>{edit ? "✏ Modifier modèle" : "＋ Nouveau modèle"}</h2>
@@ -183,13 +195,17 @@ export function ModeleModal({
           <label>SAM total modèle (secondes)</label>
           <input type="number" value={sam} onChange={(e) => setSam(+e.target.value)} />
           <div className="cinfo">
-            = {(sam / 60).toFixed(1)} min/pièce. Pour 22 ouvrières : objectif ≈{" "}
-            <b>{((22 * 3600) / (sam || 1)).toFixed(1)} p/h</b>
+            = {(sam / 60).toFixed(1)} min/pièce · {estimEff || 0} ouvrières ≈{" "}
+            <b>{(((estimEff || 0) * 3600) / (sam || 1)).toFixed(1)} p/h</b>
           </div>
         </div>
         <div className="fld">
           <label>Quantité commandée</label>
           <input type="number" value={qte} onChange={(e) => setQte(+e.target.value)} />
+        </div>
+        <div className="fld">
+          <label>Effectif chaîne (estimation p/h)</label>
+          <input type="number" value={estimEff} onChange={(e) => setEstimEff(+e.target.value)} />
         </div>
       </div>
       <div className="macts">
@@ -198,7 +214,16 @@ export function ModeleModal({
         </button>
         <button
           className="btn primary"
-          onClick={() => onSave({ nom: nom.trim(), ref: ref.trim(), client: client.trim(), sam: sam || 1800, qte: qte || 0 })}
+          onClick={() =>
+            onSave({
+              nom: nom.trim(),
+              ref: ref.trim(),
+              client: client.trim(),
+              sam: sam || 1800,
+              qte: qte || 0,
+              estimEff: estimEff || 0,
+            })
+          }
         >
           Enregistrer
         </button>
@@ -207,33 +232,77 @@ export function ModeleModal({
   );
 }
 
-/* ─────────── Ouvrière ─────────── */
+/* ─────────── Ouvrière ───────────
+   Sert deux écrans : l'effectif d'une chaîne, et l'effectif d'une seule
+   journée. Seuls le titre et la phrase d'aide changent — le formulaire, lui,
+   est le même (nom, poste, SAM). */
 export function OuvriereModal({
   edit,
+  noms,
+  operations,
+  titre,
+  aide,
   onClose,
   onSave,
 }: {
   edit: { nom: string; poste: string; sam: number } | null;
+  /** Noms du registre proposés en saisie : taper l'orthographe du registre
+   * suffit alors à rattacher l'ouvrière à sa fiche. */
+  noms?: string[];
+  /** Catalogue d'opérations : choisir un libellé connu pose son temps standard. */
+  operations?: OperationRef[];
+  titre?: string;
+  aide?: string;
   onClose: () => void;
   onSave: (data: { nom: string; poste: string; sam: number }) => void;
 }) {
   const [nom, setNom] = useState(edit?.nom ?? "");
   const [poste, setPoste] = useState(edit?.poste ?? "");
   const [sam, setSam] = useState(edit?.sam ?? 100);
+
+  /** Reprendre le SAM du catalogue dès qu'un libellé connu est saisi — c'est
+   * l'intérêt du catalogue : ne plus retaper un temps standard déjà décidé. */
+  const choisirPoste = (v: string) => {
+    setPoste(v);
+    const trouvee = operations?.find((o) => cleOperation(o.nom) === cleOperation(v));
+    if (trouvee && trouvee.sam > 0) setSam(trouvee.sam);
+  };
   useEffect(() => {
     const t = setTimeout(() => document.querySelector<HTMLInputElement>(".gp-mdl input")?.focus(), 80);
     return () => clearTimeout(t);
   }, []);
   return (
     <Overlay onClose={onClose}>
-      <h2>{edit ? "✏ Ouvrière" : "＋ Ouvrière"}</h2>
+      <h2>{titre ?? (edit ? "✏ Ouvrière" : "＋ Ouvrière")}</h2>
+      {aide && <div className="note">{aide}</div>}
+      {noms && noms.length > 0 && (
+        <datalist id="gp-noms-personnel">
+          {noms.map((n) => (
+            <option key={n} value={n} />
+          ))}
+        </datalist>
+      )}
       <div className="fld">
         <label>Nom et prénom</label>
-        <input value={nom} onChange={(e) => setNom(e.target.value)} />
+        <input list={noms && noms.length ? "gp-noms-personnel" : undefined} value={nom} onChange={(e) => setNom(e.target.value)} />
       </div>
+      {operations && operations.length > 0 && (
+        <datalist id="gp-operations">
+          {operations.map((o) => (
+            <option key={o.id} value={o.nom}>
+              {o.sam > 0 ? `SAM ${o.sam}s` : ""}
+            </option>
+          ))}
+        </datalist>
+      )}
       <div className="fld">
         <label>Opération / poste</label>
-        <input value={poste} onChange={(e) => setPoste(e.target.value)} placeholder="ex: Montage col" />
+        <input
+          list={operations && operations.length ? "gp-operations" : undefined}
+          value={poste}
+          onChange={(e) => choisirPoste(e.target.value)}
+          placeholder="ex: Montage col"
+        />
       </div>
       <div className="fld">
         <label>SAM opération (secondes)</label>

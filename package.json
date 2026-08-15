@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node scripts/migrate.mjs && (node --import tsx scripts/seed.ts || echo seed-step-skipped) && next start",
+    "start": "node scripts/migrate.mjs && (node --import tsx scripts/seed.ts || echo seed-step-skipped) && (node --import tsx scripts/import-pilotpro.ts --auto || echo import-step-skipped) && next start",
     "start:app": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
@@ -17,7 +17,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "node --import tsx scripts/seed.ts",
-    "import:pilotpro": "node --import tsx scripts/import-pilotpro.ts"
+    "import:pilotpro": "node --import tsx scripts/import-pilotpro.ts",
+    "import:auto": "node --import tsx scripts/import-pilotpro.ts --auto",
+    "test": "node --import tsx --test \"lib/**/*.test.ts\""
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

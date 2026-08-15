@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { type Chaine, type Journee, type OpDetail } from "./store";
+import { type Journee, type OpDetail, type OperationRef, type Ouvriere } from "./store";
+import { cleOperation } from "@/lib/domain/atelier";
 
 type Row = { hour: string; poste: string; sam: string; qte: string };
 
@@ -16,20 +17,25 @@ export type PosteHeureResult = {
  * hour = the worker did two operations that hour (e.g. helped a colleague). */
 export function PostesHeureModal({
   journee: j,
-  chaine: c,
+  roster,
+  operations,
   ouvId,
   onClose,
   onSave,
   onReset,
 }: {
   journee: Journee;
-  chaine: Chaine | null;
+  /** Effectif de la journée — pas celui de la chaîne : une ouvrière ajoutée
+   * pour ce jour doit pouvoir ouvrir sa saisie horaire comme les autres. */
+  roster: Ouvriere[];
+  /** Catalogue d'opérations, proposé en plus des postes tenus ce jour-là. */
+  operations: OperationRef[];
   ouvId: number;
   onClose: () => void;
   onSave: (ouvId: number, result: PosteHeureResult) => void;
   onReset: (ouvId: number) => void;
 }) {
-  const o = c?.ouvrieres.find((x) => x.id === ouvId);
+  const o = roster.find((x) => x.id === ouvId);
 
   const initialRows = (): Row[] => {
     if (!o) return [];
@@ -61,8 +67,12 @@ export function PostesHeureModal({
   const removeRow = (i: number) => setRows((prev) => prev.filter((_, idx) => idx !== i));
   const onPostePick = (i: number, val: string) => {
     setRow(i, "poste", val);
-    const match = c?.ouvrieres.find((x) => x.poste === val);
-    if (match && !rows[i].sam) setRow(i, "sam", String(match.sam));
+    if (rows[i].sam) return;
+    // Le poste tenu dans la journée d'abord, le catalogue ensuite.
+    const cle = cleOperation(val);
+    const match =
+      roster.find((x) => cleOperation(x.poste) === cle) ?? operations.find((o) => cleOperation(o.nom) === cle);
+    if (match && match.sam > 0) setRow(i, "sam", String(match.sam));
   };
 
   const handleSave = () => {
@@ -119,8 +129,19 @@ export function PostesHeureModal({
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <datalist id="ph-postes">
-        {c?.ouvrieres.map((x) => (
-          <option key={x.id} value={x.poste} />
+        {[
+          ...new Map(
+            [
+              ...roster.map((x) => ({ nom: x.poste, sam: x.sam })),
+              ...operations.map((o) => ({ nom: o.nom, sam: o.sam })),
+            ]
+              .filter((x) => x.nom)
+              .map((x) => [cleOperation(x.nom), x] as const),
+          ).values(),
+        ].map((x) => (
+          <option key={x.nom} value={x.nom}>
+            {x.sam > 0 ? `SAM ${x.sam}s` : ""}
+          </option>
         ))}
       </datalist>
       <div

@@ -152,10 +152,10 @@
 .gp-tv .tv-bar-h { font-size:clamp(9px,1.1vh,12px); color:#7e93c4; font-weight:700; }
 .gp-tv .tv-right { display:flex; flex-direction:column; min-height:0; }
 .gp-tv .tv-ops { flex:1; overflow:hidden; display:flex; flex-direction:column; }
-.gp-tv .tv-ops-head { display:grid; grid-template-columns:42px 1.6fr 1fr 64px 80px 1.1fr; gap:8px; padding:8px 12px; font-size:clamp(9px,1.1vh,12px); color:#7e93c4; font-weight:800; text-transform:uppercase; border-bottom:1px solid #1d2c55; }
+.gp-tv .tv-ops-head { display:grid; grid-template-columns:42px 1.5fr 1fr 62px 56px 66px 1.1fr; gap:8px; padding:8px 12px; font-size:clamp(9px,1.1vh,12px); color:#7e93c4; font-weight:800; text-transform:uppercase; border-bottom:1px solid #1d2c55; }
 .gp-tv .tv-ops-list { flex:1; overflow:hidden; position:relative; }
 .gp-tv .tv-ops-inner { position:absolute; left:0; right:0; transition:top .8s ease; }
-.gp-tv .tv-op { display:grid; grid-template-columns:42px 1.6fr 1fr 64px 80px 1.1fr; gap:8px; align-items:center; padding:6px 12px; border-bottom:1px solid #131f40; }
+.gp-tv .tv-op { display:grid; grid-template-columns:42px 1.5fr 1fr 62px 56px 66px 1.1fr; gap:8px; align-items:center; padding:6px 12px; border-bottom:1px solid #131f40; }
 .gp-tv .tv-op .n { font-size:clamp(10px,1.3vh,14px); font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .gp-tv .tv-op .p { font-size:clamp(9px,1.1vh,12px); color:#7e93c4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .gp-tv .tv-op .num { font-size:clamp(10px,1.3vh,14px); font-weight:800; font-variant-numeric:tabular-nums; text-align:right; }
@@ -170,3 +170,24 @@
 .gp-tv .tv-ticker-inner span { margin-right:55px; }
 @keyframes gp-scroll { 0%{transform:translateX(0);} 100%{transform:translateX(-100%);} }
 .gp-tv .tvg{color:#2fd79a;} .gp-tv .tva{color:#f5bd55;} .gp-tv .tvr{color:#ff6b6b;} .gp-tv .tvb{color:#6da3f5;}
+
+/* ─────────── Filtres de liste (journées, cumul) ─────────── */
+.gp .gp-filtres { display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:#fff; border:1px solid var(--border); border-radius:13px; padding:12px 14px; margin-bottom:14px; }
+.gp .gp-filtres input, .gp .gp-filtres select { padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-size:13px; background:#fff; color:var(--txt); }
+.gp .gp-filtres input:focus, .gp .gp-filtres select:focus { outline:2px solid var(--blue); border-color:transparent; }
+
+/* ─────────── Bandeau d'alerte de journée ─────────── */
+.gp .gp-alerte { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:10px; padding:10px 14px; margin-bottom:12px; font-size:13px; line-height:1.5; }
+
+/* ─────────── Contrôle SAM sous la saisie ─────────── */
+.gp .gp-sam { margin-top:12px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.8; }
+
+/* Modale large : aperçu d'import */
+.gp-mdl.gp-mdl-wide { width:720px; }
+.gp-mdl textarea { width:100%; border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:13px; background:#f8fafd; color:var(--txt); font-family:inherit; }
+.gp-mdl .twrap { overflow-x:auto; background:#fff; border:1px solid var(--border); border-radius:10px; margin-top:10px; }
+.gp-mdl table { width:100%; border-collapse:collapse; font-size:12px; }
+.gp-mdl table th { background:#f5f7fc; color:#556; font-weight:700; padding:6px 8px; font-size:10px; text-transform:uppercase; letter-spacing:.4px; border-bottom:1px solid var(--border); }
+.gp-mdl table td { padding:5px 8px; border-bottom:1px solid #eef2f8; text-align:center; }
+.gp-mdl table td.lft { text-align:left; }
+.gp-mdl .gp-alerte { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:8px; padding:8px 12px; margin:10px 0; font-size:12px; }

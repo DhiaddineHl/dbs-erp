@@ -1,7 +1,8 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { chaine, journee, modele, ouvriere } from "@/lib/db/schema";
+import { chaine, client, commande, journee, modele, ouvriere } from "@/lib/db/schema";
+import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 
 /* Reads return shapes aligned with app/(app)/gpao_prod/store.ts so the future
  * UI wiring is a near drop-in for the localStorage store. */
@@ -28,6 +29,57 @@ export async function updateModele(id: number, patch: Partial<typeof modele.$inf
 }
 export async function deleteModele(id: number) {
   await db.delete(modele).where(eq(modele.id, id));
+}
+
+/** Passerelle Commandes → GPAO (B22).
+ *
+ * Enregistrer une commande fait exister son modèle côté production, avec la
+ * quantité de TOUTES les commandes actives qui le portent : c'est cette
+ * quantité que la chaîne doit sortir, pas celle d'une commande isolée.
+ *
+ * Le SAM n'est jamais écrasé. Il est tenu dans GPAO, à partir des opérations
+ * réellement chronométrées ; le remplacer depuis les commandes effacerait un
+ * relevé d'atelier par une donnée commerciale. Un modèle créé ici part donc
+ * sur le SAM par défaut de la colonne, que les écrans GPAO signalent déjà
+ * comme à régler.
+ *
+ * Ne crée rien pour un modèle sans nom, et ne réveille pas un modèle archivé :
+ * l'archivage est une décision de l'atelier. */
+export async function synchroniserModele(nom: string): Promise<"cree" | "maj" | "aucun"> {
+  const propre = nom.trim();
+  if (!propre) return "aucun";
+
+  const [agg] = await db
+    .select({
+      qte: sql<number>`coalesce(sum(${commande.qte}), 0)::int`,
+      n: sql<number>`count(*)::int`,
+      ref: sql<string>`coalesce(max(${commande.refArticle}), '')`,
+      client: sql<string>`coalesce(max(${client.nom}), '')`,
+    })
+    .from(commande)
+    .leftJoin(client, eq(commande.clientId, client.id))
+    .where(and(eq(commande.modele, propre), eq(commande.archived, false)));
+
+  // Plus aucune commande active : rien à pousser, et surtout rien à effacer.
+  if (!agg || agg.n === 0) return "aucun";
+
+  const [existant] = await db.select().from(modele).where(eq(modele.nom, propre)).limit(1);
+
+  if (existant) {
+    await db
+      .update(modele)
+      .set({
+        // Les champs vides ne remplacent pas une valeur déjà saisie en GPAO.
+        ref: agg.ref || existant.ref,
+        client: agg.client || existant.client,
+        qte: agg.qte,
+      })
+      .where(eq(modele.id, existant.id));
+    return "maj";
+  }
+
+  await db.insert(modele).values({ nom: propre, ref: agg.ref, client: agg.client, qte: agg.qte });
+  return "cree";
 }
 
 /* ─────────── chaîne writes ─────────── */
@@ -63,6 +115,25 @@ export async function updateOuvriere(id: number, patch: Partial<typeof ouvriere.
 }
 export async function deleteOuvriere(id: number) {
   await db.delete(ouvriere).where(eq(ouvriere.id, id));
+}
+
+/** Effectif courant d'une chaîne, dans la forme figée par une journée.
+ *
+ * Lu côté serveur au moment de créer la journée plutôt que repris du client :
+ * l'effectif figé est une photo de la base, pas de l'écran de celui qui clique. */
+export async function ouvrieresDeChaine(chaineId: number): Promise<JourneeOuvriere[]> {
+  const rows = await db
+    .select({
+      id: ouvriere.id,
+      nom: ouvriere.nom,
+      poste: ouvriere.poste,
+      sam: ouvriere.sam,
+      personnelId: ouvriere.personnelId,
+    })
+    .from(ouvriere)
+    .where(eq(ouvriere.chaineId, chaineId))
+    .orderBy(asc(ouvriere.id));
+  return rows;
 }
 
 /* ─────────── journée writes ─────────── */

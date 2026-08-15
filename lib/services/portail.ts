@@ -22,41 +22,57 @@ function versBrute(j: JourneeLigne): rd.JourneeBrute {
 }
 
 /** Rendement d'une personne à partir de la clé de son QR.
- * Renvoie null si la clé est inconnue — jamais d'indice sur ce qui existe. */
+ * Renvoie null si la clé est inconnue — jamais d'indice sur ce qui existe.
+ *
+ * La personne est retrouvée dans l'effectif figé de chaque journée, pas dans
+ * l'effectif actuel des chaînes : son historique survit donc à un changement
+ * de chaîne, et le poste comme le SAM affichés sont ceux qu'elle tenait ce
+ * jour-là. Les journées antérieures à l'effectif figé retombent sur l'effectif
+ * courant de leur chaîne, comme partout ailleurs. */
 export async function rendementParCle(cle: string): Promise<rd.Rendement | null> {
   if (!cle || cle.length > 64) return null;
 
   const [personne] = await db.select().from(personnel).where(eq(personnel.portailCle, cle));
   if (!personne) return null;
 
-  // Toutes les lignes ouvrière rattachées à cette personne, toutes chaînes.
-  const lignes = await db.select().from(ouvriere).where(eq(ouvriere.personnelId, personne.id));
   const identite = { nom: personne.nom, matricule: personne.matricule, poste: personne.fonction };
-  if (!lignes.length) return rd.rendementOuvriere(identite, []);
+  const [journees, lignes] = await Promise.all([
+    db.select().from(journee).orderBy(asc(journee.date)),
+    db.select().from(ouvriere),
+  ]);
 
-  const parId = new Map(lignes.map((l) => [l.id, l]));
-  const journees = await db.select().from(journee).orderBy(asc(journee.date));
+  // Effectif de repli, par chaîne, pour les journées d'avant l'effectif figé.
+  const parChaine = new Map<number, rd.OuvriereBrute[]>();
+  for (const l of lignes) {
+    if (l.personnelId !== personne.id) continue;
+    const g = parChaine.get(l.chaineId);
+    const e = { id: l.id, nom: l.nom, poste: l.poste, sam: l.sam };
+    if (g) g.push(e);
+    else parChaine.set(l.chaineId, [e]);
+  }
 
   const paires: { journee: rd.JourneeBrute; ouvriere: rd.OuvriereBrute }[] = [];
   for (const j of journees) {
     const brute = versBrute(j);
-    // La journée concerne la personne si une de ses lignes y a une saisie.
-    for (const l of lignes) {
+    const candidats: rd.OuvriereBrute[] = (j.ouvrieres ?? []).length
+      ? (j.ouvrieres ?? [])
+          .filter((o) => o.personnelId === personne.id)
+          .map((o) => ({ id: o.id, nom: o.nom, poste: o.poste, sam: o.sam }))
+      : (parChaine.get(j.chaineId) ?? []);
+
+    for (const o of candidats) {
       const aSaisie =
-        brute.cols.some((c) => rd.heureTravaillee(brute, l.id, c)) || Number(brute.ret[l.id] ?? 0) > 0;
+        brute.cols.some((c) => rd.heureTravaillee(brute, o.id, c)) || Number(brute.ret[o.id] ?? 0) > 0;
       if (!aSaisie) continue;
-      paires.push({
-        journee: brute,
-        ouvriere: { id: l.id, nom: l.nom, poste: l.poste, sam: l.sam },
-      });
+      paires.push({ journee: brute, ouvriere: o });
       break;
     }
   }
 
   const r = rd.rendementOuvriere(identite, paires);
-  // À défaut de fonction au registre, montrer le poste tenu sur la chaîne.
+  // À défaut de fonction au registre, montrer le dernier poste réellement tenu.
   if (!r.poste) {
-    const derniere = paires.at(-1)?.ouvriere ?? parId.values().next().value;
+    const derniere = paires.at(-1)?.ouvriere ?? [...parChaine.values()][0]?.[0];
     if (derniere) r.poste = derniere.poste;
   }
   return r;

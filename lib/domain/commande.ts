@@ -215,6 +215,189 @@ export function dernierSequenceOF(numeros: string[], annee: number = new Date().
   return max;
 }
 
+/* ─────────── interne ou sous-traitance ─────────── */
+
+/** « DBS » désigne l'atelier lui-même, pas un sous-traitant.
+ *
+ * Une commande dont le façonnier est DBS (ou vide, ou une chaîne interne) est
+ * produite en interne. Sans cette règle, des dizaines de commandes comptent
+ * pour de la sous-traitance et faussent à la fois la marge à façon et le
+ * chiffre d'affaires interne. */
+export function estSousTraitee(c: { faconnier?: string | null; chaineId?: number | null }): boolean {
+  if (c.chaineId) return false;
+  const f = String(c.faconnier ?? "").trim();
+  return f !== "" && !/^(dbs|interne)$/i.test(f);
+}
+
+/* ─────────── saisie du formulaire ─────────── */
+
+/** Lit un montant tapé à la main : « 12,40 », « 12.40 € », « 1 200,50 ».
+ *
+ * Vide vaut null, pas zéro : « pas de prix » et « prix nul » ne disent pas la
+ * même chose sur une marge. Partagé entre le formulaire et l'import, pour que
+ * les deux acceptent exactement les mêmes écritures. */
+export function montantSaisi(v: string | number | null | undefined): number | null {
+  if (v == null) return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const nettoye = v
+    .replace(/[  \s]/g, "")
+    .replace(/[€%]/g, "")
+    .replace(",", ".");
+  if (!nettoye) return null;
+  const n = Number(nettoye);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Quantité d'une saisie : la grille de tailles fait foi dès qu'elle est
+ * remplie, la quantité globale ne sert que sans grille. */
+export function quantiteSaisie(tailles: string | null | undefined, qteGlobale: string | null | undefined): number {
+  let total = 0;
+  if (tailles) {
+    try {
+      const arr = JSON.parse(tailles) as { qte?: number }[];
+      if (Array.isArray(arr)) total = arr.reduce((s, t) => s + (Number(t?.qte) || 0), 0);
+    } catch {
+      total = 0;
+    }
+  }
+  if (total > 0) return total;
+  return Math.max(0, Math.round(montantSaisi(qteGlobale) ?? 0));
+}
+
+export type SaisieCommande = {
+  faconnier?: string | null;
+  chaineId?: string | null;
+  prixVente?: string | null;
+  prixFacon?: string | null;
+  tailles?: string | null;
+  qte?: string | null;
+};
+
+export type ApercuCommande = {
+  interne: boolean;
+  qte: number;
+  prixVente: number;
+  prixFacon: number;
+  margeUnitaire: number;
+  margeTotale: number;
+  ca: number;
+  tauxPct: number;
+  /** Rien à afficher tant qu'aucun prix n'est saisi. */
+  vide: boolean;
+};
+
+/** Ce que la commande en cours de saisie vaudra une fois enregistrée.
+ *
+ * La règle DBS s'applique ici comme à l'enregistrement : en interne, le prix
+ * façon suit le prix de vente et la marge est donc nulle. DBS n'achète pas sa
+ * propre façon — lui prêter une marge de sous-traitance gonflerait la marge
+ * globale d'un montant qui n'existe pas. */
+export function apercuCommande(s: SaisieCommande): ApercuCommande {
+  const interne = !estSousTraitee({ faconnier: s.faconnier, chaineId: s.chaineId ? 1 : null });
+  const prixVente = montantSaisi(s.prixVente) ?? 0;
+  const prixFacon = interne ? prixVente : montantSaisi(s.prixFacon) ?? 0;
+  const qte = quantiteSaisie(s.tailles, s.qte);
+  const mu = centimes(prixVente - prixFacon);
+  const ca = centimes(prixVente * qte);
+  return {
+    interne,
+    qte,
+    prixVente,
+    prixFacon,
+    margeUnitaire: mu,
+    margeTotale: centimes(mu * qte),
+    ca,
+    tauxPct: prixVente > 0 ? Math.round((mu / prixVente) * 100) : 0,
+    vide: prixVente === 0 && prixFacon === 0,
+  };
+}
+
+/* ─────────── tri du carnet de commandes ─────────── */
+
+export const CLES_TRI = ["of", "client", "modele", "qte", "tissu", "export", "livraison"] as const;
+export type CleTri = (typeof CLES_TRI)[number];
+
+export const LIBELLES_TRI: Record<CleTri, string> = {
+  of: "N° OF",
+  client: "Client",
+  modele: "Modèle",
+  qte: "Qté",
+  tissu: "Réception tissu",
+  export: "Date d'export",
+  livraison: "Date de livraison",
+};
+
+const CLES_DATE: ReadonlySet<CleTri> = new Set<CleTri>(["tissu", "export", "livraison"]);
+
+/** Ramène une date à AAAA-MM-JJ, quel que soit le format saisi.
+ *
+ * Les fiches anciennes portent du JJ/MM/AAAA là où le reste de la base est en
+ * ISO. Sans cette normalisation, une seule date au format français suffit à
+ * fausser tout le tri : comparée en texte, « 27/06/2026 » passe avant
+ * « 2026-01-05 ». */
+export function cleDate(v: string | null | undefined): string {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const fr = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (fr) return `${fr[3]}-${fr[2].padStart(2, "0")}-${fr[1].padStart(2, "0")}`;
+  const iso = s.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  return s;
+}
+
+/** Ce que le tri lit sur une ligne — le sous-ensemble qui l'intéresse. */
+export type CommandeTriable = {
+  of: string;
+  client: string;
+  modele: string;
+  qte: number;
+  receptTissu: string | null;
+  dateExport: string | null;
+  dateLivraison: string | null;
+};
+
+function valeurTri(c: CommandeTriable, cle: CleTri): string | number {
+  switch (cle) {
+    case "of":
+      return c.of ?? "";
+    case "client":
+      return c.client ?? "";
+    case "modele":
+      return c.modele ?? "";
+    case "qte":
+      return c.qte || 0;
+    case "tissu":
+      return cleDate(c.receptTissu);
+    case "livraison":
+      return cleDate(c.dateLivraison);
+    default:
+      return cleDate(c.dateExport);
+  }
+}
+
+/** Trie le carnet sans jamais remonter les lignes vides.
+ *
+ * Une commande sans date d'export n'a pas d'échéance connue : elle ne doit
+ * jamais passer devant celles qui en ont une, quel que soit le sens du tri.
+ * Elle reste donc en fin de liste dans les deux sens. */
+export function trierCommandes<T extends CommandeTriable>(liste: T[], cle: CleTri, sens: 1 | -1): T[] {
+  const estDate = CLES_DATE.has(cle);
+  return liste.slice().sort((a, b) => {
+    const x = valeurTri(a, cle);
+    const y = valeurTri(b, cle);
+    const xVide = x === "" || (cle !== "qte" && x === 0);
+    const yVide = y === "" || (cle !== "qte" && y === 0);
+    if (xVide && yVide) return 0;
+    if (xVide) return 1;
+    if (yVide) return -1;
+    if (typeof x === "number" && typeof y === "number") return (x - y) * sens;
+    // Dates déjà normalisées : comparaison texte pure. Le mode « numeric »
+    // lirait « 27/06 » comme le nombre 27 et le placerait avant l'année 2026.
+    if (estDate) return (x < y ? -1 : x > y ? 1 : 0) * sens;
+    return String(x).localeCompare(String(y), "fr", { numeric: true }) * sens;
+  });
+}
+
 /* ─────────── matching (facturation ↔ commandes) ─────────── */
 
 /** The key PilotPro's rapprochement uses to tie an invoice line to a commande:

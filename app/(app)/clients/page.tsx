@@ -12,11 +12,13 @@ import { CLIENT_COLUMNS } from "@/lib/modules/columns";
 import { CLIENT_EDIT } from "@/lib/modules/edit-columns";
 import { listClients } from "@/lib/services/commandes";
 import { createClient, importClients } from "@/lib/actions/commandes";
+import { peutNettoyerReferentiel } from "@/lib/actions/referentiel";
+import { BoutonFusionClients } from "./fusion";
 
 const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
 export default async function ClientsPage() {
-  const CLIENTS = await listClients();
+  const [CLIENTS, peutFusionner] = await Promise.all([listClients(), peutNettoyerReferentiel()]);
   const caTotal = CLIENTS.reduce((s, c) => s + c.ca, 0);
   const cmdTotal = CLIENTS.reduce((s, c) => s + c.cmd, 0);
 
@@ -29,6 +31,7 @@ export default async function ClientsPage() {
         actions={
           <>
             <ExportCsvButton rows={CLIENTS} columns={CLIENT_COLUMNS} filename="clients" />
+            {peutFusionner && <BoutonFusionClients />}
             <ImportButton action={importClients} label="Importer (CSV/Excel)" />
             <EntityFormDialog
               triggerLabel="Nouveau client"

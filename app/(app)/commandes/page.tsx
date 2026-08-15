@@ -1,41 +1,69 @@
 import { Package, Euro, BarChart3, TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
-import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { EditableTable } from "@/components/shared/editable-table";
-import { EntityFormDialog } from "@/components/shared/entity-form-dialog";
 import { ExportCsvButton } from "@/components/shared/export-csv-button";
 import { ImportButton } from "@/components/shared/import-button";
-import { COMMANDE_FIELDS } from "@/lib/modules/forms";
+import { GabaritButton } from "@/components/shared/gabarit-button";
 import { COMMANDE_COLUMNS } from "@/lib/modules/columns";
-import { commandeEdit } from "@/lib/modules/edit-columns";
 import { listCommandes, listClients, listFaconniers } from "@/lib/services/commandes";
 import { getChaines } from "@/lib/services/gpao";
-import { createCommande, importCommandes } from "@/lib/actions/commandes";
+import { importCommandes, peutSupprimerCommandes } from "@/lib/actions/commandes";
+import { peutFacturer } from "@/lib/actions/facturation-commande";
+import { CommandesClient } from "./commandes-client";
+import { NouvelleCommande } from "./nouvelle-commande";
 
 const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 const money = (n: number) => `${eur.format(Math.round(n))} €`;
 
+/* Gabarit d'import : uniquement les colonnes réellement lues.
+ *
+ * Marge, retard, avancement et statut sont déduits — les proposer dans le
+ * gabarit laisserait croire qu'on peut les imposer. Le n° OF peut rester vide,
+ * la numérotation prend alors la suite ; « Modèle » et « Client » sont les
+ * deux seules colonnes obligatoires. */
+const GABARIT_ENTETES = [
+  "N° OF", "Modèle", "Référence", "Couleur", "Saison", "Client",
+  "Façonnier", "Qté", "Produit", "P. vente", "P. façon", "Export",
+];
+const GABARIT_EXEMPLES = [
+  ["", "CHEMISE LIN", "REF-1042", "Blanc", "PE26", "PATRICK CONFECTION", "ATELIER SUD", "1200", "0", "18,50", "6,20", "15/09/2026"],
+  ["OF-2026-118", "PANTALON CHINO", "REF-2210", "Marine", "PE26", "MODA SRL", "", "800", "150", "24,00", "", "30/09/2026"],
+];
+
 export default async function CommandesPage() {
-  const [CMDS, clients, faconniers, chaines] = await Promise.all([
-    listCommandes(),
+  /* Les archivées sont chargées avec le reste : l'écran sait les masquer, et
+   * la case « Inclure les archivées » doit répondre sans aller-retour. */
+  const [CMDS, clients, faconniers, chaines, peutSupprimer] = await Promise.all([
+    listCommandes({ includeArchived: true }),
     listClients(),
     listFaconniers(),
     getChaines(),
+    peutSupprimerCommandes(),
   ]);
+  const facturable = await peutFacturer();
+  const actives = CMDS.filter((c) => !c.archived);
 
-  const clientChoices = clients.map((c) => ({ value: c.nom, label: `${c.code || "—"} — ${c.nom}` }));
-  const faconnierChoices = faconniers.map((f) => ({ value: f.nom, label: f.nom }));
+  /* Les listes déroulantes travaillent au NOM, puisque c'est par le nom que
+   * `resolveClientId` rattache. Deux fiches homonymes — il en existe dans la
+   * base reprise — ne doivent donc apparaître qu'une fois : les proposer deux
+   * fois ne donne aucun choix réel, seulement une ambiguïté. La fusion des
+   * doublons se fait dans l'écran Clients. */
+  const parNom = <T,>(liste: T[], nom: (x: T) => string, label: (x: T) => string) => [
+    ...new Map(liste.map((x) => [nom(x), { value: nom(x), label: label(x) }])).values(),
+  ];
+
+  const clientChoices = parNom(clients, (c) => c.nom, (c) => (c.code ? `${c.code} — ${c.nom}` : c.nom));
+  const faconnierChoices = parNom(faconniers, (f) => f.nom, (f) => f.nom);
   const chaineChoices = chaines.map((c) => ({ value: String(c.id), label: c.nom }));
 
   // KPIs read the same derived values the table shows — no second source of truth.
-  const caEnCours = CMDS.reduce((s, c) => s + c.ca, 0);
-  const margeBrute = CMDS.reduce((s, c) => s + c.margeTotale, 0);
+  const caEnCours = actives.reduce((s, c) => s + c.ca, 0);
+  const margeBrute = actives.reduce((s, c) => s + c.margeTotale, 0);
   const margePct = caEnCours > 0 ? Math.round((margeBrute / caEnCours) * 100) : 0;
-  const enRetard = CMDS.filter((c) => c.statutKey === "retard").length;
+  const enRetard = actives.filter((c) => c.statutKey === "retard").length;
 
-  const csvRows = CMDS.map((c) => ({
+  const csvRows = actives.map((c) => ({
     of: c.of, modele: c.modele, refArticle: c.refArticle, couleur: c.couleur, saison: c.saison,
     client: c.client, faconnier: c.faconnier, qte: c.qte, produit: c.produit,
     prixVente: c.prixVente ?? "", prixFacon: c.prixFacon ?? "", margeTotale: Math.round(c.margeTotale),
@@ -51,25 +79,24 @@ export default async function CommandesPage() {
         actions={
           <>
             <ExportCsvButton rows={csvRows} columns={COMMANDE_COLUMNS} filename="commandes" />
+            <GabaritButton
+              nom="gabarit_commandes"
+              entetes={GABARIT_ENTETES}
+              exemples={GABARIT_EXEMPLES}
+              label="Gabarit import"
+            />
             <ImportButton action={importCommandes} label="Importer (CSV/Excel)" />
-            <EntityFormDialog
-              triggerLabel="Nouvelle commande"
-              title="Nouvelle commande"
-              fields={COMMANDE_FIELDS}
-              dynamicOptions={{
-                client: clientChoices,
-                faconnier: faconnierChoices,
-                chaineId: chaineChoices,
-              }}
-              action={createCommande}
-              successMessage="Commande créée"
+            <NouvelleCommande
+              clients={clientChoices}
+              faconniers={faconnierChoices}
+              chaines={chaineChoices}
             />
           </>
         }
       />
 
       <KpiGrid>
-        <KpiCard label="Commandes actives" value={String(CMDS.length)} icon={Package} tone="brand" />
+        <KpiCard label="Commandes actives" value={String(actives.length)} icon={Package} tone="brand" />
         <KpiCard label="CA en cours" value={money(caEnCours)} icon={Euro} tone="success" />
         <KpiCard
           label="Marge brute"
@@ -81,14 +108,14 @@ export default async function CommandesPage() {
         <KpiCard label="En retard" value={String(enRetard)} icon={TriangleAlert} tone="danger" />
       </KpiGrid>
 
-      <SectionPanel title="Carnet de commandes" actions={<StatusBadge tone="brand">{CMDS.length}</StatusBadge>} flush>
-        <EditableTable
-          entity="commande"
-          columns={commandeEdit({ clients: clientChoices, faconniers: faconnierChoices, chaines: chaineChoices })}
-          rows={CMDS}
-          searchPlaceholder="Rechercher OF, modèle, client…"
-        />
-      </SectionPanel>
+      <CommandesClient
+        commandes={CMDS}
+        clients={clientChoices}
+        faconniers={faconnierChoices}
+        chaines={chaineChoices}
+        peutSupprimer={peutSupprimer}
+        peutFacturer={facturable}
+      />
     </>
   );
 }

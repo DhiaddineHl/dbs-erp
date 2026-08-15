@@ -1,12 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import * as XLSX from "xlsx";
 import { assertUser, userRole } from "@/lib/auth/server";
 import * as at from "@/lib/domain/atelier";
 import * as svc from "@/lib/services/atelier";
 import { journaliser } from "@/lib/services/activite";
 
 export type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
+export type ImportResult = { ok: true; count: number } | { ok: false; error: string };
 
 const ok = <T,>(data?: T): Result<T> => ({ ok: true, data });
 const fail = (e: unknown): Result<never> => ({
@@ -31,6 +33,65 @@ function revalider() {
 const entier = (v: string | number) => {
   const n = typeof v === "number" ? v : Number(String(v).replace(/\s/g, "").replace(",", "."));
   return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+};
+
+/* ─────────── lecture de fichier ───────────
+   Même moteur que l'import des commandes : .csv comme .xlsx, séparateur
+   deviné. L'original refusait le .xlsx et demandait un « Enregistrer sous »
+   dans Excel — cette contrainte-là n'a pas de raison d'être portée. */
+
+async function lireFichier(formData: FormData): Promise<Record<string, unknown>[]> {
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("Aucun fichier fourni");
+  const buf = Buffer.from(await file.arrayBuffer());
+  /* `cellDates` : sans lui, une date au format AAAA-MM-JJ ressort en numéro de
+   * série Excel (46054.04…) et la colonne d'entrée arrive vide. */
+  const opts: XLSX.ParsingOptions = { type: "buffer", raw: false, cellDates: true };
+  if (file.name.toLowerCase().endsWith(".csv")) {
+    const premiere = buf.toString("utf8").replace(/^﻿/, "").split(/\r?\n/)[0] ?? "";
+    opts.FS = (premiere.match(/;/g) ?? []).length >= (premiere.match(/,/g) ?? []).length ? ";" : ",";
+  }
+  const wb = XLSX.read(buf, opts);
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) return [];
+  return XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
+}
+
+/** Lit une colonne quel que soit son intitulé exact : « Nom », « nom et
+ * prénom », « NOM ET PRENOM » désignent la même chose. */
+function champ(ligne: Record<string, unknown>, ...alias: string[]): unknown {
+  const par = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(ligne)) par.set(at.cleOperation(k), v);
+  for (const a of alias) {
+    const v = par.get(at.cleOperation(a));
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return "";
+}
+
+const texte = (ligne: Record<string, unknown>, ...alias: string[]) => String(champ(ligne, ...alias)).trim();
+
+/** Date d'un tableur : objet Date (Excel, .xlsx), AAAA-MM-JJ ou JJ/MM/AAAA.
+ * Tout le reste vaut « pas de date » plutôt qu'une date fausse. */
+function dateISO(v: unknown): string | null {
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    // Composantes locales : la conversion UTC reculerait la date d'un jour.
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`;
+  }
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  return null;
+}
+
+const STATUTS_FICHIER: Record<string, string> = {
+  active: "active", actif: "active", "en poste": "active", presente: "active",
+  absente: "absente", absent: "absente",
+  conge: "conge", "en conge": "conge",
+  sortie: "sortie", sorti: "sortie", inactive: "sortie", parti: "sortie",
 };
 
 /* ─────────── personnel ─────────── */
@@ -114,6 +175,130 @@ export async function regenererCle(id: number): Promise<Result> {
     await journaliser("modification", "Personnel", `nouvelle clé de portail (id ${id}) — anciens QR invalidés`);
     revalider();
     return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── imports ─────────── */
+
+export type BilanImport = svc.BilanImportPersonnel;
+
+export async function importerPersonnel(formData: FormData): Promise<Result<BilanImport>> {
+  try {
+    await exigerAtelier();
+    const brutes = await lireFichier(formData);
+    if (!brutes.length) return { ok: false, error: "Fichier vide ou illisible" };
+
+    const lignes: svc.LignePersonnel[] = [];
+    for (const r of brutes) {
+      const nom = texte(r, "Nom", "Nom et prénom", "Nom et prenom", "Name", "Nom complet");
+      if (!nom) continue;
+      const statutBrut = at.cleOperation(texte(r, "Statut", "Etat", "État"));
+      lignes.push({
+        matricule: texte(r, "Matricule", "Mat", "Matricule paie"),
+        nom,
+        atelier: texte(r, "Atelier", "Site"),
+        fonction: texte(r, "Fonction", "Metier", "Métier"),
+        dateEntree: dateISO(champ(r, "DateEntree", "Date entrée", "Date entree", "Date d'entrée", "Date")),
+        statut: STATUTS_FICHIER[statutBrut] ?? "active",
+        poste: texte(r, "Poste", "Operation", "Opération"),
+        sam: entier(texte(r, "SAM", "Temps standard")),
+      });
+    }
+    if (!lignes.length)
+      return { ok: false, error: "Aucune ligne exploitable — la colonne « Nom » est obligatoire" };
+
+    const bilan = await svc.importerPersonnel(lignes);
+    await journaliser(
+      "import",
+      "Personnel",
+      `${bilan.crees} création(s), ${bilan.majs} mise(s) à jour`,
+    );
+    revalider();
+    return ok(bilan);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function importerOperations(formData: FormData): Promise<ImportResult> {
+  try {
+    await exigerAtelier();
+    const brutes = await lireFichier(formData);
+    if (!brutes.length) return { ok: false, error: "Fichier vide ou illisible" };
+
+    const lignes: svc.LigneOperation[] = [];
+    for (const r of brutes) {
+      const nom = texte(r, "Operation", "Opération", "Nom", "Libellé", "Libelle", "Poste");
+      if (!nom) continue;
+      lignes.push({ nom, sam: entier(texte(r, "SAM", "Temps standard", "Temps")) });
+    }
+    if (!lignes.length)
+      return { ok: false, error: "Aucune ligne exploitable — la colonne « Operation » est obligatoire" };
+
+    const n = await svc.importerOperations(lignes);
+    await journaliser("import", "Opérations", `${n} nouvelle(s) opération(s) sur ${lignes.length} ligne(s)`);
+    revalider();
+    return { ok: true, count: n };
+  } catch (e) {
+    return fail(e) as ImportResult;
+  }
+}
+
+/** Rattrapage du catalogue depuis tout ce qui a déjà été saisi. */
+export async function synchroniserOperations(): Promise<Result<number>> {
+  try {
+    await exigerAtelier();
+    const n = await svc.synchroniserOperations();
+    if (n) await journaliser("modification", "Opérations", `${n} opération(s) récupérée(s) des saisies`);
+    revalider();
+    return ok(n);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Capture silencieuse appelée par les écrans de saisie GPAO. */
+export async function assurerOperations(entrees: { nom: string; sam?: number }[]): Promise<Result<number>> {
+  try {
+    await assertUser();
+    const n = await svc.assurerOperations(entrees, "saisie");
+    if (n) revalidatePath("/operations");
+    return ok(n);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function affecterAChaine(
+  chaineId: number,
+  personnes: { personnelId: number; poste: string; sam: number }[],
+): Promise<Result<number>> {
+  try {
+    await exigerAtelier();
+    const n = await svc.affecterAChaine(chaineId, personnes);
+    await journaliser("modification", "Personnel", `${n} affectation(s) à une chaîne`);
+    revalider();
+    return ok(n);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── fusion ─────────── */
+
+export async function appliquerFusion(liens: { nom: string; personnelId: number }[]): Promise<Result<svc.BilanFusion>> {
+  try {
+    await exigerAtelier();
+    const bilan = await svc.appliquerFusion(liens);
+    await journaliser(
+      "modification",
+      "Personnel",
+      `fusion : ${bilan.ouvrieres} ouvrière(s) et ${bilan.journees} journée(s) rattachées`,
+    );
+    revalider();
+    return ok(bilan);
   } catch (e) {
     return fail(e);
   }

@@ -1,11 +1,28 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { cleNom } from "@/lib/domain/atelier";
 
 /* ═══════════════════ TYPES ═══════════════════ */
-export type Ouvriere = { id: number; nom: string; poste: string; sam: number };
+export type Ouvriere = {
+  id: number;
+  nom: string;
+  poste: string;
+  sam: number;
+  /** Rattachement au registre du personnel, quand il est connu. */
+  personnelId?: number | null;
+};
 export type Chaine = { id: number; nom: string; chef: string; ouvrieres: Ouvriere[] };
-export type Modele = { id: number; nom: string; ref: string; client: string; sam: number; qte: number };
+export type Modele = {
+  id: number;
+  nom: string;
+  ref: string;
+  client: string;
+  sam: number;
+  qte: number;
+  archive: boolean;
+  estimEff: number;
+};
 /** cell value: number, or marker strings RI / ABS */
 export type Cell = number | "RI" | "ABS";
 /** one operation done within an hour (multi-poste support) */
@@ -18,6 +35,9 @@ export type Journee = {
   effectif: number;
   nbHeures: number;
   cols: string[];
+  /** Effectif figé du jour. Vide = journée antérieure au champ : la lecture
+   * retombe sur l'effectif courant de la chaîne (voir `dayOuvrieres`). */
+  ouvrieres: Ouvriere[];
   sortie: Record<string, number>;
   ops: Record<number, Record<string, Cell>>;
   cloture: boolean;
@@ -32,10 +52,19 @@ export type Journee = {
   /** manual chain hourly objective override (0/undefined = automatic) */
   objManuel?: number;
 };
+/** Registre du personnel, tel que l'écran GPAO en a besoin : de quoi proposer
+ * un nom et le relier à sa fiche. Le reste de la fiche vit dans /personnel. */
+export type Personne = { id: number; matricule: string; nom: string; fonction: string };
+/** Opération du catalogue : sert à proposer un libellé et son temps standard. */
+export type OperationRef = { id: number; nom: string; sam: number };
+
 export type GpaoState = {
   modeles: Modele[];
   chaines: Chaine[];
   journees: Journee[];
+  personnes: Personne[];
+  operations: OperationRef[];
+  reglages: Reglages;
   nextOuvId: number;
   tvDayId?: number | null;
 };
@@ -43,6 +72,19 @@ export type GpaoState = {
 export const SEUIL_H = 85;
 export const SEUIL_B = 60;
 export const SEUIL_RET = 5; // retouche alerte si > 5 %
+
+/* SEUIL_B ne fait que colorer une cellule ; l'alerte, elle, désigne des
+ * personnes nommément et déclenche une conversation en atelier. Les deux
+ * chiffres n'ont pas la même portée et n'ont donc pas à être le même. */
+export const SEUIL_ALERTE_DEFAUT = 65;
+/** Secondes d'affichage par chaîne avant rotation sur l'écran d'atelier. */
+export const TV_ROTATION_DEFAUT = 12;
+
+export type Reglages = { seuilAlerte: number; tvRotSec: number };
+export const REGLAGES_DEFAUT: Reglages = {
+  seuilAlerte: SEUIL_ALERTE_DEFAUT,
+  tvRotSec: TV_ROTATION_DEFAUT,
+};
 
 export function uid() {
   return Date.now() + Math.floor(Math.random() * 1000);
@@ -89,7 +131,12 @@ export function defaults(): GpaoState {
     { id: 22, nom: "Rihab Belaherech", poste: "Surpiqure 0.5 poignet", sam: 80 },
   ];
   return {
-    modeles: [{ id: 101, nom: "Chemise FEMME", ref: "ami", client: "Gérard Darel", sam: 1800, qte: 5000 }],
+    modeles: [
+      { id: 101, nom: "Chemise FEMME", ref: "ami", client: "Gérard Darel", sam: 1800, qte: 5000, archive: false, estimEff: 0 },
+    ],
+    personnes: [],
+    operations: [],
+    reglages: REGLAGES_DEFAUT,
     chaines: [{ id: 201, nom: "Chaîne 3", chef: "", ouvrieres }],
     journees: [],
     nextOuvId: 23,
@@ -121,6 +168,64 @@ export function useGpaoStore(initial: GpaoState) {
 export const findM = (s: GpaoState, id: number) => s.modeles.find((m) => m.id === id) || null;
 export const findC = (s: GpaoState, id: number) => s.chaines.find((c) => c.id === id) || null;
 export const findJ = (s: GpaoState, id: number) => s.journees.find((j) => j.id === id) || null;
+
+/* ═══════════════════ EFFECTIF DE LA JOURNÉE ═══════════════════
+   Point de passage unique : toute lecture des ouvrières d'une journée doit
+   passer par ici, jamais par `chaine.ouvrieres` directement. C'est ce qui
+   garantit qu'une journée close ne se réécrit pas quand la chaîne évolue. */
+
+/** Effectif de la journée : celui qu'elle a figé, sinon celui de sa chaîne. */
+export function dayOuvrieres(s: GpaoState, j: Journee): Ouvriere[] {
+  if (j.ouvrieres && j.ouvrieres.length) return j.ouvrieres;
+  return findC(s, j.chaineId)?.ouvrieres ?? [];
+}
+
+export const findDayOuv = (s: GpaoState, j: Journee, id: number) =>
+  dayOuvrieres(s, j).find((o) => o.id === id) ?? null;
+
+/** Effectif figé prêt à être modifié : recopie la chaîne au premier passage.
+ * Toute écriture sur l'effectif d'une journée commence par là — modifier une
+ * journée qui n'a pas encore d'effectif propre ne doit pas toucher la chaîne. */
+export function rosterPourEdition(s: GpaoState, j: Journee): Ouvriere[] {
+  return dayOuvrieres(s, j).map((o) => ({ ...o }));
+}
+
+/** Identifiant d'une ouvrière ajoutée pour cette journée seulement.
+ * Négatif, donc sans collision possible avec un `ouvriere.id` (serial). */
+export function nextDayOuvId(roster: Ouvriere[]): number {
+  let min = 0;
+  for (const o of roster) if (o.id < min) min = o.id;
+  return min - 1;
+}
+
+/** Clé d'identité d'une ouvrière à travers les chaînes et les journées.
+ *
+ * Le matricule (via la fiche personnel) fait foi ; à défaut, le nom normalisé.
+ * C'est cette clé qui permet à l'historique de suivre quelqu'un qui change de
+ * chaîne — l'identifiant de ligne, lui, change à chaque réaffectation. */
+export const ouvKey = (o: { personnelId?: number | null; nom: string }) =>
+  o.personnelId != null ? `P:${o.personnelId}` : `N:${cleNom(o.nom)}`;
+
+/** Version de `ouvKey` qui sait aussi reconnaître une ouvrière non rattachée
+ * dont le nom coïncide exactement avec une fiche du registre.
+ *
+ * Même prudence que `rapprocherParNom` : en cas d'homonyme au registre, on
+ * refuse de trancher et on retombe sur la clé par nom. Sans cela, deux
+ * personnes différentes finiraient dans le même historique. */
+export function makeOuvKey(s: GpaoState) {
+  const parNom = new Map<string, number | null>();
+  for (const p of s.personnes) {
+    const c = cleNom(p.nom);
+    if (!c) continue;
+    parNom.set(c, parNom.has(c) ? null : p.id);
+  }
+  return (o: { personnelId?: number | null; nom: string }) => {
+    if (o.personnelId != null) return `P:${o.personnelId}`;
+    const c = cleNom(o.nom);
+    const pid = parNom.get(c);
+    return pid != null ? `P:${pid}` : `N:${c}`;
+  };
+}
 
 /* ═══════════════════ FORMULES MÉTIER CONFECTION (v2) ═══════════════════
    Obj/H chaîne     = objManuel, sinon (effectif × 3600) / SAM_total
@@ -157,7 +262,9 @@ export function chRetTotal(j: Journee) {
   for (const k in j.ret) t += +j.ret[k] || 0;
   return t;
 }
-export const ouvObjH = (o: Ouvriere) => (o.sam > 0 ? 3600 / o.sam : 0);
+/** Objectif horaire d'un poste. Ne demande que le SAM : l'historique s'en sert
+ * pour une personne agrégée, qui n'a pas d'identifiant de ligne. */
+export const ouvObjH = (o: { sam: number }) => (o.sam > 0 ? 3600 / o.sam : 0);
 
 /** detail operations recorded for a worker in a given hour, if any */
 export const cellDetail = (j: Journee, ouvId: number, col: string): OpDetail[] | null =>
@@ -227,15 +334,93 @@ export const rcls = (r: number | null) => (r === null ? "" : r >= SEUIL_H ? "c-g
 export const rbarCls = (r: number | null) => (r === null ? "" : r >= SEUIL_H ? "b-g" : r >= SEUIL_B ? "b-a" : "b-r");
 export const rcol = (r: number) => (r >= SEUIL_H ? "#19b27b" : r >= SEUIL_B ? "#c4861a" : "#e04545");
 export const retcol = (p: number | null) => (p === null ? "#aab" : p <= 2 ? "#19b27b" : p <= SEUIL_RET ? "#c4861a" : "#e04545");
-export const findOuvAny = (s: GpaoState, id: number) => {
-  for (const c of s.chaines) {
-    const o = c.ouvrieres.find((x) => x.id === id);
-    if (o) return { ouv: o, chaine: c };
-  }
-  return null;
-};
+/** Une personne telle que l'historique la connaît, toutes chaînes confondues. */
+export type OuvriereConnue = { cle: string; nom: string; poste: string; sam: number; matricule: string };
+
+/** Recense tout le monde une seule fois : registre du personnel, effectifs de
+ * chaîne et effectifs figés des journées, dédoublonnés par `ouvKey`.
+ *
+ * Une ouvrière passée de la chaîne 1 à la chaîne 3, ou saisie un seul jour en
+ * renfort, apparaît une fois et une seule — c'est la liste que propose l'écran
+ * Historique, et la raison pour laquelle il n'est plus lié à une chaîne. */
+export function ouvrieresConnues(s: GpaoState): OuvriereConnue[] {
+  const cleDe = makeOuvKey(s);
+  const par = new Map<string, OuvriereConnue>();
+  const add = (nom: string, poste: string, sam: number, cle: string, matricule: string) => {
+    if (!nom.trim()) return;
+    const vu = par.get(cle);
+    if (!vu) {
+      par.set(cle, { cle, nom, poste, sam, matricule });
+      return;
+    }
+    // Déjà vue : on ne remplace rien, on comble seulement ce qui manque.
+    if (!vu.poste && poste) vu.poste = poste;
+    if (!vu.sam && sam) vu.sam = sam;
+    if (!vu.matricule && matricule) vu.matricule = matricule;
+  };
+
+  for (const p of s.personnes) add(p.nom, p.fonction, 0, `P:${p.id}`, p.matricule);
+  for (const c of s.chaines) for (const o of c.ouvrieres) add(o.nom, o.poste, o.sam, cleDe(o), "");
+  for (const j of s.journees) for (const o of j.ouvrieres ?? []) add(o.nom, o.poste, o.sam, cleDe(o), "");
+
+  return [...par.values()].sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+}
 export function cumulModele(s: GpaoState, mId: number) {
   let t = 0;
   for (const j of s.journees) if (j.modeleId === mId) t += chSortieTotal(j);
   return t;
+}
+
+/** Dernière date de production d'un modèle — sert au tri « activité récente ». */
+export function derniereDateModele(s: GpaoState, mId: number): string {
+  let d = "";
+  for (const j of s.journees) if (j.modeleId === mId && j.date > d) d = j.date;
+  return d;
+}
+
+/* ═══════════════════ ALERTE RENDEMENT ═══════════════════
+   Le rendement d'une ouvrière peut être bas pour de bonnes raisons (elle
+   dépanne sur un poste qu'elle ne tient pas d'habitude, la machine a lâché).
+   L'alerte ne juge pas : elle désigne qui aller voir avant la fin du poste. */
+
+/** Ouvrières de la journée sous le seuil d'alerte, les plus basses d'abord. */
+export function alertesRendement(s: GpaoState, j: Journee, seuil: number) {
+  return dayOuvrieres(s, j)
+    .map((o) => ({ ouv: o, rend: ouvRend(j, o) }))
+    .filter((x): x is { ouv: Ouvriere; rend: number } => x.rend !== null && x.rend < seuil)
+    .sort((a, b) => a.rend - b.rend);
+}
+
+/** Ouvrières dont le taux de retouche dépasse le seuil. */
+export function alertesRetouche(s: GpaoState, j: Journee) {
+  return dayOuvrieres(s, j)
+    .map((o) => ({ ouv: o, pct: ouvRetPct(j, o.id) }))
+    .filter((x): x is { ouv: Ouvriere; pct: number } => x.pct !== null && x.pct > SEUIL_RET)
+    .sort((a, b) => b.pct - a.pct);
+}
+
+/* ═══════════════════ CONTRÔLE SAM DU MODÈLE ═══════════════════
+   Ce que l'agent de méthode vérifie avant de clôturer : le temps standard
+   saisi sur les postes correspond-il encore au SAM du modèle, et combien de
+   minutes de travail standard la journée a-t-elle réellement produites. */
+export function bilanSam(s: GpaoState, j: Journee) {
+  const roster = dayOuvrieres(s, j);
+  let sommeSam = 0;
+  let nbOperations = 0;
+  let minutesJour = 0;
+  for (const o of roster) {
+    sommeSam += +o.sam || 0;
+    if (o.sam > 0) nbOperations++;
+    minutesJour += (ouvProd(j, o.id) * (+o.sam || 0)) / 60;
+  }
+
+  let minutesCumul = 0;
+  let piecesCumul = 0;
+  for (const jj of s.journees) {
+    if (jj.modeleId !== j.modeleId) continue;
+    for (const o of dayOuvrieres(s, jj)) minutesCumul += (ouvProd(jj, o.id) * (+o.sam || 0)) / 60;
+    piecesCumul += chSortieTotal(jj);
+  }
+
+  return { sommeSam, nbOperations, minutesJour, minutesCumul, piecesCumul };
 }

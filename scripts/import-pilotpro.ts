@@ -1,7 +1,7 @@
 /**
  * Reprise des données réelles PilotPro dans Postgres.
  *
- *   npm run import:pilotpro -- [fichier.json] [--reset] [--sans-comptes]
+ *   npm run import:pilotpro -- [fichier.json] [--reset] [--sans-comptes] [--auto]
  *
  * Sans `--reset`, l'import est cumulatif et rejouable : les commandes sont
  * mises à jour par numéro d'OF, les référentiels complétés sans écrasement.
@@ -11,12 +11,28 @@
  *
  * `--reset` vide les tables reprises avant d'importer. C'est destructif et
  * demande une confirmation explicite.
+ *
+ * `--auto` est le mode démarrage, appelé par `npm start` avant `next start`.
+ * Il n'a pas de terminal pour poser sa question, et il tourne à chaque
+ * redémarrage du conteneur — pas seulement aux redéploiements. Il ne peut donc
+ * pas se contenter de `--reset` : il vérifie d'abord un marqueur en base
+ * (`app_setting.importPilotpro`), posé après chaque reprise réussie.
+ *
+ *   marqueur absent  → reprise complète, remise à zéro comprise, sans question
+ *   marqueur présent → rien du tout, sortie en succès
+ *
+ * Autrement dit la reprise a lieu une fois, au premier démarrage qui suit la
+ * mise en service, et jamais plus. C'est délibéré : la relancer écraserait
+ * tout ce qui a été saisi dans l'application depuis. Pour la rejouer malgré
+ * tout, poser `IMPORT_PILOTPRO=reset` dans l'environnement du service — et
+ * retirer la variable ensuite, sinon chaque redémarrage repart de la
+ * sauvegarde et efface le travail du jour.
  */
 
 import { createInterface } from "node:readline/promises";
 import { existsSync } from "node:fs";
-import { sql } from "drizzle-orm";
-import { db, pool } from "./import/db";
+import { eq, sql } from "drizzle-orm";
+import { db, pool, schema } from "./import/db";
 import { Rapport, lireSauvegarde } from "./import/source";
 import { importerReferentiel } from "./import/referentiel";
 import { importerCommandes } from "./import/commandes";
@@ -71,6 +87,29 @@ async function contientDesDonnees(): Promise<string[]> {
   return pleines;
 }
 
+/* Marqueur de reprise. En base plutôt que sur disque : le système de fichiers
+ * d'un conteneur est jeté à chaque déploiement, alors que la question posée
+ * — « ces données sont-elles déjà dedans ? » — porte sur la base. */
+const CLE_MARQUEUR = "importPilotpro";
+
+type Marqueur = { fichier: string; le: string };
+
+async function lireMarqueur(): Promise<Marqueur | null> {
+  const [row] = await db
+    .select({ value: schema.appSetting.value })
+    .from(schema.appSetting)
+    .where(eq(schema.appSetting.key, CLE_MARQUEUR));
+  return (row?.value as Marqueur | undefined) ?? null;
+}
+
+async function poserMarqueur(fichier: string) {
+  const value: Marqueur = { fichier, le: new Date().toISOString() };
+  await db
+    .insert(schema.appSetting)
+    .values({ key: CLE_MARQUEUR, value })
+    .onConflictDoUpdate({ target: schema.appSetting.key, set: { value } });
+}
+
 async function demander(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const r = await rl.question(question);
@@ -89,13 +128,30 @@ async function reinitialiser(rapport: Rapport) {
 
 async function main() {
   const args = process.argv.slice(2);
-  const reset = args.includes("--reset");
+  const auto = args.includes("--auto");
   const sansComptes = args.includes("--sans-comptes");
   const chemin = args.find((a) => !a.startsWith("--")) ?? DEFAUT;
+  // En mode démarrage, la remise à zéro fait partie du contrat : on repart de
+  // la sauvegarde, donc on repart d'une base propre.
+  const reset = args.includes("--reset") || auto;
+
+  if (auto) {
+    const dejaFait = await lireMarqueur();
+    const forcer = process.env.IMPORT_PILOTPRO === "reset";
+    if (dejaFait && !forcer) {
+      console.log(`Reprise PilotPro : déjà effectuée le ${dejaFait.le} (${dejaFait.fichier}) — ignorée.`);
+      await pool.end();
+      return;
+    }
+    if (dejaFait) console.log("Reprise PilotPro : IMPORT_PILOTPRO=reset — la reprise est rejouée.");
+  }
 
   if (!existsSync(chemin)) {
+    // En mode démarrage on ne fait pas tomber le service pour ça : sans
+    // sauvegarde, l'application démarre sur ce que le seed a posé.
     console.error(`Fichier introuvable : ${chemin}`);
-    process.exit(1);
+    await pool.end();
+    process.exit(auto ? 0 : 1);
   }
 
   console.log(`\nReprise PilotPro — ${chemin}\n`);
@@ -118,7 +174,10 @@ async function main() {
     process.exit(1);
   }
 
-  if (reset) {
+  if (auto) {
+    // Pas de terminal pour répondre, et le marqueur a déjà tranché plus haut.
+    await reinitialiser(rapport);
+  } else if (reset) {
     const reponse = await demander(
       `\n⚠  --reset va VIDER ${TABLES_REPRISES.length} tables (commandes, production, encaissements, grand livre).\n` +
         `   Tapez « effacer » pour confirmer : `,
@@ -153,6 +212,11 @@ async function main() {
   await importerGrandLivre(src, rapport);
   if (!sansComptes) await importerComptes(src, rapport);
   else rapport.info("comptes utilisateurs ignorés (--sans-comptes)");
+
+  /* Posé après coup, et pour toute reprise réussie — pas seulement `--auto` :
+   * une reprise lancée à la main compte, elle aussi, comme « les données sont
+   * dedans ». Sinon le démarrage suivant la referait par-dessus. */
+  await poserMarqueur(chemin);
 
   rapport.imprimer();
   console.log("\nReprise terminée.\n");

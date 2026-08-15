@@ -92,6 +92,34 @@
       "when": 1786617726950,
       "tag": "0012_atelier_roles_journal",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786793377551,
+      "tag": "0013_journee_effectif_fige",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786795504380,
+      "tag": "0014_referentiel_atelier",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786797423891,
+      "tag": "0015_modele_archive",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786812364229,
+      "tag": "0016_commande_photo",
+      "breakpoints": true
     }
   ]
 }

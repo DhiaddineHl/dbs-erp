@@ -24,6 +24,8 @@ const TONS: Record<string, Tone> = {
   impression: "neutral",
   import: "purple",
   export: "purple",
+  facturation: "success",
+  archivage: "neutral",
 };
 
 const LIBELLES: Record<string, string> = {
@@ -36,6 +38,8 @@ const LIBELLES: Record<string, string> = {
   impression: "Impression",
   import: "Import",
   export: "Export",
+  facturation: "Facturation",
+  archivage: "Archivage",
 };
 
 const horodatage = (iso: string) =>

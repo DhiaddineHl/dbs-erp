@@ -154,6 +154,16 @@ async function seedFacturation() {
   for (const nom of FACONNIERS) {
     await db.insert(faconnier).values({ nom }).onConflictDoNothing({ target: faconnier.nom });
   }
+  /* Les factures de base ne sont écrites que sur une base vierge. L'import
+   * PilotPro corrige ces mêmes lignes, repérées par (num, type) : les réécrire
+   * à chaque démarrage rendrait ses corrections éphémères — elles tiendraient
+   * jusqu'au prochain redéploiement, puis reviendraient au baseline sans que
+   * rien ne le signale. */
+  if ((await db.$count(facture)) > 0) {
+    console.log(`  ✓ ${Object.keys(CLIENTS_DB).length} clients, ${FACONNIERS.length} façonniers`);
+    console.log("  • factures déjà présentes — non réécrites");
+    return;
+  }
   for (const f of FACTURES_BASE) {
     const header = {
       num: f.id,

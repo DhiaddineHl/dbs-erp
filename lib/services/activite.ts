@@ -19,7 +19,11 @@ export type Action =
   | "validation"
   | "impression"
   | "import"
-  | "export";
+  | "export"
+  /* Actes métier qu'on veut pouvoir isoler dans le journal : émettre une
+   * facture engage l'entreprise, ranger une commande la retire des écrans. */
+  | "facturation"
+  | "archivage";
 
 /** Enregistre une action. Ne lève jamais : un journal en panne ne doit pas
  * faire échouer l'opération métier qu'il observe. */

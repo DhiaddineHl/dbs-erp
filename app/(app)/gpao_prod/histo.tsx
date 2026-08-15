@@ -5,15 +5,17 @@ import {
   type GpaoState,
   SEUIL_B,
   SEUIL_H,
+  dayOuvrieres,
   findC,
   findM,
-  findOuvAny,
+  makeOuvKey,
   ouvObjAjuste,
   ouvObjH,
   ouvProd,
   ouvRend,
   ouvRet,
   ouvRetPct,
+  ouvrieresConnues,
   ouvWorked,
   rcol,
   retcol,
@@ -33,39 +35,50 @@ type HRow = {
   jId: number;
 };
 
-function computeHisto(state: GpaoState, ouvId: number, from: string, to: string) {
-  const info = findOuvAny(state, ouvId);
+/* L'historique suit une PERSONNE, pas une ligne de chaîne.
+ *
+ * Chaque journée est interrogée avec son propre effectif, et l'ouvrière y est
+ * retrouvée par sa clé d'identité (matricule via la fiche personnel, sinon nom
+ * normalisé) — pas par son identifiant de ligne, qui change dès qu'elle est
+ * réaffectée. C'est ce qui permet d'afficher « toutes chaînes » et de ne rien
+ * perdre quand quelqu'un passe de la chaîne 1 à la chaîne 3. */
+function computeHisto(state: GpaoState, cle: string, from: string, to: string) {
+  const cleDe = makeOuvKey(state);
+  const connues = ouvrieresConnues(state);
+  const info = connues.find((x) => x.cle === cle);
   if (!info) return null;
+
   const rows: HRow[] = [];
   const jours = state.journees.slice().sort((a, b) => a.date.localeCompare(b.date));
   for (const j of jours) {
     if (j.date < from || j.date > to) continue;
-    const c = findC(state, j.chaineId);
-    const o = c?.ouvrieres.find((x) => x.id === ouvId);
-    if (!c || !o) continue;
-    const worked = ouvWorked(j, ouvId);
-    const hasData = worked > 0 || (j.ops[ouvId] && Object.keys(j.ops[ouvId]).length > 0) || ouvRet(j, ouvId) > 0;
+    const o = dayOuvrieres(state, j).find((x) => cleDe(x) === cle);
+    if (!o) continue;
+    const worked = ouvWorked(j, o.id);
+    const hasData = worked > 0 || (j.ops[o.id] && Object.keys(j.ops[o.id]).length > 0) || ouvRet(j, o.id) > 0;
     if (!hasData) continue;
+    const c = findC(state, j.chaineId);
     const m = findM(state, j.modeleId);
     rows.push({
       date: j.date,
-      chaine: c.nom,
+      chaine: c?.nom ?? "?",
       modele: m ? `${m.nom} (${m.ref})` : "?",
-      prod: ouvProd(j, ouvId),
+      prod: ouvProd(j, o.id),
       obj: Math.round(ouvObjAjuste(j, o)),
       rend: ouvRend(j, o),
       heures: worked,
-      ret: ouvRet(j, ouvId),
-      retPct: ouvRetPct(j, ouvId),
+      /* Le poste et le SAM sont ceux du jour, pas ceux d'aujourd'hui. */
+      ret: ouvRet(j, o.id),
+      retPct: ouvRetPct(j, o.id),
       jId: j.id,
     });
   }
-  return { ouv: info.ouv, chaine: info.chaine, from, to, rows };
+  return { ouv: info, from, to, rows };
 }
 
 export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (id: number) => void }) {
-  const firstOuv = state.chaines[0]?.ouvrieres[0]?.id ?? 0;
-  const [ouvId, setOuvId] = useState<number>(firstOuv);
+  const connues = useMemo(() => ouvrieresConnues(state), [state]);
+  const [cle, setCle] = useState<string>(() => connues[0]?.cle ?? "");
   const defaultFrom = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -73,9 +86,9 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
   }, []);
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(today());
-  const [query, setQuery] = useState<{ ouvId: number; from: string; to: string } | null>(null);
+  const [query, setQuery] = useState<{ cle: string; from: string; to: string } | null>(null);
 
-  const data = query ? computeHisto(state, query.ouvId, query.from, query.to) : null;
+  const data = query ? computeHisto(state, query.cle, query.from, query.to) : null;
 
   const print = () => {
     if (!data || !data.rows.length) return;
@@ -90,18 +103,16 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
           <label style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>Ouvrière</label>
           <br />
           <select
-            value={ouvId}
-            onChange={(e) => setOuvId(+e.target.value)}
+            value={cle}
+            onChange={(e) => setCle(e.target.value)}
             style={{ padding: 7, border: "1px solid var(--border)", borderRadius: 8, minWidth: 230 }}
           >
-            {state.chaines.map((c) => (
-              <optgroup key={c.id} label={c.nom}>
-                {c.ouvrieres.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.nom} — {o.poste}
-                  </option>
-                ))}
-              </optgroup>
+            {connues.map((o) => (
+              <option key={o.cle} value={o.cle}>
+                {o.nom}
+                {o.matricule ? ` [${o.matricule}]` : ""}
+                {o.poste ? ` — ${o.poste}` : ""}
+              </option>
             ))}
           </select>
         </div>
@@ -116,7 +127,7 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ padding: 7, border: "1px solid var(--border)", borderRadius: 8 }} />
         </div>
         <div className="dright">
-          <button className="btn primary sm" onClick={() => setQuery({ ouvId, from, to })}>
+          <button className="btn primary sm" disabled={!cle} onClick={() => setQuery({ cle, from, to })}>
             Afficher
           </button>
           <button className="btn amber sm" onClick={print} disabled={!data || !data.rows.length}>
@@ -273,11 +284,13 @@ function printHisto(data: NonNullable<ReturnType<typeof computeHisto>>) {
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   let h = `<h1>HISTORIQUE DE RENDEMENT — OUVRIÈRE</h1><div class="psub">DBS Fashion — Agent de méthode</div>`;
-  h += `<div class="pmeta"><span><b>Ouvrière :</b> ${esc(data.ouv.nom)}</span><span><b>Poste :</b> ${esc(
-    data.ouv.poste,
-  )}</span><span><b>SAM :</b> ${data.ouv.sam} s (Obj/H ${ouvObjH(data.ouv).toFixed(1)})</span><span><b>Chaîne :</b> ${esc(
-    data.chaine.nom,
-  )}</span><span><b>Période :</b> du ${data.from} au ${data.to}</span></div>`;
+  h += `<div class="pmeta"><span><b>Ouvrière :</b> ${esc(data.ouv.nom)}</span><span><b>Matricule :</b> ${esc(
+    data.ouv.matricule || "—",
+  )}</span><span><b>Poste :</b> ${esc(data.ouv.poste || "—")}</span><span><b>SAM :</b> ${
+    data.ouv.sam || 0
+  } s (Obj/H ${ouvObjH(data.ouv).toFixed(1)})</span><span><b>Chaîne :</b> toutes chaînes</span><span><b>Période :</b> du ${
+    data.from
+  } au ${data.to}</span></div>`;
   h += `<table><thead><tr><th>Journées</th><th>Heures travaillées</th><th>Production totale</th><th>Rendement moyen</th><th>Retouches</th><th>% Retouche</th></tr></thead><tbody><tr><td>${
     data.rows.length
   }</td><td>${tH}</td><td><b>${tProd}</b></td><td style="font-size:13px"><b>${avgR} %</b></td><td>${tRet}</td><td>${retPctG} %</td></tr></tbody></table>`;
