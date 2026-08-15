@@ -19,9 +19,11 @@
     "db:seed": "node --import tsx scripts/seed.ts",
     "import:pilotpro": "node --import tsx scripts/import-pilotpro.ts",
     "import:auto": "node --import tsx scripts/import-pilotpro.ts --auto",
-    "test": "node --import tsx --test \"lib/**/*.test.ts\""
+    "test": "node --import tsx --test \"lib/**/*.test.ts\"",
+    "verif:stockage": "node --import tsx scripts/verifier-stockage.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1111.0",
     "@base-ui/react": "^1.5.0",
     "@types/qrcode": "^1.5.6",
     "better-auth": "^1.6.19",

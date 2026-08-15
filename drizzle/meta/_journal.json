@@ -120,6 +120,13 @@
       "when": 1786812364229,
       "tag": "0016_commande_photo",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786816905932,
+      "tag": "0017_fichier_stockage_objet",
+      "breakpoints": true
     }
   ]
 }

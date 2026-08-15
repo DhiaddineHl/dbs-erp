@@ -1,0 +1,1 @@
+ALTER TABLE "fichier" DROP COLUMN "data";
