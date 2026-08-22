@@ -57,14 +57,23 @@ export default async function CommandesPage() {
   const faconnierChoices = parNom(faconniers, (f) => f.nom, (f) => f.nom);
   const chaineChoices = chaines.map((c) => ({ value: String(c.id), label: c.nom }));
 
-  // KPIs read the same derived values the table shows — no second source of truth.
-  const caEnCours = actives.reduce((s, c) => s + c.ca, 0);
-  const margeBrute = actives.reduce((s, c) => s + c.margeTotale, 0);
+  /* KPIs read the same derived values the table shows — no second source of
+   * truth. Les valeurs PROPRES, pas les totaux de ligne : une commande
+   * découpée est présente ici avec sa mère ET ses parts, et compter les deux
+   * gonflerait le CA de tout ce qui a été réparti. Sur une commande non
+   * découpée, le propre est le tout — le chiffre ne bouge donc pas. */
+  const caEnCours = actives.reduce((s, c) => s + c.caPropre, 0);
+  const margeBrute = actives.reduce((s, c) => s + c.margePropre, 0);
   const margePct = caEnCours > 0 ? Math.round((margeBrute / caEnCours) * 100) : 0;
   const enRetard = actives.filter((c) => c.statutKey === "retard").length;
+  /* Le compteur annonce des commandes, pas des lignes : une part n'est pas
+   * une commande de plus pour le client. */
+  const nbCommandes = actives.filter((c) => c.parentId == null).length;
 
+  /* Le n° de la mère voyage avec la ligne : sans lui, un tableur reçoit des
+   * parts qui ressemblent à des commandes entières et le total est faux. */
   const csvRows = actives.map((c) => ({
-    of: c.of, modele: c.modele, refArticle: c.refArticle, couleur: c.couleur, saison: c.saison,
+    of: c.of, parentOf: c.parentOf, modele: c.modele, refArticle: c.refArticle, couleur: c.couleur, saison: c.saison,
     client: c.client, faconnier: c.faconnier, qte: c.qte, produit: c.produit,
     prixVente: c.prixVente ?? "", prixFacon: c.prixFacon ?? "", margeTotale: Math.round(c.margeTotale),
     dateExport: c.dateExport, retard: c.retard[1], av: c.av, statut: c.statut[1],
@@ -96,7 +105,17 @@ export default async function CommandesPage() {
       />
 
       <KpiGrid>
-        <KpiCard label="Commandes actives" value={String(actives.length)} icon={Package} tone="brand" />
+        <KpiCard
+          label="Commandes actives"
+          value={String(nbCommandes)}
+          icon={Package}
+          tone="brand"
+          sub={
+            actives.length > nbCommandes ? (
+              <StatusBadge tone="neutral">{actives.length - nbCommandes} sous-commandes</StatusBadge>
+            ) : undefined
+          }
+        />
         <KpiCard label="CA en cours" value={money(caEnCours)} icon={Euro} tone="success" />
         <KpiCard
           label="Marge brute"

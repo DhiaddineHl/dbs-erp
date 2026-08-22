@@ -21,15 +21,24 @@ export type CommandeAFacturer = {
   faconnier: string;
   chaineId: number | null;
   qte: number;
+  /** Part de `qte` dont la commande répond elle-même — voir `resteAFacturer`.
+   * Absente sur une commande non découpée, où elle vaudrait `qte`. */
+  qtePropre?: number;
   factureQte: number;
   prixVente: number | null;
   prixFacon: number | null;
 };
 
 /** Ce qu'il reste à facturer sur une commande. Jamais négatif : une commande
- * sur-facturée (reprise de données, avoir) n'ouvre pas un reste fantôme. */
-export const resteAFacturer = (c: { qte: number; factureQte: number }) =>
-  Math.max(0, (c.qte || 0) - (c.factureQte || 0));
+ * sur-facturée (reprise de données, avoir) n'ouvre pas un reste fantôme.
+ *
+ * Sur une commande découpée, le reste se mesure sur la quantité PROPRE : les
+ * parts confiées ailleurs se facturent sur leur propre ligne. Compter le total
+ * de la mère ouvrirait le droit de facturer deux fois les mêmes pièces — une
+ * fois sur la mère, une fois sur chaque part. Sans découpe, propre et total
+ * sont la même chose. */
+export const resteAFacturer = (c: { qte: number; factureQte: number; qtePropre?: number }) =>
+  Math.max(0, (c.qtePropre ?? c.qte ?? 0) - (c.factureQte || 0));
 
 export type LigneFacture = {
   modele: string;
@@ -199,8 +208,11 @@ export function estSoldee(c: {
   factureQte: number;
   archived: boolean;
   statutKey?: string;
+  /** Voir `resteAFacturer` : une mère n'est soldée que sur sa propre part. */
+  qtePropre?: number;
 }): boolean {
   if (c.archived) return false; // déjà rangée
-  if ((c.qte || 0) > 0 && (c.factureQte || 0) >= c.qte) return true;
+  const du = c.qtePropre ?? c.qte ?? 0;
+  if (du > 0 && (c.factureQte || 0) >= du) return true;
   return c.statutKey === "livree";
 }

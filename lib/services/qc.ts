@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   chaine,
@@ -195,7 +195,16 @@ export async function getInspection(id: number): Promise<InspectionRow | null> {
   return all.find((i) => i.id === id) ?? null;
 }
 
-/** Commandes proposées dans le sélecteur d'OF de l'éditeur. */
+/** Commandes proposées dans le sélecteur d'OF de l'éditeur.
+ *
+ * Un OF rattaché à un porteur n'y figure pas : le contrôle qualité porte sur
+ * une référence — mêmes mesures, mêmes défauts, même barème — et se fait une
+ * fois pour le groupe, sur celui qui le porte. Proposer les quatre OF ferait
+ * ouvrir quatre inspections du même article, dont trois resteraient vides ou
+ * répéteraient la première.
+ *
+ * Les inspections DÉJÀ liées à un OF depuis rattaché ne sont pas touchées :
+ * elles ont été faites, elles restent lisibles. Seul le choix futur change. */
 export async function listCommandesPourQc() {
   const rows = await db
     .select({
@@ -204,6 +213,7 @@ export async function listCommandesPourQc() {
       clientNom: client.nom, faconnierNom: faconnier.nom, chaineNom: chaine.nom,
     })
     .from(commande)
+    .where(isNull(commande.parentId))
     .leftJoin(client, eq(commande.clientId, client.id))
     .leftJoin(faconnier, eq(commande.faconnierId, faconnier.id))
     .leftJoin(chaine, eq(commande.chaineId, chaine.id))

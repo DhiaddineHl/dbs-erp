@@ -45,8 +45,33 @@ export const commande = pgTable(
     couleur: text().notNull().default(""),
     saison: text().notNull().default(""),
     note: text().notNull().default(""),
-    /** Set when a commande was split off another one. */
+    /** Commande porteuse quand cette ligne est une sous-commande.
+     *
+     * Un seul niveau : une sous-commande ne se redécoupe pas. Le lien existe
+     * sous deux natures, que `lienParent` distingue — voir ce champ. */
     parentId: integer().references((): AnyPgColumn => commande.id, { onDelete: "set null" }),
+
+    /** Nature du rattachement : "" (aucun), "decoupe" ou "regroupement".
+     *
+     * Les deux natures produisent le même accordéon à l'écran et une
+     * arithmétique opposée, d'où ce champ plutôt qu'une convention implicite :
+     *
+     *  · `decoupe` — la commande a été FENDUE. Le porteur garde la quantité
+     *    totale promise au client et les parts s'en partagent une portion :
+     *    1 200 pièces découpées en 500 + 300 laissent 400 au porteur. La somme
+     *    des quantités du groupe vaut celle du porteur.
+     *
+     *  · `regroupement` — des OF distincts, déjà existants, ont été REUNIS
+     *    parce qu'ils portent la même référence pour le même client. Chacun
+     *    garde sa quantité entière, sa production, sa livraison et sa facture ;
+     *    le lien ne mutualise que la matière et le contrôle qualité, qui se
+     *    commandent et se contrôlent une fois pour tous. La quantité du groupe
+     *    est la SOMME de celles de ses membres.
+     *
+     * Confondre les deux fausserait le chiffre d'affaires dans un sens ou dans
+     * l'autre : une découpe comptée comme un regroupement double les pièces
+     * réparties, un regroupement compté comme une découpe les efface. */
+    lienParent: text().notNull().default(""),
 
     /* ── links ── */
     clientId: integer().references(() => client.id, { onDelete: "set null" }),
@@ -122,6 +147,7 @@ export const commande = pgTable(
     index("commande_faconnier_idx").on(t.faconnierId),
     index("commande_archived_idx").on(t.archived),
     index("commande_modele_idx").on(t.modele),
+    index("commande_parent_idx").on(t.parentId),
   ],
 );
 
@@ -160,6 +186,7 @@ export const commandeRelations = relations(commande, ({ one, many }) => ({
   faconnier: one(faconnier, { fields: [commande.faconnierId], references: [faconnier.id] }),
   chaine: one(chaine, { fields: [commande.chaineId], references: [chaine.id] }),
   parent: one(commande, { fields: [commande.parentId], references: [commande.id], relationName: "parent" }),
+  sousCommandes: many(commande, { relationName: "parent" }),
   tds: many(commandeTds),
   etapes: many(commandeEtape),
   fournitures: many(commandeFournitureLigne),

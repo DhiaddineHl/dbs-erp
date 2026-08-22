@@ -1,0 +1,1 @@
+CREATE INDEX "commande_parent_idx" ON "commande" USING btree ("parent_id");

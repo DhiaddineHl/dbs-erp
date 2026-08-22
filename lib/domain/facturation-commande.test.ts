@@ -35,6 +35,23 @@ test("le reste à facturer ne devient jamais négatif", () => {
   assert.equal(resteAFacturer({ qte: 800, factureQte: 900 }), 0);
 });
 
+test("une commande découpée ne se facture que sur sa part", () => {
+  // 800 pièces au contrat, 600 confiées à des sous-commandes : la mère ne peut
+  // facturer que les 200 qu'elle produit. Les 600 autres seront facturées sur
+  // leurs propres lignes — les compter ici les facturerait deux fois.
+  assert.equal(resteAFacturer({ qte: 800, qtePropre: 200, factureQte: 0 }), 200);
+  assert.equal(resteAFacturer({ qte: 800, qtePropre: 200, factureQte: 200 }), 0);
+  // Bornes identiques quand rien n'est réparti.
+  assert.equal(resteAFacturer({ qte: 800, qtePropre: 800, factureQte: 300 }), 500);
+});
+
+test("une mère est soldée dès que sa part est facturée", () => {
+  const base = { archived: false, statutKey: "production" };
+  assert.equal(estSoldee({ ...base, qte: 800, qtePropre: 200, factureQte: 200 }), true);
+  assert.equal(estSoldee({ ...base, qte: 800, qtePropre: 200, factureQte: 100 }), false);
+  assert.equal(estSoldee({ ...base, qte: 800, factureQte: 200 }), false);
+});
+
 test("la quantité facturée est bornée par le reste", () => {
   const b = preparerFacturation(cmd({ factureQte: 700 }), { qte: 500, pu: 12.5 });
   assert.equal(b?.qte, 100, "on ne facture pas au-delà du reste");

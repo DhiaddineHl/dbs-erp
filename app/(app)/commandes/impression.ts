@@ -23,7 +23,11 @@ type Colonne = {
 };
 
 const COLONNES: Colonne[] = [
-  { cle: "of", titre: "N° OF", valeur: (c) => c.of || "—" },
+  /* Une part est décalée sous sa mère plutôt que numérotée à part : sur
+     papier il n'y a ni accordéon ni couleur de fond, et l'indentation est le
+     seul signe qui reste pour dire « ces 400 pièces sont prises sur les
+     1 200 du dessus » et non « voici 400 pièces de plus ». */
+  { cle: "of", titre: "N° OF", valeur: (c) => (c.parentId != null ? "↳ " : "") + (c.of || "—") },
   { cle: "modele", titre: "Modèle", valeur: (c) => c.modele + (c.couleur ? ` — ${c.couleur}` : "") },
   { cle: "client", titre: "Client", valeur: (c) => c.client || "—" },
   { cle: "assigne", titre: "Assigné", valeur: (c) => c.faconnier || (c.chaine ? `${c.chaine} (interne)` : "Non assigné") },
@@ -42,9 +46,15 @@ export function imprimerSelection(lignes: CommandeRow[], masquees: ReadonlySet<C
   const cols = COLONNES.filter((c) => !masquees.has(c.cle));
   if (!cols.length) return false;
 
-  const totalQte = lignes.reduce((s, c) => s + (c.qte || 0), 0);
-  const totalCa = lignes.reduce((s, c) => s + c.ca, 0);
-  const totalMarge = lignes.reduce((s, c) => s + c.margeTotale, 0);
+  /* Totaux en quantités et montants PROPRES : quand une commande découpée est
+     imprimée avec ses parts, la mère ne compte que ce qu'elle produit
+     elle-même. Sans cela le pied de page annoncerait deux fois les pièces
+     réparties. Sur une liste sans découpe, le propre est le tout. */
+  const totalQte = lignes.reduce((s, c) => s + c.qtePropre, 0);
+  const totalCa = lignes.reduce((s, c) => s + c.caPropre, 0);
+  const totalMarge = lignes.reduce((s, c) => s + c.margePropre, 0);
+  const nbMeres = lignes.filter((c) => c.parentId == null).length;
+  const nbParts = lignes.length - nbMeres;
   const montreQte = cols.some((c) => c.cle === "qte");
   const montrePrix = cols.some((c) => c.cle === "prixVente" || c.cle === "prixFacon" || c.cle === "margeTotale");
 
@@ -54,7 +64,7 @@ export function imprimerSelection(lignes: CommandeRow[], masquees: ReadonlySet<C
   const corps = lignes
     .map(
       (l) =>
-        "<tr>" +
+        `<tr${l.parentId != null ? ' class="part"' : ""}>` +
         cols.map((c) => `<td style="${c.droite ? "text-align:right" : ""}">${esc(c.valeur(l))}</td>`).join("") +
         "</tr>",
     )
@@ -62,14 +72,15 @@ export function imprimerSelection(lignes: CommandeRow[], masquees: ReadonlySet<C
   const totaux = cols
     .map((c) => {
       if (c.cle === "qte") return `<td style="text-align:right">${nb.format(totalQte)}</td>`;
-      if (c.cle === "modele") return `<td>TOTAL ${lignes.length} commande(s)</td>`;
+      if (c.cle === "modele")
+        return `<td>TOTAL ${nbMeres} commande(s)${nbParts ? ` + ${nbParts} sous-commande(s)` : ""}</td>`;
       return "<td></td>";
     })
     .join("");
 
   const sousTitre = [
     `Édité le ${new Date().toLocaleDateString("fr-FR")}`,
-    `${lignes.length} commande(s)`,
+    `${nbMeres} commande(s)` + (nbParts ? ` · ${nbParts} sous-commande(s)` : ""),
     montreQte ? `${nb.format(totalQte)} pièces` : "",
     montrePrix ? `CA ${eur.format(totalCa)} €` : "",
     montrePrix ? `Marge ${eur.format(totalMarge)} €` : "",
@@ -86,6 +97,7 @@ export function imprimerSelection(lignes: CommandeRow[], masquees: ReadonlySet<C
     th{background:#e8edf5;color:#000;border:1px solid #444;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
     td{padding:5px 8px;border-bottom:1px solid #e3e8f0}
     tr:nth-child(even) td{background:#f7f9fc}
+    tr.part td{color:#556;font-style:italic}
     tr.tot td{border-top:2px solid #000;background:#eef2f8;font-weight:700}
     @media print{@page{size:A4 landscape;margin:10mm}}
   </style></head><body>

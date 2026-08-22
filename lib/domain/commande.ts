@@ -164,13 +164,19 @@ export const chuteEffective = (c: CommandeFacts, defaut: number) =>
 export const consoEffective = (c: CommandeFacts, chuteDefaut: number) =>
   (c.consoTheo ?? 0) * (1 + chuteEffective(c, chuteDefaut) / 100);
 
-/** Total metres the commande needs. 0 when the nomenclature is not filled in. */
-export const besoinTissu = (c: CommandeFacts, chuteDefaut: number) =>
-  consoEffective(c, chuteDefaut) * (c.qte || 0);
+/** Total metres the commande needs. 0 when the nomenclature is not filled in.
+ *
+ * `qte` permet de calculer le besoin d'un GROUPE plutôt que d'une ligne : sur
+ * un porteur de regroupement, le tissu se commande pour les 364 pièces réunies
+ * et non pour ses 330 à lui. Sans cet argument, le magasin recevrait le bon
+ * métrage et le verrait signalé comme un excédent. Omis, c'est la quantité de
+ * la ligne — le cas de toutes les commandes non rattachées. */
+export const besoinTissu = (c: CommandeFacts, chuteDefaut: number, qte = c.qte || 0) =>
+  consoEffective(c, chuteDefaut) * qte;
 
 /** Received minus required. Null while either side is unknown. */
-export function ecartTissu(c: CommandeFacts, chuteDefaut: number): number | null {
-  const besoin = besoinTissu(c, chuteDefaut);
+export function ecartTissu(c: CommandeFacts, chuteDefaut: number, qte = c.qte || 0): number | null {
+  const besoin = besoinTissu(c, chuteDefaut, qte);
   const recu = c.tissuRecu ?? 0;
   if (besoin <= 0 || recu <= 0) return null;
   return recu - besoin;
@@ -185,13 +191,216 @@ export function piecesCoupables(c: CommandeFacts, chuteDefaut: number): number |
 
 export type EtatMatiere = { kind: "na" | "manque" | "excedent" | "ok"; label: string; tone: Tone };
 
-export function etatMatiere(c: CommandeFacts, chuteDefaut: number): EtatMatiere {
+export function etatMatiere(c: CommandeFacts, chuteDefaut: number, qte = c.qte || 0): EtatMatiere {
   if (!c.consoTheo) return { kind: "na", label: "À renseigner", tone: "neutral" };
-  const besoin = besoinTissu(c, chuteDefaut);
+  const besoin = besoinTissu(c, chuteDefaut, qte);
   const recu = c.tissuRecu ?? 0;
   if (recu < besoin - 0.01) return { kind: "manque", label: "Manque tissu", tone: "danger" };
   if (recu > besoin + 0.01) return { kind: "excedent", label: "Excédent", tone: "info" };
   return { kind: "ok", label: "OK", tone: "success" };
+}
+
+/* ─────────── sous-commandes ───────────
+ *
+ * Une commande peut en porter d'autres, et le lien existe sous deux natures
+ * opposées par l'arithmétique — d'où `LienSousCommande`, jamais une devinette.
+ *
+ *  · DÉCOUPE : la commande a été fendue. Le porteur garde la quantité totale
+ *    promise au client ; ses parts s'en partagent une portion, confiée à
+ *    d'autres ateliers, à d'autres prix. 1 200 découpées en 500 + 300 laissent
+ *    400 au porteur, et le groupe vaut toujours 1 200.
+ *
+ *  · REGROUPEMENT : des OF distincts, chacun déjà complet, ont été réunis
+ *    parce qu'ils portent la même référence pour le même client. Chacun garde
+ *    sa quantité, sa production, sa livraison et sa facture ; le lien ne
+ *    mutualise que ce qui s'achète et se contrôle une fois pour tous — la
+ *    matière et le contrôle qualité. Le groupe vaut la SOMME de ses membres.
+ *
+ * D'où la règle unique dont tous les totaux découlent : une ligne ne répond
+ * que de la quantité qu'elle n'a pas déléguée, et seule la découpe délègue.
+ * Sans elle, le CA d'une commande fendue en trois serait compté quatre fois. */
+
+export const LIENS_SOUS_COMMANDE = ["decoupe", "regroupement"] as const;
+export type LienSousCommande = (typeof LIENS_SOUS_COMMANDE)[number];
+
+export const estLienValide = (v: unknown): v is LienSousCommande =>
+  LIENS_SOUS_COMMANDE.includes(v as LienSousCommande);
+
+/** Ce que les règles de répartition lisent d'une ligne. */
+export type PartCommande = { qte: number; lienParent?: string | null };
+
+/** Une part issue d'une découpe : c'est la seule qui prend sur le porteur. */
+const estDecoupe = (e: PartCommande) => e.lienParent === "decoupe";
+
+/** Quantité prise sur le porteur par ses parts découpées.
+ *
+ * Les membres d'un regroupement n'y entrent pas : ils ne retranchent rien au
+ * porteur, ils s'ajoutent à côté de lui. */
+export const qteAffectee = (enfants: readonly PartCommande[]) =>
+  enfants.filter(estDecoupe).reduce((s, e) => s + (e.qte || 0), 0);
+
+/** Quantité dont la ligne répond elle-même — c'est elle, et non `qte`, qui
+ * entre dans les totaux (CA, marge, charge façonnier). Une commande sans part
+ * découpée répond de la totalité : la valeur ne change pas pour elle. */
+export const qtePropre = (parent: PartCommande, enfants: readonly PartCommande[] = []) =>
+  Math.max(0, (parent.qte || 0) - qteAffectee(enfants));
+
+/** Ce qu'il reste à découper. Négatif quand la répartition dépasse le total,
+ * ce que l'écran de saisie doit pouvoir montrer avant d'enregistrer. */
+export const resteAAffecter = (qteTotale: number, enfants: readonly PartCommande[]) =>
+  (qteTotale || 0) - qteAffectee(enfants);
+
+/** Message d'erreur quand la découpe dépasse la quantité du porteur, null
+ * quand elle tient. Une sous-répartition est licite : le reliquat est produit
+ * par la commande mère elle-même. */
+export function erreurRepartition(qteTotale: number, enfants: readonly PartCommande[]): string | null {
+  const reste = resteAAffecter(qteTotale, enfants);
+  if (reste >= 0) return null;
+  return `Les sous-commandes totalisent ${qteAffectee(enfants)} pièces pour une commande de ${
+    qteTotale || 0
+  } : ${Math.abs(reste)} de trop.`;
+}
+
+/** Totaux d'un groupe : le porteur et ses sous-commandes.
+ *
+ * Chaque pièce n'est comptée qu'une fois, à son propre prix — la part non
+ * déléguée du porteur au sien, chaque membre au sien. C'est ce qui permet à
+ * une sous-commande d'être vendue plus cher sans que le total mente, et ce qui
+ * fait que la même formule sert aux deux natures de lien : la quantité du
+ * groupe est toujours « ce dont le porteur répond, plus ses membres ». Pour
+ * une découpe, cela redonne la quantité du porteur ; pour un regroupement, la
+ * somme des OF réunis. */
+export type TotauxGroupe = {
+  qte: number;
+  produit: number;
+  factureQte: number;
+  ca: number;
+  margeTotale: number;
+  av: number;
+};
+
+export function totauxGroupe(parent: CommandeFacts, enfants: readonly CommandeFacts[]): TotauxGroupe {
+  const propre = qtePropre(parent, enfants);
+  let qte = propre;
+  let ca = centimes((parent.prixVente ?? 0) * propre);
+  let marge = centimes(margeUnitaire(parent) * propre);
+  let produit = parent.produit || 0;
+  let facture = parent.factureQte || 0;
+
+  for (const e of enfants) {
+    qte += e.qte || 0;
+    ca += chiffreAffaires(e);
+    marge += margeTotale(e);
+    produit += e.produit || 0;
+    facture += e.factureQte || 0;
+  }
+
+  return {
+    qte,
+    produit,
+    factureQte: facture,
+    ca: centimes(ca),
+    margeTotale: centimes(marge),
+    av: qte > 0 ? Math.round((produit / qte) * 100) : 0,
+  };
+}
+
+/** La commande porteuse et ses sous-commandes, prêtes à être rendues en accordéon. */
+export type Groupe<T> = { parent: T; enfants: T[] };
+
+/** Reconstruit l'arbre à partir de la liste plate.
+ *
+ * Une sous-commande dont le porteur est absent de la liste — filtré, archivé,
+ * supprimé — remonte au premier niveau plutôt que de disparaître : une ligne
+ * qui existe en base doit rester atteignable à l'écran. */
+export function grouperCommandes<T extends { id: number; parentId: number | null }>(
+  lignes: readonly T[],
+): Groupe<T>[] {
+  const presents = new Set(lignes.map((l) => l.id));
+  const groupes: Groupe<T>[] = [];
+  const parIdParent = new Map<number, Groupe<T>>();
+
+  for (const l of lignes) {
+    if (l.parentId != null && presents.has(l.parentId)) continue;
+    const g: Groupe<T> = { parent: l, enfants: [] };
+    groupes.push(g);
+    parIdParent.set(l.id, g);
+  }
+  for (const l of lignes) {
+    if (l.parentId == null) continue;
+    parIdParent.get(l.parentId)?.enfants.push(l);
+  }
+  return groupes;
+}
+
+/* ─────────── détection des regroupements possibles ───────────
+ *
+ * Le même article, pour le même client, arrive souvent en plusieurs OF : un
+ * réassort, une commande complétée, une répartition par magasin. Le tissu, lui,
+ * s'achète une fois — c'est une seule référence, un seul rouleau, un seul
+ * contrôle. Tant que les OF restent indépendants, le magasin saisit la même
+ * réception quatre fois, ou l'oublie trois fois sur quatre.
+ *
+ * La clé est (client, référence) et NON (client, modèle, référence) comme le
+ * rapprochement de facturation : deux OF du même article peuvent porter des
+ * libellés de modèle légèrement différents selon qui les a saisis, et c'est la
+ * référence qui identifie la matière. Une référence vide ne regroupe rien —
+ * elle ne dit pas que c'est le même article, seulement que personne ne l'a
+ * renseignée. */
+
+export type CandidatRegroupement = {
+  id: number;
+  of: string;
+  client: string;
+  refArticle: string;
+  modele: string;
+  qte: number;
+  parentId: number | null;
+};
+
+export type GroupeProposé<T> = {
+  /** Clé lisible : « PATRICK CONFECTION · PEC27E667 ». */
+  cle: string;
+  client: string;
+  refArticle: string;
+  /** Membres du groupe, du plus gros au plus petit. */
+  lignes: T[];
+  /** Total des pièces du groupe. */
+  qte: number;
+  /** Porteur proposé : la plus grosse quantité, à égalité le plus ancien OF.
+   *
+   * La plus grosse parce que c'est celle sur laquelle le besoin tissu est déjà
+   * le plus juste, et celle que le magasin connaît déjà — proposer le contraire
+   * ferait rattacher 330 pièces à un OF de 12. */
+  porteurId: number;
+};
+
+export function proposerRegroupements<T extends CandidatRegroupement>(lignes: readonly T[]): GroupeProposé<T>[] {
+  const parCle = new Map<string, T[]>();
+  for (const l of lignes) {
+    const ref = String(l.refArticle ?? "").trim();
+    // Déjà rattachée, ou sans référence : rien à proposer.
+    if (!ref || l.parentId != null) continue;
+    const cle = `${normaliserNom(l.client)}|${normaliserNom(ref)}`;
+    const g = parCle.get(cle);
+    if (g) g.push(l);
+    else parCle.set(cle, [l]);
+  }
+
+  return [...parCle.values()]
+    .filter((g) => g.length > 1)
+    .map((g) => {
+      const tri = [...g].sort((a, b) => (b.qte || 0) - (a.qte || 0) || a.of.localeCompare(b.of, "fr", { numeric: true }));
+      return {
+        cle: `${tri[0].client || "sans client"} · ${tri[0].refArticle}`,
+        client: tri[0].client,
+        refArticle: tri[0].refArticle,
+        lignes: tri,
+        qte: tri.reduce((s, l) => s + (l.qte || 0), 0),
+        porteurId: tri[0].id,
+      };
+    })
+    .sort((a, b) => b.qte - a.qte);
 }
 
 /* ─────────── identifiers ─────────── */
@@ -201,6 +410,17 @@ const OF_PREFIX = "OF";
 /** "OF-2026-287". Sequence is zero-padded to 3 digits, wider past 999. */
 export function numeroOF(sequence: number, annee: number = new Date().getFullYear()): string {
   return `${OF_PREFIX}-${annee}-${String(sequence).padStart(3, "0")}`;
+}
+
+/** N° d'une sous-commande, dérivé de celui de sa mère : « OF-2026-287-S2 ».
+ *
+ * Dériver plutôt que tirer un numéro neuf, parce que la plupart des écrans en
+ * aval — BL, facture, traçabilité — n'affichent que le n° OF : le suffixe est
+ * ce qui leur permet de dire de quelle commande cette part relève, sans rien
+ * changer chez eux. Le préfixe reste lisible par `dernierSequenceOF`, donc la
+ * numérotation générale continue sa route sans sauter de rang. */
+export function numeroSousCommande(ofParent: string, rang: number): string {
+  return `${ofParent}-S${rang}`;
 }
 
 /** Highest sequence already used for `annee`, so the next one is +1. */
@@ -228,6 +448,27 @@ export function estSousTraitee(c: { faconnier?: string | null; chaineId?: number
   const f = String(c.faconnier ?? "").trim();
   return f !== "" && !/^(dbs|interne)$/i.test(f);
 }
+
+/* ─────────── assignation : façonnier ou chaîne interne ─────────── */
+
+/** Préfixe qui distingue une chaîne interne d'un façonnier dans une même liste.
+ *
+ * Interne et sous-traitance s'excluent — une commande ne peut pas être à la
+ * fois « chaîne 2 » et « atelier Sud », sans quoi la marge à façon compte deux
+ * fois le même travail. Les réunir dans une seule liste rend cette exclusion
+ * évidente à l'écran : on choisit l'un OU l'autre, jamais les deux. */
+export const PREFIXE_CHAINE = "__chaine:";
+
+/** Ce qu'un choix dans la liste « Assigné » écrit sur la commande. */
+export function assignationDepuisChoix(valeur: string): { chaineId: string; faconnier: string } {
+  return valeur.startsWith(PREFIXE_CHAINE)
+    ? { chaineId: valeur.slice(PREFIXE_CHAINE.length), faconnier: "" }
+    : { chaineId: "", faconnier: valeur };
+}
+
+/** L'opération inverse : la valeur à présélectionner dans la liste. */
+export const choixAssignation = (c: { chaineId?: number | string | null; faconnier?: string | null }) =>
+  c.chaineId ? `${PREFIXE_CHAINE}${c.chaineId}` : c.faconnier ?? "";
 
 /* ─────────── saisie du formulaire ─────────── */
 

@@ -71,6 +71,13 @@ export type CommandeAval = {
   chaine: string;
   source: string;
   qte: number;
+  /** Commande mère quand la ligne est une sous-commande, null sinon. */
+  parentId: number | null;
+  /** Part de `qte` que la ligne produit elle-même : le reste est parti en
+   * sous-commandes, qui figurent dans la même liste avec la leur. Toute somme
+   * de pièces ou d'euros passe par là, sinon le travail réparti est planifié
+   * deux fois — une fois sur la mère, une fois sur chaque part. */
+  qtePropre: number;
   produit: number;
   coupeQte: number;
   magasinQte: number;
@@ -101,7 +108,10 @@ async function commandesBrutes() {
     .orderBy(commande.id);
 }
 
-function versAval(r: Awaited<ReturnType<typeof commandesBrutes>>[number]): CommandeAval {
+function versAval(
+  r: Awaited<ReturnType<typeof commandesBrutes>>[number],
+  qteAffectee = 0,
+): CommandeAval {
   const { c, clientNom, faconnierNom, chaineNom } = r;
   return {
     id: c.id,
@@ -115,6 +125,8 @@ function versAval(r: Awaited<ReturnType<typeof commandesBrutes>>[number]): Comma
     chaine: chaineNom ?? "",
     source: faconnierNom ?? (chaineNom ? `${chaineNom} (interne)` : "—"),
     qte: c.qte,
+    parentId: c.parentId,
+    qtePropre: Math.max(0, c.qte - qteAffectee),
     produit: c.produit,
     coupeQte: c.coupeQte,
     magasinQte: c.magasinQte,
@@ -133,9 +145,16 @@ function versAval(r: Awaited<ReturnType<typeof commandesBrutes>>[number]): Comma
 
 export async function listCommandesAval(opts: { archived?: boolean } = {}): Promise<CommandeAval[]> {
   const rows = await commandesBrutes();
+  /* Les parts sont comptées avant le filtre d'archivage : la quantité propre
+   * d'une mère ne dépend pas de l'écran qui la lit. */
+  const affectee = new Map<number, number>();
+  for (const { c } of rows) {
+    if (c.parentId == null) continue;
+    affectee.set(c.parentId, (affectee.get(c.parentId) ?? 0) + c.qte);
+  }
   return rows
     .filter(({ c }) => (opts.archived === undefined ? true : c.archived === opts.archived))
-    .map(versAval);
+    .map((r) => versAval(r, affectee.get(r.c.id) ?? 0));
 }
 
 export type BrRow = {
@@ -628,12 +647,16 @@ export type PlanFaconnierData = {
 
 export async function getPlanFaconnier(): Promise<PlanFaconnierData> {
   const commandes = await listCommandesAval({ archived: false });
+  /* La charge d'un façonnier se compte en quantité propre : une commande
+   * découpée occupe chaque atelier de sa part, et la mère seulement de ce
+   * qu'elle garde. Additionner le total de la mère et celui de ses parts
+   * ferait planifier deux fois le même travail. */
   const lignes: av.LigneCharge[] = commandes.map((c) => ({
     faconnier: c.faconnier || (c.chaine ? `${c.chaine} (interne)` : "Non assigné"),
     mois: av.dateExportPlanifiee(c).slice(0, 7),
-    qte: c.qte,
+    qte: c.qtePropre,
     produit: c.produit,
-    ca: caLigne(c.qte, c.prixVente),
+    ca: caLigne(c.qtePropre, c.prixVente),
   }));
 
   const plans = av.planFaconnier(lignes);

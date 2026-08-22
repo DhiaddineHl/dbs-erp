@@ -47,7 +47,11 @@ export async function getCockpitData(): Promise<CockpitData> {
   // Le pipeline lit désormais les feux : « matières » = tissu pas encore
   // conforme, « prépa » = tête de série pas encore OK production.
   const feu = (r: (typeof prepa)[number], id: string) => r.feux.find((f) => f.id === id)!;
-  const tissusPending = prepa.filter((r) => !r.lancee && feu(r, "tissu").etat.kind !== "ok");
+  /* Un OF rattaché n'alerte pas sur sa matière : son porteur le fait pour tout
+     le groupe. Compter les quatre OF d'une même référence annoncerait quatre
+     tissus manquants là où il n'en manque qu'un — et enverrait le magasin
+     chercher trois réceptions qui n'existent pas. */
+  const tissusPending = prepa.filter((r) => !r.lancee && !r.porteurOf && feu(r, "tissu").etat.kind !== "ok");
   const beNoOk = prepa.filter((r) => !r.lancee && !r.okPro);
   const pretes = prepa.filter((r) => r.pret && !r.lancee);
   const late = commandes.filter((c) => c.statutKey === "retard");
@@ -58,8 +62,11 @@ export async function getCockpitData(): Promise<CockpitData> {
     (m) => m && !gammeModeles.has(m),
   );
 
-  const caEnCours = actives.reduce((s, c) => s + c.ca, 0);
-  const margeBrute = commandes.reduce((s, c) => s + c.margeTotale, 0);
+  /* Valeurs propres : une commande découpée apparaît dans la liste avec sa
+   * mère et ses parts, et additionner les deux compterait deux fois les
+   * pièces réparties. Sans découpe, le propre est le tout. */
+  const caEnCours = actives.reduce((s, c) => s + c.caPropre, 0);
+  const margeBrute = commandes.reduce((s, c) => s + c.margePropre, 0);
   const factureNet = factures.reduce(
     (s, f) => s + (f.type === "avoir" ? -f.total : f.type === "proforma" ? 0 : f.total),
     0,
@@ -382,11 +389,13 @@ export async function getStatsData(): Promise<{
   for (const c of commandes) {
     const k = c.client || "—";
     const row = by.get(k) ?? { unite: k, cmd: 0, pieces: 0, produit: 0, av: 0, ca: 0, marge: 0 };
-    row.cmd += 1;
-    row.pieces += c.qte;
+    // Une sous-commande n'est pas une commande de plus pour le client : c'est
+    // une part de la sienne. Elle pèse en pièces et en euros, pas en nombre.
+    if (c.parentId == null) row.cmd += 1;
+    row.pieces += c.qtePropre;
     row.produit += c.produit;
-    row.ca += c.ca;
-    row.marge += c.margeTotale;
+    row.ca += c.caPropre;
+    row.marge += c.margePropre;
     by.set(k, row);
   }
   const rows = [...by.values()]
@@ -399,7 +408,7 @@ export async function getStatsData(): Promise<{
   // La répartition ne porte que sur ce qui reste à produire : une commande
   // livrée n'occupe plus ni l'atelier ni un façonnier.
   const repartition = repartitionProduction(
-    commandes.filter((c) => c.statutKey !== "livree").map((c) => ({ assigne: c.assigne ?? "", qte: c.qte })),
+    commandes.filter((c) => c.statutKey !== "livree").map((c) => ({ assigne: c.assigne ?? "", qte: c.qtePropre })),
   );
   return { rows, totals, repartition };
 }

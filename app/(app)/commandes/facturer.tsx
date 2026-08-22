@@ -51,7 +51,9 @@ export function DialogFacturer({ commande, onFermer }: { commande: CommandeRow; 
 
   const qteRetenue = Math.min(reste, Math.max(1, Math.round(qte || 0)));
   const montant = Math.round(qteRetenue * (pu || 0) * 100) / 100;
-  const complete = commande.factureQte + qteRetenue >= commande.qte;
+  // Complète au regard de ce dont CETTE ligne répond : sur une commande
+  // découpée, les parts se facturent chacune de leur côté.
+  const complete = commande.factureQte + qteRetenue >= commande.qtePropre;
 
   const valider = () =>
     start(async () => {
@@ -88,7 +90,15 @@ export function DialogFacturer({ commande, onFermer }: { commande: CommandeRow; 
           <b>{commande.modele}</b> · {commande.refArticle || "—"} ·{" "}
           <span className="text-muted-foreground">{commande.client || "sans client"}</span>
           <br />
-          Qté commande : <b>{nb.format(commande.qte)}</b> · Déjà facturé :{" "}
+          Qté à facturer : <b>{nb.format(commande.qtePropre)}</b>
+          {commande.qteAffectee > 0 && (
+            <span className="text-muted-foreground">
+              {" "}
+              (sur {nb.format(commande.qte)} — {nb.format(commande.qteAffectee)} en sous-commandes, facturées à
+              part)
+            </span>
+          )}{" "}
+          · Déjà facturé :{" "}
           <b className="text-purple">{nb.format(commande.factureQte)}</b> · Reste :{" "}
           <b className="text-accent-foreground">{nb.format(reste)}</b>
         </div>

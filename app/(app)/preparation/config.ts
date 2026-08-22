@@ -36,6 +36,13 @@ export type EcranConfig = {
   colonnes: Colonne[];
   kpis: (rows: PreparationRow[]) => Kpi[];
   tri?: (a: PreparationRow, b: PreparationRow) => number;
+  /** Écran de matière : ce qui s'achète et se contrôle par RÉFÉRENCE, non par
+   * OF. Un OF rattaché à un porteur n'y est ni compté ni proposé à la saisie —
+   * son porteur répond du tissu et des fournitures de tout le groupe. Le
+   * laisser dans les listes ferait saisir la même réception autant de fois
+   * qu'il y a d'OF, ou l'oublier sur tous sauf un. Il reste consultable dans
+   * l'onglet « Tout », avec le n° de celui qui le gère. */
+  porteurSeul?: boolean;
 };
 
 const nb = new Intl.NumberFormat("fr-FR");
@@ -119,6 +126,7 @@ const MAGTISSU: EcranConfig = {
     "sous réserve libère le feu tissu et débloque la commande côté direction technique.",
   domaine: "tissu",
   defaut: "arecevoir",
+  porteurSeul: true,
   onglets: [
     { k: "arecevoir", label: "À recevoir", test: (r) => feuDe(r, "tissu").etat.kind === "wait" && !r.lancee },
     { k: "acontroler", label: "À contrôler", test: (r) => feuDe(r, "tissu").etat.label === "Reçu, à contrôler" },
@@ -166,6 +174,7 @@ const MAGFOUR: EcranConfig = {
     "qui pilote le feu et le statut global se verrouille.",
   domaine: "four",
   defaut: "encours",
+  porteurSeul: true,
   onglets: [
     { k: "encours", label: "À réceptionner", test: (r) => feuDe(r, "four").etat.kind !== "ok" && !r.lancee },
     { k: "attente", label: "Aucune reçue", test: (r) => feuDe(r, "four").etat.kind === "wait" },

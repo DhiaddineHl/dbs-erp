@@ -94,12 +94,222 @@ const auteurDe = (u: { id: string; name: string }) => ({ id: u.id, name: u.name 
  * Ne lève jamais : la commande est enregistrée, et une passerelle en panne ne
  * doit pas faire croire le contraire. L'écran GPAO reste saisissable à la
  * main, c'est le filet. */
+/** Les cinq écrans de préparation lisent le rattachement — ils décident qui
+ * gère la matière. Un lien créé ou défait doit s'y voir tout de suite, sinon le
+ * magasin continue de saisir sur un OF qui n'est plus le porteur. */
+function revaliderPreparation() {
+  for (const p of ["/dt", "/modelisme", "/nomen", "/magtissu", "/magfour", "/qc", "/alertes"]) {
+    revalidatePath(p);
+  }
+}
+
 async function synchroniserVersGpao(nomModele: string | undefined) {
   try {
     const etat = await gpao.synchroniserModele(nomModele ?? "");
     if (etat !== "aucun") revalidatePath("/gpao_prod");
   } catch {
     /* silencieux par conception */
+  }
+}
+
+/* ─────────── sous-commandes ─────────── */
+
+/** Brouillon de sous-commande tel que le formulaire l'envoie.
+ *
+ * Modèle et client en sont absents : ils viennent de la mère, et laisser
+ * l'écran les proposer laisserait croire qu'une part de commande peut porter
+ * un autre article ou partir chez un autre client. */
+type BrouillonSous = Data;
+
+/** Lit la liste de sous-commandes sérialisée dans le formulaire.
+ *
+ * Une entrée sans quantité, sans prix et sans façonnier est une ligne que
+ * l'opérateur a ajoutée puis laissée vide : on la jette plutôt que
+ * d'enregistrer une commande de zéro pièce, qui apparaîtrait ensuite partout
+ * comme du travail à faire. */
+function parseSousCommandes(raw: string | undefined | null): BrouillonSous[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return (arr as BrouillonSous[])
+      .filter((d) => d && typeof d === "object")
+      .filter((d) => parseEntier(d.qte) > 0 || (d.prixVente ?? "").trim() || (d.faconnier ?? "").trim());
+  } catch {
+    return [];
+  }
+}
+
+/** Colonnes d'une sous-commande. La règle « interne → prix façon = prix de
+ * vente » s'y applique comme sur la mère : une part produite en interne ne
+ * s'achète pas non plus à soi-même. */
+function champsSousCommande(d: BrouillonSous) {
+  const interne = biz.apercuCommande(d).interne;
+  return {
+    refArticle: d.refArticle ?? "",
+    couleur: d.couleur ?? "",
+    saison: d.saison ?? "",
+    note: d.note ?? "",
+    chaineId: d.chaineId ? Number(d.chaineId) : null,
+    qte: parseEntier(d.qte),
+    prixVente: parseMontant(d.prixVente),
+    prixFacon: interne ? parseMontant(d.prixVente) : parseMontant(d.prixFacon),
+    consoTheo: parseMontant(d.consoTheo),
+    receptTissu: parseDate(d.receptTissu),
+    dateExport: parseDate(d.dateExport),
+    produit: parseEntier(d.produit),
+  };
+}
+
+/** Prépare les lignes à insérer sous `parentOf`, numéros compris. */
+async function preparerSousCommandes(parentOf: string, brouillons: BrouillonSous[]) {
+  const numeros = await svc.numerosSousCommandes(parentOf, brouillons.length);
+  const lignes = [];
+  for (const [i, d] of brouillons.entries()) {
+    lignes.push({
+      ...champsSousCommande(d),
+      ofNumber: d.of?.trim() || numeros[i],
+      faconnierId: await svc.resolveFaconnierId(d.faconnier),
+    });
+  }
+  return lignes;
+}
+
+/** Ajoute des sous-commandes à une commande déjà enregistrée.
+ *
+ * La répartition est vérifiée ici, contre la quantité en base : deux personnes
+ * peuvent découper la même commande en même temps, et seul le serveur voit
+ * les deux découpes. */
+export async function ajouterSousCommandes(parentId: number, brouillonsJson: string): Promise<Result> {
+  try {
+    await assertUser();
+    const brouillons = parseSousCommandes(brouillonsJson);
+    if (!brouillons.length) return { ok: false, error: "Aucune sous-commande à ajouter" };
+
+    const parent = await svc.getCommande(parentId);
+    if (!parent) return { ok: false, error: "Commande mère introuvable" };
+
+    const existantes = await svc.getSousCommandes(parentId);
+    const erreur = biz.erreurRepartition(parent.qte, [
+      ...existantes,
+      ...brouillons.map((d) => ({ qte: parseEntier(d.qte) })),
+    ]);
+    if (erreur) return { ok: false, error: erreur };
+
+    await svc.insertSousCommandes(parentId, await preparerSousCommandes(parent.ofNumber, brouillons));
+    await journaliser(
+      "creation",
+      "Commandes",
+      `${brouillons.length} sous-commande(s) sur ${parent.ofNumber} — ${parent.modele}`,
+    );
+    await synchroniserVersGpao(parent.modele);
+    revaliderCarnet();
+    revalidatePath("/clients");
+    revalidatePath("/facon");
+    return ok;
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── regroupement d'OF existants ─────────── */
+
+export type LigneRegroupable = {
+  id: number;
+  of: string;
+  modele: string;
+  couleur: string;
+  qte: number;
+  dateExport: string;
+  tissuRecu: number;
+  statut: string;
+};
+
+export type GroupeRegroupable = {
+  cle: string;
+  client: string;
+  refArticle: string;
+  qte: number;
+  /** Porteur proposé — la plus grosse quantité du groupe. */
+  porteurId: number;
+  lignes: LigneRegroupable[];
+};
+
+/** Les OF qui gagneraient à être réunis : même client, même référence.
+ *
+ * Rien n'est décidé ici. Deux OF de la même référence peuvent parfaitement
+ * devoir rester séparés — un réassort livré ailleurs, une saison différente —
+ * et c'est l'humain qui tranche. L'écran ne fait que montrer, avec de quoi
+ * trancher : quantités, dates d'export et métrage déjà reçu. */
+export async function listerRegroupements(): Promise<Retour<GroupeRegroupable[]>> {
+  try {
+    await assertUser();
+    const rows = await svc.listCommandes();
+    const groupes = biz.proposerRegroupements(rows);
+    return {
+      ok: true,
+      data: groupes.map((g) => ({
+        cle: g.cle,
+        client: g.client,
+        refArticle: g.refArticle,
+        qte: g.qte,
+        porteurId: g.porteurId,
+        lignes: g.lignes.map((c) => ({
+          id: c.id,
+          of: c.of,
+          modele: c.modele,
+          couleur: c.couleur,
+          qte: c.qte,
+          dateExport: c.dateExport,
+          tissuRecu: c.tissuRecu,
+          statut: c.statut[1],
+        })),
+      })),
+    };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Réunit des OF sous un porteur.
+ *
+ * Ce que le lien change : la matière et le contrôle qualité se saisissent une
+ * seule fois, sur le porteur, pour la quantité du groupe. Ce qu'il ne change
+ * pas : la production, la livraison et la facturation, qui restent par OF. */
+export async function regrouperCommandes(porteurId: number, ids: number[]): Promise<Retour<number>> {
+  try {
+    await assertUser();
+    const n = await svc.regrouperSous(porteurId, ids);
+    const porteur = await svc.getCommande(porteurId);
+    await journaliser(
+      "modification",
+      "Commandes",
+      `${n} OF rattaché(s) à ${porteur?.ofNumber ?? porteurId} — matière et QC mutualisées`,
+    );
+    revaliderCarnet();
+    revaliderPreparation();
+    revalidatePath("/clients");
+    revalidatePath("/facon");
+    return { ok: true, data: n };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Rend leur autonomie à des sous-commandes. */
+export async function delierCommandes(ids: number[]): Promise<Retour<number>> {
+  try {
+    await assertUser();
+    if (!ids.length) return { ok: false, error: "Aucune sous-commande sélectionnée" };
+    const n = await svc.delierSous(ids);
+    await journaliser("modification", "Commandes", `${n} sous-commande(s) déliée(s)`);
+    revaliderCarnet();
+    revaliderPreparation();
+    revalidatePath("/clients");
+    revalidatePath("/facon");
+    return { ok: true, data: n };
+  } catch (e) {
+    return fail(e);
   }
 }
 
@@ -115,8 +325,21 @@ export async function createCommande(d: Data): Promise<Result> {
      * dans l'écran ne tient pas. En interne le prix façon suit le prix de
      * vente, donc marge nulle — DBS n'achète pas sa propre façon. */
     const apercu = biz.apercuCommande(d);
-    await svc.insertCommande({
-      ofNumber: d.of?.trim() || (await svc.prochainNumeroOF()),
+    const qte = qteTailles || parseEntier(d.qte);
+
+    /* La commande naît avec ses parts d'un seul geste : c'est au moment où
+     * l'on connaît les ateliers qu'on sait comment répartir, et découper après
+     * coup obligerait à rouvrir la fiche pour terminer une saisie commencée. */
+    const sous = parseSousCommandes(d.sousCommandes);
+    const erreur = biz.erreurRepartition(
+      qte,
+      sous.map((x) => ({ qte: parseEntier(x.qte) })),
+    );
+    if (erreur) return { ok: false, error: erreur };
+
+    const ofNumber = d.of?.trim() || (await svc.prochainNumeroOF());
+    const id = await svc.insertCommande({
+      ofNumber,
       modele: d.modele,
       refArticle: d.refArticle ?? "",
       couleur: d.couleur ?? "",
@@ -125,7 +348,7 @@ export async function createCommande(d: Data): Promise<Result> {
       clientId: await svc.resolveClientId(d.client),
       faconnierId: await svc.resolveFaconnierId(d.faconnier),
       chaineId: d.chaineId ? Number(d.chaineId) : null,
-      qte: qteTailles || parseEntier(d.qte),
+      qte,
       tailles,
       prixVente: parseMontant(d.prixVente),
       prixFacon: apercu.interne ? parseMontant(d.prixVente) : parseMontant(d.prixFacon),
@@ -136,7 +359,14 @@ export async function createCommande(d: Data): Promise<Result> {
       produit: parseEntier(d.produit),
       statutManuel: biz.isStatut(d.statutManuel) ? d.statutManuel : null,
     });
-    await journaliser("creation", "Commandes", `${d.modele ?? ""} — ${d.client ?? ""}`);
+
+    if (sous.length) await svc.insertSousCommandes(id, await preparerSousCommandes(ofNumber, sous));
+
+    await journaliser(
+      "creation",
+      "Commandes",
+      `${d.modele ?? ""} — ${d.client ?? ""}` + (sous.length ? ` (${sous.length} sous-commande(s))` : ""),
+    );
     await synchroniserVersGpao(d.modele);
     revaliderCarnet();
     revalidatePath("/clients");
@@ -219,6 +449,9 @@ export async function updateCommandeRow(id: number, patch: Data): Promise<Result
     const touche = "modele" in patch || "qte" in patch || "client" in patch;
     const nomAvant = touche ? await svc.nomModele(id) : "";
 
+    const garde = await verifierFamille(id, out);
+    if (garde) return { ok: false, error: garde };
+
     if (Object.keys(out).length) await svc.updateCommande(id, out, auteurDe(user));
 
     if (touche) {
@@ -231,6 +464,53 @@ export async function updateCommandeRow(id: number, patch: Data): Promise<Result
   } catch (e) {
     return fail(e);
   }
+}
+
+/** Fait tenir les deux règles de famille sur une modification en ligne.
+ *
+ * Renvoie le message d'erreur qui doit arrêter l'écriture, ou null.
+ *
+ *   · Le modèle est commun. Une sous-commande produit le même article que sa
+ *     mère ; renommer d'un côté renomme des deux, sinon GPAO et le
+ *     rapprochement de facturation — qui travaillent par nom de modèle — se
+ *     mettent à voir deux articles là où l'atelier n'en coud qu'un.
+ *   · La somme des parts ne dépasse pas le tout. Sans ce garde-fou, la grille
+ *     laisserait répartir 1 500 pièces sur une commande de 1 200, et le CA du
+ *     client s'en trouverait gonflé du surplus.
+ *
+ * Les deux vérifications sont ici et non seulement dans l'écran : la grille
+ * n'est qu'un des chemins vers `updateCommandeRow`. */
+async function verifierFamille(id: number, out: Parameters<typeof svc.updateCommande>[1]): Promise<string | null> {
+  if (!("modele" in out) && !("qte" in out)) return null;
+
+  const ligne = await svc.getCommande(id);
+  if (!ligne) return "Commande introuvable";
+
+  if ("qte" in out) {
+    const qte = out.qte ?? 0;
+    if (ligne.parentId == null) {
+      const enfants = await svc.getSousCommandes(id);
+      const erreur = biz.erreurRepartition(qte, enfants);
+      if (erreur) return erreur;
+    } else {
+      const parent = await svc.getCommande(ligne.parentId);
+      if (parent) {
+        const fratrie = (await svc.getSousCommandes(parent.id)).map((e) =>
+          e.id === id ? { qte } : { qte: e.qte },
+        );
+        const erreur = biz.erreurRepartition(parent.qte, fratrie);
+        if (erreur) return erreur;
+      }
+    }
+  }
+
+  if ("modele" in out && out.modele) {
+    // Renommer depuis une part renomme la famille entière, mère comprise.
+    const racine = ligne.parentId ?? id;
+    if (racine !== id) await svc.updateCommande(racine, { modele: out.modele }, { name: "système" });
+    await svc.propagerModele(racine, out.modele);
+  }
+  return null;
 }
 
 export async function deleteCommandesAction(ids: number[]): Promise<Result> {

@@ -71,11 +71,22 @@ export function EcranPreparation({
   const [q, setQ] = useState("");
   const [ouverte, setOuverte] = useState<number | null>(null);
 
-  const kpis = useMemo(() => cfg.kpis(rows), [cfg, rows]);
+  /* Sur un écran de matière, un OF rattaché n'a rien à y faire : son porteur
+     saisit la réception une fois pour toute la référence. Il sort donc des
+     onglets de travail et des indicateurs — mais pas de « Tout », où il reste
+     consultable avec le n° de celui qui le gère. Une ligne qui existe en base
+     doit rester atteignable. */
+  const aTraiter = useMemo(
+    () => (cfg.porteurSeul ? rows.filter((r) => !r.porteurOf) : rows),
+    [cfg, rows],
+  );
+  const masques = rows.length - aTraiter.length;
+
+  const kpis = useMemo(() => cfg.kpis(aTraiter), [cfg, aTraiter]);
 
   const filtrees = useMemo(() => {
     const test = cfg.onglets.find((o) => o.k === onglet)?.test ?? null;
-    let out = test ? rows.filter(test) : rows;
+    let out = test ? aTraiter.filter(test) : rows;
     const needle = q.trim().toLowerCase();
     if (needle) {
       out = out.filter((r) =>
@@ -83,11 +94,11 @@ export function EcranPreparation({
       );
     }
     return cfg.tri ? [...out].sort(cfg.tri) : out;
-  }, [cfg, rows, onglet, q]);
+  }, [cfg, rows, aTraiter, onglet, q]);
 
   const compte = (k: string) => {
     const t = cfg.onglets.find((o) => o.k === k)?.test;
-    return t ? rows.filter(t).length : rows.length;
+    return t ? aTraiter.filter(t).length : rows.length;
   };
 
   return (
@@ -112,6 +123,13 @@ export function EcranPreparation({
       <details className="mb-4 rounded-xl border bg-card px-4 py-3 text-xs leading-relaxed">
         <summary className="cursor-pointer font-semibold">Comment fonctionne cet écran</summary>
         <p className="mt-2 text-muted-foreground">{cfg.aide}</p>
+        {cfg.porteurSeul && masques > 0 && (
+          <p className="mt-2 text-muted-foreground">
+            🔗 <b>{masques}</b> OF sont rattachés à un OF porteur : même client, même référence, donc même matière.
+            Leur réception se saisit une seule fois, sur le porteur, pour le besoin du groupe entier. Ils restent
+            visibles dans l&apos;onglet « Tout », avec le n° de celui qui les gère.
+          </p>
+        )}
       </details>
 
       <SectionPanel
@@ -239,6 +257,24 @@ const ColOf = ({ row }: { row: PreparationRow }) => (
     <b className="text-brand">{row.of || "—"}</b>
     <br />
     <small className="text-muted-foreground">{row.client}</small>
+    {/* Qui gère la matière de cette ligne. Sans ce rappel, un OF absent des
+        listes de réception ressemblerait à un oubli plutôt qu'à un choix. */}
+    {row.porteurOf && (
+      <>
+        <br />
+        <small className="text-muted-foreground" title={`Matière et contrôle qualité gérés par ${row.porteurOf}`}>
+          ↳ {row.porteurOf}
+        </small>
+      </>
+    )}
+    {row.estPorteur && (
+      <>
+        <br />
+        <small className="font-semibold text-brand" title="Cet OF porte la matière de son groupe">
+          🔗 porteur · {nb.format(row.qteGroupe)} pcs
+        </small>
+      </>
+    )}
   </td>
 );
 const ColModele = ({ row, second }: { row: PreparationRow; second?: string }) => (
@@ -461,9 +497,35 @@ function Fiche({
       {ecran === "dt" && <FicheDt row={row} droits={droits} faconniers={faconniers} />}
       {ecran === "modelisme" && <FicheModelisme row={row} droits={droits} />}
       {ecran === "nomen" && <FicheNomen row={row} droits={droits} />}
-      {ecran === "magtissu" && <FicheTissu row={row} droits={droits} />}
-      {ecran === "magfour" && <FicheFournitures row={row} droits={droits} />}
+      {ecran === "magtissu" &&
+        (row.porteurOf ? <RenvoiPorteur row={row} quoi="La réception tissu" /> : <FicheTissu row={row} droits={droits} />)}
+      {ecran === "magfour" &&
+        (row.porteurOf ? (
+          <RenvoiPorteur row={row} quoi="La réception des fournitures" />
+        ) : (
+          <FicheFournitures row={row} droits={droits} />
+        ))}
       <Journal commandeId={row.id} domaine={ecran === "dt" ? undefined : DOMAINE_ECRAN[ecran]} />
+    </div>
+  );
+}
+
+/** Ce qu'un OF rattaché montre à la place du formulaire de saisie.
+ *
+ * Le formulaire est retiré plutôt que grisé : deux champs identiques sur deux
+ * OF de la même référence, c'est la double saisie qu'on cherche justement à
+ * supprimer. Ce qui est affiché est ce que le porteur a saisi, pour que le
+ * magasin voie l'état réel sans changer d'écran. */
+function RenvoiPorteur({ row, quoi }: { row: PreparationRow; quoi: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs">
+      🔗 {quoi} de cet OF est gérée par <b className="text-brand">{row.porteurOf}</b> — même client, même référence,
+      donc même matière, commandée et contrôlée une fois pour le groupe.
+      <div className="mt-1 text-[11px] text-muted-foreground">
+        État repris du porteur : {row.tissuRecu > 0 ? `${nb.format(row.tissuRecu)} m reçus` : "rien reçu"}
+        {row.tissuControle ? ` · contrôle ${row.tissuControle}` : " · non contrôlé"}. Pour saisir, ouvrez{" "}
+        {row.porteurOf}. Pour que cet OF reprenne sa matière en propre, déliez-le depuis le carnet de commandes.
+      </div>
     </div>
   );
 }

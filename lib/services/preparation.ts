@@ -31,6 +31,20 @@ export type PreparationRow = {
   chaine: string;
   qte: number;
 
+  /* ── rattachement ──
+   * La matière et le contrôle qualité se commandent et se contrôlent par
+   * RÉFÉRENCE, pas par OF : un même article arrive souvent en plusieurs OF
+   * pour un même client. Quand ils sont réunis, un seul les gère. */
+  parentId: number | null;
+  /** "" | "decoupe" | "regroupement" — voir lib/db/schema/commande.ts. */
+  lienParent: string;
+  /** N° OF qui gère la matière de cette ligne, "" quand elle la gère seule. */
+  porteurOf: string;
+  /** Vrai sur la ligne qui gère la matière d'un groupe. */
+  estPorteur: boolean;
+  /** Pièces couvertes par la matière : celles du groupe pour un porteur. */
+  qteGroupe: number;
+
   dateExport: string;
   receptTissu: string;
   joursExport: number | null;
@@ -101,6 +115,10 @@ export async function listPreparation(): Promise<PreparationRow[]> {
     db.select().from(commandeLancement).where(inArray(commandeLancement.commandeId, ids)),
   ]);
 
+  const versLigneFourniture = (f: (typeof fournRows)[number]): fx.LigneFourniture => ({
+    id: f.id, designation: f.designation, qtePrevue: f.qtePrevue, qteRecue: f.qteRecue, unite: f.unite,
+  });
+
   const groupBy = <T extends { commandeId: number }>(list: T[]) => {
     const m = new Map<number, T[]>();
     for (const r of list) {
@@ -116,6 +134,19 @@ export async function listPreparation(): Promise<PreparationRow[]> {
   const parLanc = new Map(lancRows.map((l) => [l.commandeId, l]));
   const now = new Date();
 
+  /* ─── qui gère la matière ───
+   * Le porteur d'un groupe répond du tissu et des fournitures de tous ses
+   * membres : c'est la même référence, donc le même rouleau et le même
+   * contrôle. La quantité qu'il doit couvrir est celle du groupe entier. */
+  const parId = new Map(rows.map((r) => [r.c.id, r.c]));
+  const enfantsDe = new Map<number, (typeof rows)[number]["c"][]>();
+  for (const { c } of rows) {
+    if (c.parentId == null || !parId.has(c.parentId)) continue;
+    const l = enfantsDe.get(c.parentId);
+    if (l) l.push(c);
+    else enfantsDe.set(c.parentId, [c]);
+  }
+
   return rows.map(({ c, clientNom, faconnierNom, chaineNom }) => {
     const tds: fx.Tds[] = (parTds.get(c.id) ?? []).map((t) => ({
       id: t.id, n: t.n, envoi: t.envoi, retour: t.retour,
@@ -124,9 +155,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
     const etapes: fx.Etape[] = (parEtape.get(c.id) ?? []).map((e) => ({
       etape: e.etape, fait: e.fait, date: e.date, par: e.par,
     }));
-    const fournitures: fx.LigneFourniture[] = (parFourn.get(c.id) ?? []).map((f) => ({
-      id: f.id, designation: f.designation, qtePrevue: f.qtePrevue, qteRecue: f.qteRecue, unite: f.unite,
-    }));
+    const fournitures: fx.LigneFourniture[] = (parFourn.get(c.id) ?? []).map(versLigneFourniture);
     const l = parLanc.get(c.id);
     const lancement: fx.Lancement | null = l
       ? {
@@ -136,8 +165,39 @@ export async function listPreparation(): Promise<PreparationRow[]> {
         }
       : null;
 
-    const commandeFacts = { ...c, statutGlobalFournitures: c.fournituresStatut };
-    const ctx: fx.ContextePrepa = { commande: commandeFacts, tds, etapes, fournitures, lancement, chuteDefaut };
+    const enfants = enfantsDe.get(c.id) ?? [];
+    const porteur = c.parentId != null ? parId.get(c.parentId) : undefined;
+    const qteGroupe = biz.totauxGroupe(c, enfants).qte;
+
+    /* Les feux TISSU et FOURNITURES d'un membre sont ceux de son porteur :
+     * c'est là que la réception a été saisie, une fois pour la référence.
+     * Sans cette reprise, la direction technique verrait le membre bloqué
+     * faute d'un tissu qui est pourtant en magasin, et refuserait son
+     * lancement — le regroupement empêcherait de produire ce qu'il sert.
+     *
+     * Le reste — tête de série, patronage, tracés, nomenclature — demeure
+     * propre à la ligne : ce sont des travaux par commande, pas des achats. */
+    const source = porteur ?? c;
+    const fournituresEff = porteur ? (parFourn.get(porteur.id) ?? []).map(versLigneFourniture) : fournitures;
+    const commandeFacts = {
+      ...c,
+      tissuRecu: source.tissuRecu,
+      tissuDateReelle: source.tissuDateReelle,
+      tissuControle: source.tissuControle,
+      tissuLibere: source.tissuLibere,
+      statutGlobalFournitures: source.fournituresStatut,
+      /* Le besoin se juge sur ce que le porteur doit couvrir, sinon un membre
+       * de 12 pièces trouverait « excédentaire » un métrage acheté pour 364. */
+      qte: porteur ? biz.totauxGroupe(porteur, enfantsDe.get(porteur.id) ?? []).qte : qteGroupe,
+    };
+    const ctx: fx.ContextePrepa = {
+      commande: commandeFacts,
+      tds,
+      etapes,
+      fournitures: fournituresEff,
+      lancement,
+      chuteDefaut,
+    };
     const tousFeux = fx.feux(ctx);
 
     return {
@@ -151,6 +211,12 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       chaine: chaineNom ?? "",
       qte: c.qte,
 
+      parentId: c.parentId,
+      lienParent: c.lienParent,
+      porteurOf: porteur?.ofNumber ?? "",
+      estPorteur: enfants.length > 0,
+      qteGroupe,
+
       dateExport: iso(c.dateExport),
       receptTissu: iso(c.receptTissu),
       joursExport: biz.joursJusqua(c.dateExport, now),
@@ -160,17 +226,23 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       consoReel: c.consoReel,
       chutePct: c.chutePct,
       chuteEffective: biz.chuteEffective(c, chuteDefaut),
-      besoinTissu: biz.besoinTissu(c, chuteDefaut),
-      ecartTissu: biz.ecartTissu(c, chuteDefaut),
+      /* Le besoin théorique d'un porteur couvre son groupe : le tissu s'achète
+       * pour la référence, pas pour l'OF. Sur une ligne autonome, la quantité
+       * du groupe est la sienne — le chiffre ne change pas. */
+      besoinTissu: biz.besoinTissu(c, chuteDefaut, qteGroupe),
+      ecartTissu: biz.ecartTissu(c, chuteDefaut, qteGroupe),
       ecartConsoPct: fx.ecartConsommationPct(c),
 
-      tissuRecu: c.tissuRecu,
-      tissuDateReelle: iso(c.tissuDateReelle),
-      tissuControle: c.tissuControle,
-      tissuNote: c.tissuNote,
+      /* Ce que la ligne AFFICHE en matière est ce que son porteur a saisi :
+       * un membre dont la case serait vide donnerait à croire que rien n'est
+       * arrivé, et quelqu'un ressaisirait la même réception. */
+      tissuRecu: source.tissuRecu,
+      tissuDateReelle: iso(source.tissuDateReelle),
+      tissuControle: source.tissuControle,
+      tissuNote: source.tissuNote,
 
-      fournituresStatut: c.fournituresStatut,
-      fournitures,
+      fournituresStatut: source.fournituresStatut,
+      fournitures: fournituresEff,
 
       tds,
       okPro: fx.estOkPro(tds),

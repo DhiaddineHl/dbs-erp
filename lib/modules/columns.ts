@@ -17,6 +17,10 @@ export const CLIENT_COLUMNS: Column[] = [
 
 export const COMMANDE_COLUMNS: Column[] = [
   { key: "of", label: "N° OF" },
+  /* Rempli sur les sous-commandes seulement. Comme « Retard » ou « Statut »,
+   * la colonne est exportée et ignorée à l'import : le rattachement se décide
+   * dans l'écran, pas dans un tableur. */
+  { key: "parentOf", label: "Sous-commande de" },
   { key: "modele", label: "Modèle" },
   { key: "refArticle", label: "Référence" },
   { key: "couleur", label: "Couleur" },

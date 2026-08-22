@@ -15,6 +15,7 @@ const nb = new Intl.NumberFormat("fr-FR");
  * fichier peut donc circuler à l'atelier tel quel. */
 const COLONNES_CSV: Column[] = [
   { key: "of", label: "N° OF" },
+  { key: "parentOf", label: "Sous-commande de" },
   { key: "modele", label: "Modèle" },
   { key: "refArticle", label: "Référence" },
   { key: "couleur", label: "Couleur" },
@@ -59,14 +60,19 @@ export default async function PlanningPage() {
   const chaineChoices = chaines.map((c) => ({ value: String(c.id), label: c.nom }));
 
   /* Les indicateurs du planning comptent des pièces et des retards, jamais des
-   * euros — même règle que les colonnes. */
-  const pieces = actives.reduce((s, c) => s + (c.qte || 0), 0);
-  const resteAProduire = actives.reduce((s, c) => s + Math.max(0, (c.qte || 0) - (c.produit || 0)), 0);
+   * euros — même règle que les colonnes.
+   *
+   * Les pièces sont comptées en quantité PROPRE : une commande découpée figure
+   * ici avec sa mère et ses parts, et additionner les deux ferait planifier
+   * deux fois le même travail. */
+  const pieces = actives.reduce((s, c) => s + c.qtePropre, 0);
+  const resteAProduire = actives.reduce((s, c) => s + Math.max(0, c.qtePropre - (c.produit || 0)), 0);
   const enRetard = actives.filter((c) => c.statutKey === "retard").length;
   const nonAssignees = actives.filter((c) => !c.chaineId && !c.faconnier).length;
+  const nbCommandes = actives.filter((c) => c.parentId == null).length;
 
   const csvRows = actives.map((c) => ({
-    of: c.of, modele: c.modele, refArticle: c.refArticle, couleur: c.couleur, saison: c.saison,
+    of: c.of, parentOf: c.parentOf, modele: c.modele, refArticle: c.refArticle, couleur: c.couleur, saison: c.saison,
     client: c.client, faconnier: c.faconnier, qte: c.qte, produit: c.produit,
     receptTissu: c.receptTissu, dateExport: c.dateExport, retard: c.retard[1],
     av: c.av, statut: c.statut[1],
@@ -82,7 +88,13 @@ export default async function PlanningPage() {
       />
 
       <KpiGrid>
-        <KpiCard label="Commandes actives" value={String(actives.length)} icon={Package} tone="brand" />
+        <KpiCard
+          label="Commandes actives"
+          value={String(nbCommandes)}
+          icon={Package}
+          tone="brand"
+          sub={actives.length > nbCommandes ? `dont ${actives.length - nbCommandes} sous-commandes` : undefined}
+        />
         <KpiCard
           label="Total pièces"
           value={nb.format(pieces)}

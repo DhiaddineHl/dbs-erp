@@ -31,6 +31,20 @@ export type ReglesFormulaire = {
   verrous?: (v: Valeurs) => Record<string, string>;
   /** Bandeau de synthèse rendu sous les champs. */
   apercu?: (v: Valeurs) => React.ReactNode;
+  /** Bloc de saisie libre rendu à la suite des champs, dans le même
+   * défilement et le même enregistrement.
+   *
+   * Il existe pour ce que la grille nom/valeur ne sait pas dire : une liste
+   * de lignes répétables — les sous-commandes. Ce que le bloc produit revient
+   * dans les valeurs du formulaire, sérialisé sous un nom de champ, donc
+   * l'action serveur reste une action serveur ordinaire.
+   *
+   * Il ne remplace pas `fields` : un champ qui tient dans un libellé et une
+   * valeur reste un champ, sinon chaque écran finirait par redessiner son
+   * propre formulaire. */
+  supplement?: (v: Valeurs, set: (nom: string, valeur: string) => void) => React.ReactNode;
+  /** Refus avant envoi : message d'erreur, ou null quand la saisie tient. */
+  valider?: (v: Valeurs) => string | null;
 };
 
 export function EntityFormDialog({
@@ -71,6 +85,11 @@ export function EntityFormDialog({
         toast.error(`« ${f.label} » est requis`);
         return;
       }
+    }
+    const refus = regles?.valider?.(values);
+    if (refus) {
+      toast.error(refus);
+      return;
     }
     startTransition(async () => {
       const res = await action(values);
@@ -148,6 +167,7 @@ export function EntityFormDialog({
               )}
             </div>
           ))}
+          {regles?.supplement && <div className="col-span-2">{regles.supplement(values, set)}</div>}
         </div>
         {regles?.apercu?.(values)}
         <DialogFooter>

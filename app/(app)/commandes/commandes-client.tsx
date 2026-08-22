@@ -12,9 +12,13 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import {
   CLES_TRI,
   LIBELLES_TRI,
+  PREFIXE_CHAINE,
   STATUTS_MANUELS,
   type CleTri,
+  assignationDepuisChoix,
+  choixAssignation,
   estSousTraitee,
+  grouperCommandes,
   statutBadge,
   statutDerive,
   statutLabel,
@@ -28,6 +32,8 @@ import { DialogFacturer } from "./facturer";
 import { DialogPrixFacon, DialogPurge } from "./controles";
 import { DialogDoublons, DialogPlanifier, DialogPrix } from "./outils";
 import { PhotoCommande } from "./photo";
+import { DialogAjoutSousCommandes } from "./sous-commandes";
+import { DialogRegrouper } from "./regrouper";
 import { resteAFacturer } from "@/lib/domain/facturation-commande";
 
 const nb = new Intl.NumberFormat("fr-FR");
@@ -37,9 +43,6 @@ const dateFr = (iso: string | null) =>
   iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-").reverse().join("/") : "—";
 
 type Choix = { value: string; label: string };
-
-/** Distingue une chaîne interne d'un façonnier dans la liste « Assigné ». */
-const PREFIXE_CHAINE = "__chaine:";
 
 const FILTRES_STATUT: Choix[] = [
   { value: "preparation", label: "📋 En préparation" },
@@ -121,11 +124,37 @@ export function CommandesClient({
   const [prixModal, setPrixModal] = useState<CommandeRow | null>(null);
   const [doublonsModal, setDoublonsModal] = useState(false);
   const [planifierModal, setPlanifierModal] = useState(false);
+  const [decouperModal, setDecouperModal] = useState<CommandeRow | null>(null);
+  const [regrouperModal, setRegrouperModal] = useState(false);
 
-  /* ─── liste affichée ─── */
-  const affichees = useMemo(() => {
+  /* ─── accordéons ───
+     Fermés au départ : le carnet doit d'abord répondre à « combien de
+     commandes », pas à « comment chacune est découpée ». Ouverts par
+     identifiant, donc l'état survit au tri, au filtre et au rafraîchissement
+     déclenché par la modification d'un collègue. */
+  const [ouverts, setOuverts] = useState<Set<number>>(new Set());
+  const basculerOuvert = (id: number) =>
+    setOuverts((p) => {
+      const s = new Set(p);
+      if (s.has(id)) s.delete(id);
+      else s.add(id);
+      return s;
+    });
+
+  /* ─── liste affichée ───
+     Le filtre porte sur le GROUPE — la commande mère et ses sous-commandes —
+     et non sur la ligne isolée. Une commande découpée apparaît donc dès que
+     la mère ou l'une de ses parts correspond, et l'accordéon montre alors
+     toutes ses parts : n'en montrer qu'une donnerait à lire une répartition
+     amputée (300 pièces sur une commande qui en compte 1 200), ce qui trompe
+     plus sûrement que de ne rien montrer.
+
+     Le tri, lui, ne porte que sur les mères : les parts suivent la leur, dans
+     l'ordre de leurs numéros. Une part triée à part de sa commande ne veut
+     rien dire. */
+  const groupes = useMemo(() => {
     const n = q.trim().toLowerCase();
-    const filtrees = commandes.filter((c) => {
+    const correspond = (c: CommandeRow) => {
       if (c.archived && !avecArchivees) return false;
       if (client && c.client !== client) return false;
       if (assigne) {
@@ -140,9 +169,29 @@ export function CommandesClient({
       /* Sans filtre, on masque les livrées : le carnet sert à voir ce qui
        * reste à faire. Le filtre « 📦 Livrées » les ramène à la demande. */
       return c.statutKey !== "livree";
-    });
-    return trierCommandes(filtrees, tri.cle, tri.sens);
+    };
+
+    const retenus = grouperCommandes(commandes).filter(
+      (g) => correspond(g.parent) || g.enfants.some(correspond),
+    );
+    const parts = new Map(retenus.map((g) => [g.parent.id, g.enfants]));
+    return trierCommandes(retenus.map((g) => g.parent), tri.cle, tri.sens).map((parent) => ({
+      parent,
+      enfants: [...(parts.get(parent.id) ?? [])].sort((a, b) =>
+        a.of.localeCompare(b.of, "fr", { numeric: true }),
+      ),
+    }));
   }, [commandes, q, statut, client, assigne, avecArchivees, tri]);
+
+  /** Toutes les lignes du carnet, mères et parts confondues — ce que les
+   * actions groupées et la case « tout cocher » prennent pour cible. */
+  const affichees = useMemo(() => groupes.flatMap((g) => [g.parent, ...g.enfants]), [groupes]);
+
+  /** Les parts d'une mère, pour cocher ou décocher la famille d'un geste. */
+  const familleDe = useMemo(
+    () => new Map(groupes.map((g) => [g.parent.id, [g.parent.id, ...g.enfants.map((e) => e.id)]])),
+    [groupes],
+  );
 
   /* ─── synthèse de la sélection ───
      Calculée sur TOUTES les commandes, pas seulement les visibles : une ligne
@@ -156,24 +205,32 @@ export function CommandesClient({
     let piecesST = 0;
     let margeST = 0;
     let nST = 0;
+    /* Quantités et montants PROPRES, pas totaux : cocher une mère et ses
+       parts ne doit pas compter les mêmes pièces deux fois. Sur une commande
+       non découpée, le propre est le tout — la synthèse ne change donc pas. */
     for (const c of cochees) {
-      pieces += c.qte || 0;
-      ca += c.ca;
-      marge += c.margeTotale;
+      pieces += c.qtePropre;
+      ca += c.caPropre;
+      marge += c.margePropre;
       if (estSousTraitee(c)) {
-        piecesST += c.qte || 0;
-        margeST += c.margeTotale;
+        piecesST += c.qtePropre;
+        margeST += c.margePropre;
         nST++;
       }
     }
     return { pieces, ca, marge, piecesST, margeST, nST };
   }, [cochees]);
 
+  /* Cocher une commande coche ses parts : les actions groupées — archiver,
+     marquer livrée, supprimer — portent sur le contrat entier. En laisser une
+     part de côté produirait une commande à moitié archivée, visible nulle
+     part. Une part se coche seule, elle. */
   const basculer = (id: number) =>
     setSelection((p) => {
       const s = new Set(p);
-      if (s.has(id)) s.delete(id);
-      else s.add(id);
+      const famille = familleDe.get(id) ?? [id];
+      if (s.has(id)) for (const x of famille) s.delete(x);
+      else for (const x of famille) s.add(x);
       return s;
     });
 
@@ -238,6 +295,29 @@ export function CommandesClient({
     executer(() => A.deleteCommandesAction(ids), `${cochees.length} commande(s) supprimée(s)`);
   };
 
+  /* Délier n'efface rien : la sous-commande redevient un OF autonome, qui gère
+     de nouveau sa propre matière. Sur une PART issue d'une découpe, cela change
+     en revanche le total du client — ses pièces cessent d'être prises sur le
+     porteur pour s'ajouter à côté — et l'écran le dit avant, pas après. */
+  const delier = (c: CommandeRow) => {
+    const avertissement =
+      c.lienParent === "decoupe"
+        ? `\n\n⚠ Cette sous-commande est une PART de ${c.parentOf} : ses ${nb.format(
+            c.qte,
+          )} pièces sont aujourd'hui prises sur la quantité du porteur. Déliée, elle s'y ajoutera — le total du client augmentera d'autant.`
+        : `\n\n${c.of} redeviendra un OF autonome et gérera de nouveau sa propre réception tissu.`;
+    if (!confirm(`Délier ${c.of || c.modele} de ${c.parentOf} ?${avertissement}`)) return;
+    start(async () => {
+      const r = await A.delierCommandes([c.id]);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`${c.of || "Sous-commande"} déliée`);
+      router.refresh();
+    });
+  };
+
   const actionImprimer = () => {
     if (!imprimerSelection(cochees, masqueesEff)) toast.error("Autorisez les fenêtres pop-up pour imprimer");
   };
@@ -266,17 +346,386 @@ export function CommandesClient({
     [chaines, faconniers],
   );
 
-  const assignerA = (id: number, valeur: string) =>
-    appliquer(
-      id,
-      valeur.startsWith(PREFIXE_CHAINE)
-        ? { chaineId: valeur.slice(PREFIXE_CHAINE.length), faconnier: "" }
-        : { chaineId: "", faconnier: valeur },
-    );
+  const assignerA = (id: number, valeur: string) => appliquer(id, assignationDepuisChoix(valeur));
 
   /* +2 : la case à cocher et la colonne d'actions, qui ne sont ni masquables
    * ni imprimables — ce ne sont pas des données de la commande. */
   const nbColonnes = 2 + COLONNES_COMMANDE.filter((c) => visible(c.cle)).length;
+
+  /* ─── une ligne du carnet ───
+   *
+   * Mère et sous-commande passent par la même fonction, parce qu'une part est
+   * une commande : mêmes colonnes, mêmes cellules éditables, mêmes actions.
+   * Trois choses seulement les séparent, et ce sont exactement les trois que
+   * la découpe impose :
+   *
+   *   · le modèle et le client sont hérités — une part ne peut ni changer
+   *     d'article ni changer de destinataire, sinon ce n'est plus une part ;
+   *   · la mère affiche les totaux de son groupe (marge, avancement), la part
+   *     les siens ;
+   *   · la mère porte le chevron et le bouton de découpe.
+   *
+   * `enfants` n'est passé que pour une mère ; une part le reçoit vide, ce qui
+   * fait d'elle une ligne ordinaire. */
+  const rendreLigne = (c: CommandeRow, enfants: CommandeRow[] = []) => {
+    const parts = enfants.length;
+    const decoupee = parts > 0;
+    const part = c.parentId != null;
+    const ouvert = ouverts.has(c.id);
+    /* Porteur d'un REGROUPEMENT : ses membres gardent leur quantité, la sienne
+       n'a donc rien à leur céder — ni découpe possible, ni « dont réparties ». */
+    const aDesMembres = enfants.some((e) => e.lienParent === "regroupement");
+    const aDesParts = enfants.some((e) => e.lienParent === "decoupe");
+
+    return (
+      <tr
+        key={c.id}
+        className={`border-b last:border-0 ${selection.has(c.id) ? "bg-accent/30" : part ? "bg-muted/25" : ""} ${
+          c.archived ? "opacity-60" : ""
+        }`}
+      >
+        <td className="px-2 py-1.5">
+          <div className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={selection.has(c.id)}
+              title={decoupee ? "Cocher la commande et ses sous-commandes" : undefined}
+              onChange={() => basculer(c.id)}
+            />
+            {decoupee ? (
+              <button
+                type="button"
+                className="w-4 rounded text-[10px] leading-none text-muted-foreground hover:bg-muted"
+                title={ouvert ? "Replier les sous-commandes" : `Déplier les ${parts} sous-commande(s)`}
+                aria-expanded={ouvert}
+                onClick={() => basculerOuvert(c.id)}
+              >
+                {ouvert ? "▾" : "▸"}
+              </button>
+            ) : (
+              <span className="w-4" aria-hidden />
+            )}
+          </div>
+        </td>
+        {visible("of") && (
+          <td className={`py-1.5 font-bold text-brand ${part ? "pl-6 pr-3" : "px-3"}`}>
+            <div className="flex items-center gap-1">
+              {part && (
+                <span
+                  className="shrink-0 font-normal text-muted-foreground"
+                  title={
+                    c.lienParent === "regroupement"
+                      ? `Matière et contrôle qualité gérés par ${c.parentOf}`
+                      : `Part de la commande ${c.parentOf}`
+                  }
+                >
+                  ↳
+                </span>
+              )}
+              <Cellule valeur={c.of} onSave={(v) => enregistrer(c.id, "of", v)} />
+              {decoupee && (
+                <span
+                  className="shrink-0 rounded bg-muted px-1 text-[9px] font-semibold text-muted-foreground"
+                  title={
+                    aDesMembres
+                      ? `${parts} OF réuni(s) sous celui-ci — matière et contrôle qualité mutualisés`
+                      : `${parts} sous-commande(s) — parts de cette quantité`
+                  }
+                >
+                  {aDesMembres ? "🔗" : "🧩"}
+                  {parts}
+                </span>
+              )}
+            </div>
+          </td>
+        )}
+        {visible("modele") && (
+          <td className="px-3 py-1.5 font-semibold">
+            {part && c.lienParent === "decoupe" ? (
+              /* Hérité de la mère, donc affiché et non saisi : le renommer ici
+                 renommerait la commande entière, ce qui ne se devine pas. Un OF
+                 simplement RÉUNI garde le sien — c'est une commande entière,
+                 que le commercial a pu libeller autrement. */
+              <div className="min-w-0">
+                <span className="px-1 font-normal text-muted-foreground" title="Modèle hérité de la commande mère">
+                  {c.modele}
+                </span>
+                {c.couleur && <div className="px-1 text-[10px] font-normal text-muted-foreground">{c.couleur}</div>}
+              </div>
+            ) : (
+              /* La photo est collée au modèle : c'est le nom qu'elle illustre,
+                 et l'atelier lit les deux d'un seul regard. */
+              <div className="flex items-center gap-2">
+                <PhotoCommande
+                  commandeId={c.id}
+                  titre={`${c.of || "sans OF"} · ${c.modele}`}
+                  hash={c.photoHash}
+                  archivee={c.archived}
+                />
+                <div className="min-w-0 flex-1">
+                  <Cellule valeur={c.modele} onSave={(v) => enregistrer(c.id, "modele", v)} />
+                  {c.couleur && <div className="px-1 text-[10px] font-normal text-muted-foreground">{c.couleur}</div>}
+                </div>
+              </div>
+            )}
+          </td>
+        )}
+        {visible("client") && (
+          <td className="px-3 py-1.5">
+            {part && c.lienParent === "decoupe" ? (
+              <span className="px-1 text-muted-foreground" title="Client hérité de la commande mère">
+                {c.client || "—"}
+              </span>
+            ) : (
+              <Liste
+                valeur={c.client}
+                choix={clients}
+                vide="— aucun —"
+                onSave={(v) => enregistrer(c.id, "client", v)}
+              />
+            )}
+          </td>
+        )}
+        {visible("assigne") && (
+          <td className="px-3 py-1.5">
+            <Liste
+              valeur={choixAssignation(c)}
+              choix={choixAssigne}
+              vide="⚠ non assigné"
+              onSave={(v) => assignerA(c.id, v)}
+            />
+          </td>
+        )}
+        {visible("qte") && (
+          <td className="px-3 py-1.5 text-right tabular-nums">
+            <Cellule valeur={String(c.qte)} type="number" droite onSave={(v) => enregistrer(c.id, "qte", v)} />
+            {aDesParts && (
+              <div
+                className="px-1 text-[10px] text-muted-foreground"
+                title="Quantité confiée aux sous-commandes — le reste est produit par la commande mère"
+              >
+                dont {nb.format(c.qteAffectee)} réparties
+              </div>
+            )}
+            {aDesMembres && (
+              <div
+                className="px-1 text-[10px] text-muted-foreground"
+                title="Pièces du groupe : cet OF et ceux qui lui sont rattachés. C'est cette quantité que la matière doit couvrir."
+              >
+                {nb.format(c.qteGroupe)} au groupe
+              </div>
+            )}
+          </td>
+        )}
+        {visible("prixVente") && (
+          <td className="px-3 py-1.5 text-right tabular-nums">
+            <Cellule
+              valeur={c.prixVente == null ? "" : String(c.prixVente)}
+              affichage={c.prixVente == null ? "—" : `${dec.format(c.prixVente)} €`}
+              type="number"
+              droite
+              onSave={(v) => enregistrer(c.id, "prixVente", v)}
+            />
+          </td>
+        )}
+        {visible("prixFacon") && (
+          <td className="px-3 py-1.5 text-right tabular-nums">
+            <Cellule
+              valeur={c.prixFacon == null ? "" : String(c.prixFacon)}
+              affichage={c.prixFacon == null ? "—" : `${dec.format(c.prixFacon)} €`}
+              type="number"
+              droite
+              onSave={(v) => enregistrer(c.id, "prixFacon", v)}
+            />
+          </td>
+        )}
+        {visible("margeTotale") && (
+          <td className="px-3 py-1.5 text-right tabular-nums">
+            <b className={c.margeTotale >= 0 ? "text-success-foreground" : "text-[var(--danger-d)]"}>
+              {dec.format(c.margeUnitaire)} €
+            </b>
+            {/* Sur une commande découpée, le total est celui du groupe : chaque
+                part à son propre prix, plus ce que la mère produit elle-même.
+                La marge unitaire au-dessus reste celle de la mère — elle ne
+                vaut plus pour l'ensemble dès que les prix diffèrent. */}
+            <div
+              className="text-[10px] text-muted-foreground"
+              title={decoupee ? "Marge du groupe : cette commande et ses sous-commandes" : undefined}
+            >
+              {eur.format(decoupee ? c.margeGroupe : c.margeTotale)} € tot.{decoupee && " (groupe)"}
+            </div>
+          </td>
+        )}
+        {visible("dateExport") && (
+          <td className="px-3 py-1.5 tabular-nums">
+            {planning ? (
+              /* Les deux bornes que le planning tient : quand le tissu arrive,
+                 et quand la commande doit partir. */
+              <div className="flex flex-col gap-1">
+                <DatePlanning
+                  label="Tissu"
+                  valeur={c.receptTissu}
+                  onSave={(v) => enregistrer(c.id, "receptTissu", v)}
+                />
+                <DatePlanning
+                  label="Export"
+                  valeur={c.dateExport}
+                  onSave={(v) => enregistrer(c.id, "dateExport", v)}
+                />
+              </div>
+            ) : (
+              <Cellule
+                valeur={c.dateExport ?? ""}
+                affichage={dateFr(c.dateExport)}
+                type="date"
+                onSave={(v) => enregistrer(c.id, "dateExport", v)}
+              />
+            )}
+          </td>
+        )}
+        {visible("retard") && (
+          <td className="px-3 py-1.5">
+            <StatusBadge tone={c.retard[0]}>{c.retard[1]}</StatusBadge>
+          </td>
+        )}
+        {visible("av") && (
+          <td className="px-3 py-1.5">
+            <div className="flex items-center justify-end gap-1.5">
+              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(c.av, 100)}%` }} />
+              </div>
+              <span
+                className="w-8 text-right tabular-nums"
+                title={
+                  aDesParts
+                    ? "Avancement du contrat : la commande et ses parts"
+                    : aDesMembres
+                      ? "Avancement de cet OF seul — les OF réunis se produisent chacun pour soi"
+                      : undefined
+                }
+              >
+                {c.av}%
+              </span>
+            </div>
+          </td>
+        )}
+        {visible("statut") && (
+          <td className="px-3 py-1.5">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                className="cursor-pointer"
+                title="Cliquer pour forcer le statut manuellement"
+                onClick={() => setStatutModal(c)}
+              >
+                <StatusBadge tone={c.statut[0]}>{c.statut[1]}</StatusBadge>
+                {c.statutManuel && <span className="ml-1 text-[9px]" title="Statut forcé">✋</span>}
+              </button>
+              {/* Facturation partielle comprise : le bouton reste tant qu'il
+                  reste quelque chose à facturer. */}
+              {peutFacturer && !planning && !c.archived && resteAFacturer(c) > 0 && (
+                <button
+                  type="button"
+                  className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
+                  title={`Facturer — reste ${nb.format(resteAFacturer(c))} pièce(s)`}
+                  onClick={() => setFacturerModal(c)}
+                >
+                  📋€
+                </button>
+              )}
+              {c.factureQte > 0 && (
+                <span
+                  className={`text-[9px] ${
+                    c.factureQte >= c.qte ? "text-success-foreground" : "text-muted-foreground"
+                  }`}
+                  title={c.facNums.join(", ") || "facturée"}
+                >
+                  {nb.format(c.factureQte)}/{nb.format(c.qte)}
+                  {c.factureQte >= c.qte ? " ✓" : " fact."}
+                </span>
+              )}
+            </div>
+          </td>
+        )}
+        {/* Trois portes de sortie par ligne : d'où vient ce prix, comment la
+            commande se répartit, et où elle en est physiquement. La quatrième —
+            à quoi ressemble l'article — a rejoint la colonne Modèle, et ne
+            revient ici que si celle-ci est masquée, pour que le chooser de
+            colonnes ne puisse pas rendre les photos inatteignables. */}
+        <td className="whitespace-nowrap px-2 py-1.5 text-right">
+          {!visible("modele") && !part && (
+            <span className="mr-1 inline-flex align-middle">
+              <PhotoCommande
+                commandeId={c.id}
+                titre={`${c.of || "sans OF"} · ${c.modele}`}
+                hash={c.photoHash}
+                archivee={c.archived}
+              />
+            </span>
+          )}
+          {part && !c.archived && (
+            <>
+              <button
+                type="button"
+                className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
+                title={`Délier de ${c.parentOf} — l'OF reprend sa matière en propre`}
+                onClick={() => delier(c)}
+              >
+                ⛓️‍💥
+              </button>{" "}
+            </>
+          )}
+          {/* Une part ne se redécoupe pas : le découpage s'arrête à un niveau,
+              sinon plus personne ne sait de quel total la quantité se déduit.
+              Un porteur de regroupement non plus : les deux natures de lien
+              n'additionnent pas leurs quantités de la même façon. */}
+          {!part && !c.archived && !aDesMembres && (
+            <>
+              <button
+                type="button"
+                className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
+                title="Découper — confier une part de la quantité à un autre atelier"
+                onClick={() => setDecouperModal(c)}
+              >
+                🧩
+              </button>{" "}
+            </>
+          )}
+          {/* Le journal des prix reste dans Commandes : c'est de l'argent, et
+              le planning n'en voit aucun. La traçabilité, elle, lui sert
+              directement. */}
+          {!planning && (
+            <>
+              <button
+                type="button"
+                className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
+                title="Journal des prix — qui a changé quoi, et quand"
+                onClick={() => setPrixModal(c)}
+              >
+                📈
+              </button>{" "}
+            </>
+          )}
+          {c.of ? (
+            <Link
+              href={`/tracabilite?of=${encodeURIComponent(c.of)}`}
+              className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
+              title={`Traçabilité de ${c.of}`}
+            >
+              🔍
+            </Link>
+          ) : (
+            <span
+              className="cursor-not-allowed rounded border border-input px-1 py-0.5 text-[10px] opacity-40"
+              title="Traçabilité indisponible : cette commande n'a pas de n° OF"
+            >
+              🔍
+            </span>
+          )}
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <>
@@ -284,7 +733,10 @@ export function CommandesClient({
         title={planning ? "Planning général" : "Carnet de commandes"}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone="brand">{affichees.length}</StatusBadge>
+            <StatusBadge tone="brand">
+              {groupes.length}
+              {affichees.length > groupes.length && ` +${affichees.length - groupes.length}`}
+            </StatusBadge>
             {peutFacturer && !planning && (
               <>
                 <Button
@@ -304,6 +756,16 @@ export function CommandesClient({
                   🧹 Purger les soldées
                 </Button>
               </>
+            )}
+            {!planning && (
+              <Button
+                size="sm"
+                variant="outline"
+                title="Réunir les OF d'un même client et d'une même référence : une seule saisie tissu, un seul contrôle qualité"
+                onClick={() => setRegrouperModal(true)}
+              >
+                🧩 Sous-commandes
+              </Button>
             )}
             <Button
               size="sm"
@@ -458,7 +920,7 @@ export function CommandesClient({
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b bg-muted/40 text-[10.5px] uppercase text-muted-foreground">
-                <th className="w-8 px-2 py-2">
+                <th className="w-14 px-2 py-2">
                   <input
                     type="checkbox"
                     checked={toutCoche}
@@ -487,242 +949,17 @@ export function CommandesClient({
               </tr>
             </thead>
             <tbody>
-              {affichees.length === 0 ? (
+              {groupes.length === 0 ? (
                 <tr>
                   <td colSpan={nbColonnes} className="py-10 text-center text-muted-foreground">
                     Aucune commande ne correspond aux filtres.
                   </td>
                 </tr>
               ) : (
-                affichees.map((c) => (
-                  <tr
-                    key={c.id}
-                    className={`border-b last:border-0 ${selection.has(c.id) ? "bg-accent/30" : ""} ${
-                      c.archived ? "opacity-60" : ""
-                    }`}
-                  >
-                    <td className="px-2 py-1.5">
-                      <input type="checkbox" checked={selection.has(c.id)} onChange={() => basculer(c.id)} />
-                    </td>
-                    {visible("of") && (
-                      <td className="px-3 py-1.5 font-bold text-brand">
-                        <Cellule valeur={c.of} onSave={(v) => enregistrer(c.id, "of", v)} />
-                      </td>
-                    )}
-                    {visible("modele") && (
-                      <td className="px-3 py-1.5 font-semibold">
-                        {/* La photo est collée au modèle : c'est le nom qu'elle
-                            illustre, et l'atelier lit les deux d'un seul regard. */}
-                        <div className="flex items-center gap-2">
-                          <PhotoCommande
-                            commandeId={c.id}
-                            titre={`${c.of || "sans OF"} · ${c.modele}`}
-                            hash={c.photoHash}
-                            archivee={c.archived}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <Cellule valeur={c.modele} onSave={(v) => enregistrer(c.id, "modele", v)} />
-                            {c.couleur && (
-                              <div className="px-1 text-[10px] font-normal text-muted-foreground">{c.couleur}</div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                    )}
-                    {visible("client") && (
-                      <td className="px-3 py-1.5">
-                        <Liste
-                          valeur={c.client}
-                          choix={clients}
-                          vide="— aucun —"
-                          onSave={(v) => enregistrer(c.id, "client", v)}
-                        />
-                      </td>
-                    )}
-                    {visible("assigne") && (
-                      <td className="px-3 py-1.5">
-                        <Liste
-                          valeur={c.chaineId ? `${PREFIXE_CHAINE}${c.chaineId}` : c.faconnier}
-                          choix={choixAssigne}
-                          vide="⚠ non assigné"
-                          onSave={(v) => assignerA(c.id, v)}
-                        />
-                      </td>
-                    )}
-                    {visible("qte") && (
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        <Cellule
-                          valeur={String(c.qte)}
-                          type="number"
-                          droite
-                          onSave={(v) => enregistrer(c.id, "qte", v)}
-                        />
-                      </td>
-                    )}
-                    {visible("prixVente") && (
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        <Cellule
-                          valeur={c.prixVente == null ? "" : String(c.prixVente)}
-                          affichage={c.prixVente == null ? "—" : `${dec.format(c.prixVente)} €`}
-                          type="number"
-                          droite
-                          onSave={(v) => enregistrer(c.id, "prixVente", v)}
-                        />
-                      </td>
-                    )}
-                    {visible("prixFacon") && (
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        <Cellule
-                          valeur={c.prixFacon == null ? "" : String(c.prixFacon)}
-                          affichage={c.prixFacon == null ? "—" : `${dec.format(c.prixFacon)} €`}
-                          type="number"
-                          droite
-                          onSave={(v) => enregistrer(c.id, "prixFacon", v)}
-                        />
-                      </td>
-                    )}
-                    {visible("margeTotale") && (
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        <b className={c.margeTotale >= 0 ? "text-success-foreground" : "text-[var(--danger-d)]"}>
-                          {dec.format(c.margeUnitaire)} €
-                        </b>
-                        <div className="text-[10px] text-muted-foreground">{eur.format(c.margeTotale)} € tot.</div>
-                      </td>
-                    )}
-                    {visible("dateExport") && (
-                      <td className="px-3 py-1.5 tabular-nums">
-                        {planning ? (
-                          /* Les deux bornes que le planning tient : quand le tissu
-                             arrive, et quand la commande doit partir. */
-                          <div className="flex flex-col gap-1">
-                            <DatePlanning
-                              label="Tissu"
-                              valeur={c.receptTissu}
-                              onSave={(v) => enregistrer(c.id, "receptTissu", v)}
-                            />
-                            <DatePlanning
-                              label="Export"
-                              valeur={c.dateExport}
-                              onSave={(v) => enregistrer(c.id, "dateExport", v)}
-                            />
-                          </div>
-                        ) : (
-                          <Cellule
-                            valeur={c.dateExport ?? ""}
-                            affichage={dateFr(c.dateExport)}
-                            type="date"
-                            onSave={(v) => enregistrer(c.id, "dateExport", v)}
-                          />
-                        )}
-                      </td>
-                    )}
-                    {visible("retard") && (
-                      <td className="px-3 py-1.5">
-                        <StatusBadge tone={c.retard[0]}>{c.retard[1]}</StatusBadge>
-                      </td>
-                    )}
-                    {visible("av") && (
-                      <td className="px-3 py-1.5">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className="h-full rounded-full bg-brand"
-                              style={{ width: `${Math.min(c.av, 100)}%` }}
-                            />
-                          </div>
-                          <span className="w-8 text-right tabular-nums">{c.av}%</span>
-                        </div>
-                      </td>
-                    )}
-                    {visible("statut") && (
-                      <td className="px-3 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            className="cursor-pointer"
-                            title="Cliquer pour forcer le statut manuellement"
-                            onClick={() => setStatutModal(c)}
-                          >
-                            <StatusBadge tone={c.statut[0]}>{c.statut[1]}</StatusBadge>
-                            {c.statutManuel && <span className="ml-1 text-[9px]" title="Statut forcé">✋</span>}
-                          </button>
-                          {/* Facturation partielle comprise : le bouton reste tant
-                              qu'il reste quelque chose à facturer. */}
-                          {peutFacturer && !planning && !c.archived && resteAFacturer(c) > 0 && (
-                            <button
-                              type="button"
-                              className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
-                              title={`Facturer — reste ${nb.format(resteAFacturer(c))} pièce(s)`}
-                              onClick={() => setFacturerModal(c)}
-                            >
-                              📋€
-                            </button>
-                          )}
-                          {c.factureQte > 0 && (
-                            <span
-                              className={`text-[9px] ${
-                                c.factureQte >= c.qte ? "text-success-foreground" : "text-muted-foreground"
-                              }`}
-                              title={c.facNums.join(", ") || "facturée"}
-                            >
-                              {nb.format(c.factureQte)}/{nb.format(c.qte)}
-                              {c.factureQte >= c.qte ? " ✓" : " fact."}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                    {/* Deux portes de sortie par ligne : d'où vient ce prix, et
-                        où en est physiquement cette commande. La troisième — à
-                        quoi ressemble l'article — a rejoint la colonne Modèle,
-                        et ne revient ici que si celle-ci est masquée, pour que
-                        le chooser de colonnes ne puisse pas rendre les photos
-                        inatteignables. */}
-                    <td className="whitespace-nowrap px-2 py-1.5 text-right">
-                      {!visible("modele") && (
-                        <span className="mr-1 inline-flex align-middle">
-                          <PhotoCommande
-                            commandeId={c.id}
-                            titre={`${c.of || "sans OF"} · ${c.modele}`}
-                            hash={c.photoHash}
-                            archivee={c.archived}
-                          />
-                        </span>
-                      )}
-                      {/* Le journal des prix reste dans Commandes : c'est de
-                          l'argent, et le planning n'en voit aucun. La traçabilité,
-                          elle, lui sert directement. */}
-                      {!planning && (
-                        <>
-                          <button
-                            type="button"
-                            className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
-                            title="Journal des prix — qui a changé quoi, et quand"
-                            onClick={() => setPrixModal(c)}
-                          >
-                            📈
-                          </button>{" "}
-                        </>
-                      )}
-                      {c.of ? (
-                        <Link
-                          href={`/tracabilite?of=${encodeURIComponent(c.of)}`}
-                          className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
-                          title={`Traçabilité de ${c.of}`}
-                        >
-                          🔍
-                        </Link>
-                      ) : (
-                        <span
-                          className="cursor-not-allowed rounded border border-input px-1 py-0.5 text-[10px] opacity-40"
-                          title="Traçabilité indisponible : cette commande n'a pas de n° OF"
-                        >
-                          🔍
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                groupes.flatMap((g) => [
+                  rendreLigne(g.parent, g.enfants),
+                  ...(ouverts.has(g.parent.id) ? g.enfants.map((e) => rendreLigne(e)) : []),
+                ])
               )}
             </tbody>
           </table>
@@ -754,6 +991,20 @@ export function CommandesClient({
         <DialogDoublons peutSupprimer={peutSupprimer} onFermer={() => setDoublonsModal(false)} />
       )}
       {planifierModal && <DialogPlanifier commandes={cochees} onFermer={() => setPlanifierModal(false)} />}
+      {regrouperModal && <DialogRegrouper onFermer={() => setRegrouperModal(false)} />}
+      {decouperModal && (
+        <DialogAjoutSousCommandes
+          commande={decouperModal}
+          faconniers={faconniers}
+          chaines={chaines}
+          onFermer={() => {
+            /* La commande découpée s'ouvre d'elle-même : on vient d'ajouter
+               des parts, les voir apparaître vaut confirmation. */
+            setOuverts((prev) => new Set(prev).add(decouperModal.id));
+            setDecouperModal(null);
+          }}
+        />
+      )}
     </>
   );
 }
