@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Printer, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -327,6 +327,19 @@ function Cellules({ ecran, row }: { ecran: EcranId; row: PreparationRow }) {
         </td>
         <td className="px-3 py-2">
           <StatusBadge tone={feu.etat.tone}>{feu.etat.label}</StatusBadge>
+        </td>
+        <td className="px-3 py-2 text-center">
+          {/* stopPropagation : la ligne entière déplie la fiche, et imprimer
+              n'est pas consulter. */}
+          <Link
+            href={`/magtissu/${row.id}/imprimer`}
+            target="_blank"
+            onClick={(e) => e.stopPropagation()}
+            title={`Bon de réception tissu — ${row.of || row.modele}`}
+            className="inline-flex rounded border border-input p-1 hover:bg-muted"
+          >
+            <Printer className="size-3.5" />
+          </Link>
         </td>
       </>
     );

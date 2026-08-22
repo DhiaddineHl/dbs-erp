@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Printer } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { RESPONSABLE_DOMAINE } from "@/lib/domain/feux";
@@ -187,6 +189,25 @@ export function FicheTissu({ row, droits }: { row: PreparationRow; droits: Droit
   return (
     <div>
       <BandeauLectureSeule autorise={droits.tissu} qui={RESPONSABLE_DOMAINE.tissu} />
+
+      {/* Le bon s'imprime à tout moment : avant réception il vaut état d'attente,
+          après contrôle il vaut accusé. Nouvel onglet, pour ne pas faire perdre
+          au magasinier la fiche qu'il est en train de remplir. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Link
+          href={`/magtissu/${row.id}/imprimer`}
+          target="_blank"
+          className="inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1 text-[11px] font-semibold hover:bg-muted"
+        >
+          <Printer className="size-3.5" /> Bon de réception
+        </Link>
+        <span className="text-[11px] text-muted-foreground">
+          {row.tissuDateReelle
+            ? "Métrage, écart, contrôle et journal des mouvements."
+            : "Imprimable dès maintenant — il portera la mention « non réceptionné »."}
+        </span>
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-2">
         <Champ label="Date de réception prévue">
           <ChampServeur

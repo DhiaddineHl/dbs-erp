@@ -180,3 +180,33 @@
     background: #94a3b8;
   }
 }
+
+/* ─────────── impression ───────────
+ *
+ * Les écrans « document » (bon de livraison, bon de réception tissu, rapport
+ * qualité, traçabilité, plan façonnier, QR ouvrières) s'impriment via
+ * `window.print()`. Sans ces règles, deux défauts les rendaient inutilisables :
+ * le cadre applicatif — barre latérale et barre du haut — partait à
+ * l'imprimante avec le document, et surtout `<main>` étant une zone à
+ * défilement dans une grille en `h-screen`, le navigateur n'imprimait que le
+ * premier écran, coupant tout ce qui dépassait.
+ *
+ * On démonte donc la grille : le document devient le flux normal de la page, et
+ * la pagination reprend son travail. Chaque page « document » garde en plus sa
+ * propre règle `.no-print` pour ses boutons de retour. */
+@media print {
+  .app-sidebar,
+  .app-topbar {
+    display: none !important;
+  }
+  .app-shell {
+    display: block !important;
+    height: auto !important;
+  }
+  .app-main {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+}

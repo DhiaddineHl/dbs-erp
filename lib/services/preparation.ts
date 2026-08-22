@@ -188,6 +188,17 @@ export async function listPreparation(): Promise<PreparationRow[]> {
   });
 }
 
+/** Une seule ligne de préparation, dérivés compris.
+ *
+ * Passe par `listPreparation` à dessein : les feux, le besoin théorique et le
+ * statut se calculent à partir de six tables et d'un réglage global. Refaire ce
+ * calcul pour une ligne, c'est le dupliquer — et deux versions du feu tissu
+ * finiraient par diverger. Le surcoût est celui de l'écran magasin lui-même. */
+export async function getPreparation(commandeId: number): Promise<PreparationRow | null> {
+  const rows = await listPreparation();
+  return rows.find((r) => r.id === commandeId) ?? null;
+}
+
 /** Journal d'une fiche, du plus récent au plus ancien. */
 export async function journalDe(commandeId: number, domaine?: string) {
   const where = domaine

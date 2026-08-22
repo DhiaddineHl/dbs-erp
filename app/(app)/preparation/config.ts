@@ -137,6 +137,7 @@ const MAGTISSU: EcranConfig = {
     { titre: "Métrage reçu", align: "center" },
     { titre: "Écart", align: "center" },
     { titre: "Contrôle" },
+    { titre: "Bon", align: "center" },
   ],
   kpis: (rows) => {
     const att = rows.filter((r) => feuDe(r, "tissu").etat.kind === "wait" && !r.lancee).length;
