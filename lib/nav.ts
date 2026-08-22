@@ -40,6 +40,9 @@ export type NavItem = {
   icon: LucideIcon;
   /** Static demo badge count (UI only — wired to data later) */
   badge?: number;
+  /** Retiré du menu, mais la route, les permissions et le titre de page
+   * restent en place : la page se rejoint encore par son URL. */
+  masque?: boolean;
 };
 
 export type NavGroup = {
@@ -87,9 +90,9 @@ export const NAV_STRUCTURE: NavGroup[] = [
   {
     label: "Méthodes",
     items: [
-      { id: "gammes", label: "Gammes & SAM", href: "/gammes", icon: FlaskConical },
-      { id: "capacite", label: "Capacité & Costing", href: "/capacite", icon: BarChart3 },
-      { id: "ordonnancement", label: "Ordonnancement", href: "/ordonnancement", icon: CalendarRange },
+      { id: "gammes", label: "Gammes & SAM", href: "/gammes", icon: FlaskConical, masque: true },
+      { id: "capacite", label: "Capacité & Costing", href: "/capacite", icon: BarChart3, masque: true },
+      { id: "ordonnancement", label: "Ordonnancement", href: "/ordonnancement", icon: CalendarRange, masque: true },
       { id: "planfacon", label: "Plan façonnier", href: "/planfacon", icon: Handshake },
     ],
   },
@@ -98,7 +101,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
     stage: 4,
     items: [
       { id: "gpao_prod", label: "GPAO Production", href: "/gpao_prod", icon: Factory },
-      { id: "ofs", label: "Ordres fabrication", href: "/ofs", icon: ClipboardList },
+      { id: "ofs", label: "Ordres fabrication", href: "/ofs", icon: ClipboardList, masque: true },
       { id: "personnel", label: "Personnel", href: "/personnel", icon: UsersRound },
       { id: "operations", label: "Opérations & SAM", href: "/operations", icon: ListChecks },
       { id: "qrouv", label: "QR rendement", href: "/qrouv", icon: QrCode },

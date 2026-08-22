@@ -7,6 +7,7 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Input } from "@/components/ui/input";
 import { STATUTS_LOGISTIQUE, URGENCES_EXPORT, libelleMoisExport, type StatutLogistique } from "@/lib/domain/aval";
+import { cleDate } from "@/lib/domain/commande";
 import type { LignePrevision } from "@/lib/services/aval";
 import * as A from "@/lib/actions/aval";
 import { DateAction, Kpi, SelectAction, Tuiles } from "../aval/ui";
@@ -19,6 +20,23 @@ const OPTIONS_LOG = (Object.keys(STATUTS_LOGISTIQUE) as StatutLogistique[]).map(
   label: STATUTS_LOGISTIQUE[k].label,
 }));
 
+/** Sens du tri sur la date d'export contractuelle ; `null` = ordre par défaut. */
+type SensTri = 1 | -1 | null;
+
+/* Les lignes sans date contractuelle restent en fin de liste dans les deux
+ * sens : une commande sans échéance ne doit jamais passer devant celles qui en
+ * ont une. Même règle que le carnet de commandes. */
+function trierParExport(lot: LignePrevision[], sens: 1 | -1): LignePrevision[] {
+  return lot.slice().sort((a, b) => {
+    const x = cleDate(a.dateExport);
+    const y = cleDate(b.dateExport);
+    if (!x && !y) return 0;
+    if (!x) return 1;
+    if (!y) return -1;
+    return (x < y ? -1 : x > y ? 1 : 0) * sens;
+  });
+}
+
 export function PrevExportClient({
   lignes,
   peutSaisir,
@@ -29,6 +47,7 @@ export function PrevExportClient({
   const [q, setQ] = useState("");
   const [urgence, setUrgence] = useState("");
   const [masquerExpediees, setMasquer] = useState(true);
+  const [triExport, setTriExport] = useState<SensTri>(null);
 
   const filtrees = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -41,6 +60,8 @@ export function PrevExportClient({
   }, [lignes, q, urgence, masquerExpediees]);
 
   // Regroupement par mois d'export : c'est la maille de décision du planning.
+  // Le tri sur la date contractuelle joue à l'intérieur de chaque mois, jamais
+  // par-dessus : le regroupement reste la maille de lecture.
   const groupes = useMemo(() => {
     const m = new Map<string, LignePrevision[]>();
     for (const l of filtrees) {
@@ -49,8 +70,10 @@ export function PrevExportClient({
       if (g) g.push(l);
       else m.set(cle, [l]);
     }
-    return [...m.entries()].sort(([a], [b]) => (a || "9999").localeCompare(b || "9999"));
-  }, [filtrees]);
+    const entrees = [...m.entries()].sort(([a], [b]) => (a || "9999").localeCompare(b || "9999"));
+    if (!triExport) return entrees;
+    return entrees.map(([mois, lot]): [string, LignePrevision[]] => [mois, trierParExport(lot, triExport)]);
+  }, [filtrees, triExport]);
 
   const stats = useMemo(() => {
     const actives = lignes.filter((l) => !l.magasinExpedie);
@@ -116,7 +139,30 @@ export function PrevExportClient({
                 <th className="px-3 py-2 text-left">Production</th>
                 <th className="px-3 py-2 text-right">Qté</th>
                 <th className="px-3 py-2 text-right">Prêt</th>
-                <th className="px-3 py-2 text-left">Export contractuel</th>
+                <th
+                  className="px-3 py-2 text-left"
+                  aria-sort={triExport === 1 ? "ascending" : triExport === -1 ? "descending" : "none"}
+                >
+                  <button
+                    type="button"
+                    /* ▲ → ▼ → ordre par défaut : le classement d'origine (par date
+                       planifiée) reste atteignable sans recharger la page. */
+                    onClick={() => setTriExport((p) => (p === null ? 1 : p === 1 ? -1 : null))}
+                    title={
+                      triExport === 1
+                        ? "Trié du plus tôt au plus tard — cliquez pour inverser"
+                        : triExport === -1
+                          ? "Trié du plus tard au plus tôt — cliquez pour revenir à l'ordre par défaut"
+                          : "Trier par date d'export contractuelle"
+                    }
+                    className="flex items-center gap-1 uppercase transition-colors hover:text-foreground"
+                  >
+                    Export contractuel
+                    <span aria-hidden className={triExport ? "text-brand" : "opacity-40"}>
+                      {triExport === -1 ? "▼" : "▲"}
+                    </span>
+                  </button>
+                </th>
                 <th className="px-3 py-2 text-left">Prévision</th>
                 <th className="px-3 py-2 text-right">Reste</th>
                 <th className="px-3 py-2 text-left">Urgence</th>

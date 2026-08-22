@@ -54,6 +54,8 @@ export function Encaissements({
     return t;
   }, [filtrees]);
 
+  const ligneOuverte = ouverte === null ? null : (lignes.find((l) => l.factureId === ouverte) ?? null);
+
   const ba = useMemo(
     () =>
       balanceAgee(
@@ -193,9 +195,12 @@ export function Encaissements({
         </table>
       </div>
 
-      {ouverte !== null && (
+      {/* Recherche dans `lignes`, pas dans `filtrees` : un encaissement qui solde
+        * la facture peut la faire sortir du filtre en cours pendant que la
+        * modale est ouverte. */}
+      {ligneOuverte && (
         <ModalReglements
-          ligne={filtrees.find((l) => l.factureId === ouverte)!}
+          ligne={ligneOuverte}
           comptes={comptes}
           onFermer={() => setOuverte(null)}
           onFait={(m) => {
@@ -257,95 +262,105 @@ function ModalReglements({
     });
 
   return (
-    <>
-      <div className="fac-ovl" onClick={onFermer} />
+    /* La modale vit DANS l'overlay : posée à côté, elle resterait dans le flux
+     * de la page, cachée sous un voile en position:fixed. */
+    <div className="fac-ovl" onClick={(e) => e.target === e.currentTarget && onFermer()}>
       <div className="fac-modal" role="dialog" aria-label="Règlements de la facture">
-        <h3 style={{ margin: "0 0 4px" }}>Règlements — facture {ligne.num}</h3>
-        <div className="muted-note" style={{ marginBottom: 14 }}>
-          Montant {nb(ligne.total)} € · encaissé {nb(ligne.regle)} € · reste{" "}
-          <b>{nb(Math.max(0, ligne.reste))} €</b>
-          {ligne.echeance && ` · échéance ${fdate(ligne.echeance)}`}
-        </div>
-
-        {ligne.reglements.length > 0 && (
-          <table style={{ marginBottom: 14 }}>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Mode</th>
-                <th>Compte</th>
-                <th>Référence</th>
-                <th style={{ textAlign: "right" }}>Montant</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {ligne.reglements.map((r) => (
-                <tr key={r.id}>
-                  <td>{fdate(r.date)}</td>
-                  <td>{r.mode}</td>
-                  <td>{r.compte || "—"}</td>
-                  <td>{r.ref || "—"}</td>
-                  <td style={{ textAlign: "right", fontWeight: 700 }}>{nb(r.montant)} €</td>
-                  <td>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={async () => {
-                        if (!confirm("Supprimer ce règlement ?")) return;
-                        const res = await A.supprimerReglement(r.id);
-                        onFait(res.ok ? "Règlement supprimé" : res.error);
-                      }}
-                    >
-                      ×
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {ligne.reste > 0.005 ? (
-          <div className="form-grid">
-            <div className="form-group">
-              <label>Date</label>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label>Montant (€)</label>
-              <input type="number" step="0.01" value={montant} onChange={(e) => setMontant(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label>Mode</label>
-              <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                {MODES_PAIEMENT.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Compte encaisseur</label>
-              <select value={compteId} onChange={(e) => setCompteId(e.target.value)}>
-                <option value="">—</option>
-                {comptes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.libelle}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group full">
-              <label>Référence bancaire</label>
-              <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="N° de virement, de traite…" />
+        <div className="detail-head">
+          <div>
+            <div className="dh-title">RÈGLEMENTS — FACTURE N°{ligne.num}</div>
+            <div className="dh-sub">
+              Montant {nb(ligne.total)} € · encaissé {nb(ligne.regle)} € · reste{" "}
+              {nb(Math.max(0, ligne.reste))} €
+              {ligne.echeance && ` · échéance ${fdate(ligne.echeance)}`}
             </div>
           </div>
-        ) : (
-          <div className="info-box">Cette facture est intégralement encaissée.</div>
-        )}
+          <button className="detail-close" onClick={onFermer} aria-label="Fermer">
+            ✕
+          </button>
+        </div>
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+        <div className="detail-body">
+          {ligne.reglements.length > 0 && (
+            <table style={{ marginBottom: 14 }}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Mode</th>
+                  <th>Compte</th>
+                  <th>Référence</th>
+                  <th style={{ textAlign: "right" }}>Montant</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {ligne.reglements.map((r) => (
+                  <tr key={r.id}>
+                    <td>{fdate(r.date)}</td>
+                    <td>{r.mode}</td>
+                    <td>{r.compte || "—"}</td>
+                    <td>{r.ref || "—"}</td>
+                    <td style={{ textAlign: "right", fontWeight: 700 }}>{nb(r.montant)} €</td>
+                    <td>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={async () => {
+                          if (!confirm("Supprimer ce règlement ?")) return;
+                          const res = await A.supprimerReglement(r.id);
+                          onFait(res.ok ? "Règlement supprimé" : res.error);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {ligne.reste > 0.005 ? (
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Date</label>
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Montant (€)</label>
+                <input type="number" step="0.01" value={montant} onChange={(e) => setMontant(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Mode</label>
+                <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                  {MODES_PAIEMENT.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Compte encaisseur</label>
+                <select value={compteId} onChange={(e) => setCompteId(e.target.value)}>
+                  <option value="">—</option>
+                  {comptes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.libelle}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group full">
+                <label>Référence bancaire</label>
+                <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="N° de virement, de traite…" />
+              </div>
+            </div>
+          ) : (
+            <div className="info-box">Cette facture est intégralement encaissée.</div>
+          )}
+        </div>
+
+        <div className="detail-foot" style={{ justifyContent: "flex-end", gap: 8 }}>
           <button className="btn btn-outline" onClick={onFermer}>
             Fermer
           </button>
@@ -356,7 +371,7 @@ function ModalReglements({
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
 

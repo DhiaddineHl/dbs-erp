@@ -18,10 +18,11 @@ export function Sidebar({ modules }: { modules: Record<string, boolean> }) {
   const pathname = usePathname();
 
   // Filter nav by the authenticated role's module permissions (loaded from DB
-  // in the (app) layout). Admin receives an all-true map.
+  // in the (app) layout). Admin receives an all-true map. `masque` retire le
+  // lien du menu sans toucher à la route ni aux droits.
   const groups = NAV_STRUCTURE.map((g) => ({
     ...g,
-    items: g.items.filter((it) => modules[it.id] !== false),
+    items: g.items.filter((it) => !it.masque && modules[it.id] !== false),
   })).filter((g) => g.items.length > 0);
 
   return (
