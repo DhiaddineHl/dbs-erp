@@ -49,6 +49,15 @@ const FILTRES_STATUT: Choix[] = [
   { value: "retard", label: "⚠ En retard" },
 ];
 
+/** Les deux visages du carnet.
+ *
+ * « planning » est le même écran, amputé de l'argent : le planning affecte les
+ * façonniers et pose les dates, il n'a pas à connaître les prix ni les marges.
+ * Tout le reste — filtres, tri, sélection, enregistrement — est commun, et les
+ * écritures passent par les mêmes actions serveur : ce que le planning change
+ * apparaît dans Commandes, et réciproquement. */
+export type ModeCarnet = "commandes" | "planning";
+
 export function CommandesClient({
   commandes,
   clients,
@@ -56,6 +65,7 @@ export function CommandesClient({
   chaines,
   peutSupprimer,
   peutFacturer,
+  mode = "commandes",
 }: {
   commandes: CommandeRow[];
   clients: Choix[];
@@ -63,7 +73,9 @@ export function CommandesClient({
   chaines: Choix[];
   peutSupprimer: boolean;
   peutFacturer: boolean;
+  mode?: ModeCarnet;
 }) {
+  const planning = mode === "planning";
   const router = useRouter();
   const [pending, start] = useTransition();
 
@@ -91,7 +103,16 @@ export function CommandesClient({
     storeColonnes.getServerSnapshot,
   );
   const [choixColonnes, setChoixColonnes] = useState(false);
-  const visible = (c: CleColonne) => !masquees.has(c);
+
+  /* En planning, les colonnes d'argent sont masquées d'office et ne sont même
+   * pas proposées : ce n'est pas un réglage d'affichage mais le périmètre de
+   * l'écran. Le réglage du poste, lui, reste partagé avec Commandes — masquer
+   * « Client » ici le masque là-bas, comme dans PilotPro. */
+  const masqueesEff = useMemo(
+    () => (planning ? new Set<CleColonne>([...masquees, ...COLONNES_ARGENT]) : masquees),
+    [masquees, planning],
+  );
+  const visible = (c: CleColonne) => !masqueesEff.has(c);
 
   const [statutModal, setStatutModal] = useState<CommandeRow | null>(null);
   const [facturerModal, setFacturerModal] = useState<CommandeRow | null>(null);
@@ -218,7 +239,7 @@ export function CommandesClient({
   };
 
   const actionImprimer = () => {
-    if (!imprimerSelection(cochees, masquees)) toast.error("Autorisez les fenêtres pop-up pour imprimer");
+    if (!imprimerSelection(cochees, masqueesEff)) toast.error("Autorisez les fenêtres pop-up pour imprimer");
   };
 
   /* ─── édition en ligne ─── */
@@ -260,11 +281,11 @@ export function CommandesClient({
   return (
     <>
       <SectionPanel
-        title="Carnet de commandes"
+        title={planning ? "Planning général" : "Carnet de commandes"}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone="brand">{affichees.length}</StatusBadge>
-            {peutFacturer && (
+            {peutFacturer && !planning && (
               <>
                 <Button
                   size="sm"
@@ -456,7 +477,9 @@ export function CommandesClient({
                 {visible("prixVente") && <th className="px-3 py-2 text-right">P. vente</th>}
                 {visible("prixFacon") && <th className="px-3 py-2 text-right">P. façon</th>}
                 {visible("margeTotale") && <th className="px-3 py-2 text-right">Marge</th>}
-                {visible("dateExport") && <th className="px-3 py-2 text-left">Export</th>}
+                {visible("dateExport") && (
+                  <th className="px-3 py-2 text-left">{planning ? "Réception / Export" : "Export"}</th>
+                )}
                 {visible("retard") && <th className="px-3 py-2 text-left">Retard</th>}
                 {visible("av") && <th className="px-3 py-2 text-right">Avancement</th>}
                 {visible("statut") && <th className="px-3 py-2 text-left">Statut</th>}
@@ -568,12 +591,29 @@ export function CommandesClient({
                     )}
                     {visible("dateExport") && (
                       <td className="px-3 py-1.5 tabular-nums">
-                        <Cellule
-                          valeur={c.dateExport ?? ""}
-                          affichage={dateFr(c.dateExport)}
-                          type="date"
-                          onSave={(v) => enregistrer(c.id, "dateExport", v)}
-                        />
+                        {planning ? (
+                          /* Les deux bornes que le planning tient : quand le tissu
+                             arrive, et quand la commande doit partir. */
+                          <div className="flex flex-col gap-1">
+                            <DatePlanning
+                              label="Tissu"
+                              valeur={c.receptTissu}
+                              onSave={(v) => enregistrer(c.id, "receptTissu", v)}
+                            />
+                            <DatePlanning
+                              label="Export"
+                              valeur={c.dateExport}
+                              onSave={(v) => enregistrer(c.id, "dateExport", v)}
+                            />
+                          </div>
+                        ) : (
+                          <Cellule
+                            valeur={c.dateExport ?? ""}
+                            affichage={dateFr(c.dateExport)}
+                            type="date"
+                            onSave={(v) => enregistrer(c.id, "dateExport", v)}
+                          />
+                        )}
                       </td>
                     )}
                     {visible("retard") && (
@@ -608,7 +648,7 @@ export function CommandesClient({
                           </button>
                           {/* Facturation partielle comprise : le bouton reste tant
                               qu'il reste quelque chose à facturer. */}
-                          {peutFacturer && !c.archived && resteAFacturer(c) > 0 && (
+                          {peutFacturer && !planning && !c.archived && resteAFacturer(c) > 0 && (
                             <button
                               type="button"
                               className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
@@ -649,14 +689,21 @@ export function CommandesClient({
                           />
                         </span>
                       )}
-                      <button
-                        type="button"
-                        className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
-                        title="Journal des prix — qui a changé quoi, et quand"
-                        onClick={() => setPrixModal(c)}
-                      >
-                        📈
-                      </button>{" "}
+                      {/* Le journal des prix reste dans Commandes : c'est de
+                          l'argent, et le planning n'en voit aucun. La traçabilité,
+                          elle, lui sert directement. */}
+                      {!planning && (
+                        <>
+                          <button
+                            type="button"
+                            className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
+                            title="Journal des prix — qui a changé quoi, et quand"
+                            onClick={() => setPrixModal(c)}
+                          >
+                            📈
+                          </button>{" "}
+                        </>
+                      )}
                       {c.of ? (
                         <Link
                           href={`/tracabilite?of=${encodeURIComponent(c.of)}`}
@@ -685,6 +732,7 @@ export function CommandesClient({
       {choixColonnes && (
         <DialogColonnes
           masquees={masquees}
+          planning={planning}
           onChange={storeColonnes.ecrire}
           onFermer={() => setChoixColonnes(false)}
         />
@@ -711,6 +759,39 @@ export function CommandesClient({
 }
 
 /* ═══════════ cellules éditables ═══════════ */
+
+/** Date du planning : libellé au-dessus, saisie directe.
+ *
+ * Contrairement à `Cellule`, pas de clic pour passer en édition — le planning
+ * pose des dates à la chaîne, et un aller-retour par ligne le ralentirait. La
+ * valeur part au `change`, donc au choix dans le calendrier. */
+function DatePlanning({
+  label,
+  valeur,
+  onSave,
+}: {
+  label: string;
+  valeur: string;
+  onSave: (v: string) => void;
+}) {
+  return (
+    <label className="flex items-center gap-1">
+      <span className="w-9 shrink-0 text-[8.5px] uppercase tracking-wide text-muted-foreground">{label}</span>
+      <input
+        /* Remonté quand la valeur serveur change : sans cette clé, un champ non
+           contrôlé garderait l'ancienne date après le refresh — y compris celle
+           qu'un collègue vient de déplacer depuis Commandes. */
+        key={valeur || "vide"}
+        type="date"
+        defaultValue={valeur || ""}
+        className="w-[104px] rounded border border-input bg-card px-1 py-0.5 text-[10px] tabular-nums"
+        onChange={(e) => {
+          if (e.target.value !== (valeur || "")) onSave(e.target.value);
+        }}
+      />
+    </label>
+  );
+}
 
 function Cellule({
   valeur,
@@ -875,13 +956,21 @@ function DialogStatut({
 
 function DialogColonnes({
   masquees,
+  planning,
   onChange,
   onFermer,
 }: {
   masquees: ReadonlySet<CleColonne>;
+  planning: boolean;
   onChange: (s: ReadonlySet<CleColonne>) => void;
   onFermer: () => void;
 }) {
+  /* Prix et marge ne sont pas masqués en planning : ils n'y existent pas. Les
+   * proposer laisserait croire qu'on peut les rallumer. */
+  const colonnes = planning
+    ? COLONNES_COMMANDE.filter((c) => !COLONNES_ARGENT.includes(c.cle))
+    : COLONNES_COMMANDE;
+
   const basculer = (cle: CleColonne, montrer: boolean) => {
     const s = new Set(masquees);
     if (montrer) s.delete(cle);
@@ -896,11 +985,12 @@ function DialogColonnes({
           <DialogTitle>🧰 Colonnes à afficher</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
-          Le réglage vaut aussi pour l&apos;impression de la sélection : c&apos;est ce qui permet de donner la liste à
-          l&apos;atelier sans les prix. Il est mémorisé sur ce poste.
+          {planning
+            ? "Le réglage vaut aussi pour l'impression de la sélection. Prix et marge ne figurent jamais sur cet écran. Il est mémorisé sur ce poste."
+            : "Le réglage vaut aussi pour l'impression de la sélection : c'est ce qui permet de donner la liste à l'atelier sans les prix. Il est mémorisé sur ce poste."}
         </p>
         <div className="grid grid-cols-2 gap-1.5">
-          {COLONNES_COMMANDE.map((c) => (
+          {colonnes.map((c) => (
             <label
               key={c.cle}
               className="flex cursor-pointer items-center gap-2 rounded-md border border-input px-2 py-1.5 text-xs"
@@ -915,9 +1005,11 @@ function DialogColonnes({
           ))}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => onChange(new Set(COLONNES_ARGENT))}>
-            👥 Vue équipe (masquer prix &amp; marge)
-          </Button>
+          {!planning && (
+            <Button size="sm" variant="outline" onClick={() => onChange(new Set(COLONNES_ARGENT))}>
+              👥 Vue équipe (masquer prix &amp; marge)
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => onChange(new Set())}>
             Tout afficher
           </Button>

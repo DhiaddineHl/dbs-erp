@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { ECRANS_CARNET } from "@/lib/revalidation";
 import { assertUser, userRole } from "@/lib/auth/server";
 import type { Divergence } from "@/lib/domain/facturation-commande";
 import * as svc from "@/lib/services/facturation-commande";
@@ -27,7 +28,7 @@ async function exigerFacturation() {
 }
 
 function revalider() {
-  for (const p of ["/commandes", "/factures", "/archives", "/stats"]) revalidatePath(p);
+  for (const p of [...ECRANS_CARNET, "/factures", "/archives", "/stats"]) revalidatePath(p);
 }
 
 export async function peutFacturer(): Promise<boolean> {

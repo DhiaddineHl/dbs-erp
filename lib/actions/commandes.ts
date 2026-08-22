@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { revaliderCarnet } from "@/lib/revalidation";
 import * as XLSX from "xlsx";
 import { assertUser, userRole } from "@/lib/auth/server";
 import * as biz from "@/lib/domain/commande";
@@ -137,7 +138,7 @@ export async function createCommande(d: Data): Promise<Result> {
     });
     await journaliser("creation", "Commandes", `${d.modele ?? ""} — ${d.client ?? ""}`);
     await synchroniserVersGpao(d.modele);
-    revalidatePath("/commandes");
+    revaliderCarnet();
     revalidatePath("/clients");
     revalidatePath("/facon");
     return ok;
@@ -225,7 +226,7 @@ export async function updateCommandeRow(id: number, patch: Data): Promise<Result
         await synchroniserVersGpao(n);
       }
     }
-    revalidatePath("/commandes");
+    revaliderCarnet();
     return ok;
   } catch (e) {
     return fail(e);
@@ -241,7 +242,7 @@ export async function deleteCommandesAction(ids: number[]): Promise<Result> {
       return { ok: false, error: "Suppression réservée aux administrateurs et responsables" };
     await svc.deleteCommandes(ids, user.id);
     await journaliser("suppression", "Commandes", `${ids.length} commande(s)`);
-    revalidatePath("/commandes");
+    revaliderCarnet();
     revalidatePath("/archives");
     return ok;
   } catch (e) {
@@ -261,7 +262,7 @@ export async function marquerLivrees(ids: number[]): Promise<Result> {
     for (const id of ids) await svc.updateCommande(id, { statutManuel: "livree" }, auteurDe(user));
     await purgerPhotosSilencieux();
     await journaliser("modification", "Commandes", `${ids.length} commande(s) marquée(s) livrée(s)`);
-    revalidatePath("/commandes");
+    revaliderCarnet();
     revalidatePath("/archives");
     return ok;
   } catch (e) {
@@ -288,7 +289,7 @@ export async function archiverCommandes(ids: number[], archived: boolean): Promi
     await svc.setArchived(ids, archived);
     if (archived) await purgerPhotosSilencieux();
     await journaliser("modification", "Commandes", `${ids.length} commande(s) ${archived ? "archivée(s)" : "désarchivée(s)"}`);
-    revalidatePath("/commandes");
+    revaliderCarnet();
     revalidatePath("/archives");
     return ok;
   } catch (e) {
@@ -330,7 +331,7 @@ export async function importCommandes(formData: FormData): Promise<ImportResult>
 
     await svc.insertManyCommandes(values);
     await journaliser("import", "Commandes", `${values.length} ligne(s) importée(s)`);
-    revalidatePath("/commandes");
+    revaliderCarnet();
     revalidatePath("/clients");
     revalidatePath("/facon");
     return { ok: true, count: values.length };
@@ -357,7 +358,7 @@ export async function televerserPhotoCommande(formData: FormData): Promise<Retou
 
     const { hash } = await enregistrerFichier(Buffer.from(await f.arrayBuffer()), f.type);
     await svc.attacherPhoto(id, hash);
-    revalidatePath("/commandes");
+    revaliderCarnet();
     return { ok: true, data: { hash } };
   } catch (e) {
     return fail(e);
@@ -368,7 +369,7 @@ export async function retirerPhotoCommande(id: number): Promise<Result> {
   try {
     await assertUser();
     await svc.retirerPhoto(id);
-    revalidatePath("/commandes");
+    revaliderCarnet();
     return ok;
   } catch (e) {
     return fail(e);
@@ -493,7 +494,7 @@ export async function planifierExport(ids: number[], date: string): Promise<Reto
       "Prévision Export",
       iso ? `${n} commande(s) planifiée(s) au ${iso}` : `${n} commande(s) rendues à leur date contractuelle`,
     );
-    revalidatePath("/commandes");
+    revaliderCarnet();
     revalidatePath("/prevexport");
     return { ok: true, data: n };
   } catch (e) {

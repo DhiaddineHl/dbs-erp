@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { revaliderCarnet } from "@/lib/revalidation";
 import { assertUser } from "@/lib/auth/server";
 import { userRole } from "@/lib/auth/server";
 import * as fx from "@/lib/domain/feux";
@@ -21,7 +22,7 @@ const ECRANS = ["/dt", "/modelisme", "/nomen", "/magtissu", "/magfour"];
 function revalider() {
   for (const p of ECRANS) revalidatePath(p);
   revalidatePath("/cockpit");
-  revalidatePath("/commandes");
+  revaliderCarnet();
 }
 
 /** Authentifie et vérifie le droit d'écriture sur le domaine métier.

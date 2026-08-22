@@ -15,6 +15,7 @@ import {
   FlaskConical,
   BarChart3,
   CalendarRange,
+  CalendarDays,
   Factory,
   ClipboardList,
   PackageCheck,
@@ -90,6 +91,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
   {
     label: "Méthodes",
     items: [
+      { id: "planning", label: "Planning général", href: "/planning", icon: CalendarDays },
       { id: "gammes", label: "Gammes & SAM", href: "/gammes", icon: FlaskConical, masque: true },
       { id: "capacite", label: "Capacité & Costing", href: "/capacite", icon: BarChart3, masque: true },
       { id: "ordonnancement", label: "Ordonnancement", href: "/ordonnancement", icon: CalendarRange, masque: true },
@@ -153,6 +155,7 @@ const SUBTITLES: Record<string, string> = {
   magtissu: "Réception, métrage et contrôle du tissu",
   magfour: "Réception des fournitures par référence",
   coupe: "Planning coupe — commandes au tissu libéré",
+  planning: "Carnet de commandes côté planning — affectation, tissu, export",
   gammes: "Décomposition opératoire + temps standards",
   capacite: "Capacité ligne, coût MO, délais",
   ordonnancement: "Ordre de lancement & équilibrage de charge",
