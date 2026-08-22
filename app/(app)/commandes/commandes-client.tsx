@@ -488,8 +488,22 @@ export function CommandesClient({
                     )}
                     {visible("modele") && (
                       <td className="px-3 py-1.5 font-semibold">
-                        <Cellule valeur={c.modele} onSave={(v) => enregistrer(c.id, "modele", v)} />
-                        {c.couleur && <div className="text-[10px] font-normal text-muted-foreground">{c.couleur}</div>}
+                        {/* La photo est collée au modèle : c'est le nom qu'elle
+                            illustre, et l'atelier lit les deux d'un seul regard. */}
+                        <div className="flex items-center gap-2">
+                          <PhotoCommande
+                            commandeId={c.id}
+                            titre={`${c.of || "sans OF"} · ${c.modele}`}
+                            hash={c.photoHash}
+                            archivee={c.archived}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <Cellule valeur={c.modele} onSave={(v) => enregistrer(c.id, "modele", v)} />
+                            {c.couleur && (
+                              <div className="px-1 text-[10px] font-normal text-muted-foreground">{c.couleur}</div>
+                            )}
+                          </div>
+                        </div>
                       </td>
                     )}
                     {visible("client") && (
@@ -618,16 +632,23 @@ export function CommandesClient({
                         </div>
                       </td>
                     )}
-                    {/* Trois portes de sortie par ligne : à quoi ressemble
-                        l'article, d'où vient ce prix, et où en est
-                        physiquement cette commande. */}
+                    {/* Deux portes de sortie par ligne : d'où vient ce prix, et
+                        où en est physiquement cette commande. La troisième — à
+                        quoi ressemble l'article — a rejoint la colonne Modèle,
+                        et ne revient ici que si celle-ci est masquée, pour que
+                        le chooser de colonnes ne puisse pas rendre les photos
+                        inatteignables. */}
                     <td className="whitespace-nowrap px-2 py-1.5 text-right">
-                      <PhotoCommande
-                        commandeId={c.id}
-                        titre={`${c.of || "sans OF"} · ${c.modele}`}
-                        hash={c.photoHash}
-                        archivee={c.archived}
-                      />{" "}
+                      {!visible("modele") && (
+                        <span className="mr-1 inline-flex align-middle">
+                          <PhotoCommande
+                            commandeId={c.id}
+                            titre={`${c.of || "sans OF"} · ${c.modele}`}
+                            hash={c.photoHash}
+                            archivee={c.archived}
+                          />
+                        </span>
+                      )}
                       <button
                         type="button"
                         className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"

@@ -145,7 +145,7 @@ export function PhotoCommande({
       {hash ? (
         <button
           type="button"
-          className="align-middle"
+          className="shrink-0"
           title="Voir la photo du modèle"
           onClick={() => setAgrandie(true)}
         >
@@ -155,18 +155,23 @@ export function PhotoCommande({
           <img
             src={`/api/fichier/${hash}`}
             alt={`Photo — ${titre}`}
-            className="size-7 rounded border border-input object-cover"
+            className="size-10 rounded border border-input object-cover"
             loading="lazy"
           />
         </button>
       ) : archivee ? (
-        <span className="text-[10px] text-muted-foreground" title="Commande archivée">
+        /* Même gabarit que la vignette : sans lui, la colonne Modèle se
+           décalerait d'une ligne à l'autre selon la présence d'une photo. */
+        <span
+          className="flex size-10 shrink-0 items-center justify-center rounded border border-dashed border-input text-[10px] text-muted-foreground"
+          title="Commande archivée"
+        >
           —
         </span>
       ) : (
         <button
           type="button"
-          className="rounded border border-dashed border-input px-1 py-0.5 text-[10px] hover:bg-muted disabled:opacity-50"
+          className="flex size-10 shrink-0 items-center justify-center rounded border border-dashed border-input text-[13px] hover:bg-muted disabled:opacity-50"
           title="Ajouter une photo du modèle"
           disabled={pending}
           onClick={() => champ.current?.click()}
