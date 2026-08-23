@@ -443,6 +443,22 @@ function Cellules({ ecran, row }: { ecran: EcranId; row: PreparationRow }) {
         </td>
         {cell("patronage")}
         {cell("traces")}
+        <td className="px-3 py-2">
+          {row.parentId ? (
+            <small className="text-muted-foreground">porteur {row.porteurOf}</small>
+          ) : row.plan ? (
+            <>
+              <StatusBadge tone={row.plan.estime ? "warning" : "success"}>
+                {row.plan.estime ? "à confirmer" : "✓ réel"}
+              </StatusBadge>
+              <div className="mt-0.5 text-[10px] text-muted-foreground">
+                {row.plan.nbTraces} tracé{row.plan.nbTraces > 1 ? "s" : ""} · {row.plan.metres.toFixed(0)} m
+              </div>
+            </>
+          ) : (
+            <StatusBadge>à préparer</StatusBadge>
+          )}
+        </td>
         <ColExport row={row} />
       </>
     );

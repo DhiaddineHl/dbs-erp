@@ -18,6 +18,7 @@ import {
   commandeFournitureLigne,
   commandeJournal,
   commandeLancement,
+  commandePlan,
   commandeTds,
 } from "./preparation";
 import { client, faconnier } from "./referentiel";
@@ -191,6 +192,7 @@ export const commandeRelations = relations(commande, ({ one, many }) => ({
   etapes: many(commandeEtape),
   fournitures: many(commandeFournitureLigne),
   lancement: one(commandeLancement),
+  plan: one(commandePlan),
   journal: many(commandeJournal),
 }));
 

@@ -226,6 +226,7 @@ const MODELISME: EcranConfig = {
     { k: "okpro", label: "OK PRO à traiter", test: (r) => r.okPro && aFaireModelisme(r) },
     { k: "patron", label: "Patronage fait", test: (r) => etapeFaite(r, "patronage") },
     { k: "traces", label: "Tracés tirés", test: (r) => etapeFaite(r, "traces") },
+    { k: "plan", label: "Plan à préparer", test: (r) => !r.parentId && !r.lancee && !r.plan },
     { k: "fini", label: "Terminés", test: (r) => etapeFaite(r, "patronage") && etapeFaite(r, "traces") },
     { k: "all", label: "Tout", test: null },
   ],
@@ -236,6 +237,7 @@ const MODELISME: EcranConfig = {
     { titre: "OK Production" },
     { titre: "Patronage" },
     { titre: "Tracés" },
+    { titre: "Plan de coupe" },
     { titre: "Export" },
   ],
   kpis: (rows) => {
@@ -243,11 +245,19 @@ const MODELISME: EcranConfig = {
     const urg = rows.filter((r) => r.okPro && aFaireModelisme(r)).length;
     const p = rows.filter((r) => etapeFaite(r, "patronage")).length;
     const t = rows.filter((r) => etapeFaite(r, "traces")).length;
+    const plans = rows.filter((r) => r.plan).length;
+    const aConfirmer = rows.filter((r) => r.plan?.estime).length;
     return [
       { label: "Travail à faire", valeur: af, tone: "brand", icone: "📐" },
       { label: "Prioritaires", valeur: urg, tone: urg ? "danger" : "success", icone: "🔥", sub: "modèle déjà OK production" },
-      { label: "Patronages faits", valeur: p, tone: "success", icone: "✏" },
-      { label: "Tracés tirés", valeur: t, tone: "purple", icone: "🖨" },
+      { label: "Patronages faits", valeur: p, tone: "success", icone: "✏", sub: `${t} tracés tirés` },
+      {
+        label: "Plans de coupe",
+        valeur: plans,
+        tone: aConfirmer ? "warning" : "purple",
+        icone: "📏",
+        sub: aConfirmer ? `${aConfirmer} avec longueurs à confirmer` : "longueurs réelles saisies",
+      },
     ];
   },
 };

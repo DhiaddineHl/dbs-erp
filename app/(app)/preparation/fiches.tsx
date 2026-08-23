@@ -116,6 +116,50 @@ export function FicheModelisme({ row, droits }: { row: PreparationRow; droits: D
         {carte("patronage", "Travail de la modéliste", "📐", "Patron de base, gradation des tailles, dossier technique.")}
         {carte("traces", "Tirage des tracés", "🖨", "Placement et tirage du tracé de coupe pour l'atelier.")}
       </div>
+      <BlocPlan row={row} droits={droits} />
+    </div>
+  );
+}
+
+/** Le plan de coupe dans l'espace de la modéliste : son état, et l'accès.
+ *
+ * La préparation suit les mêmes droits que le patronage — c'est le même
+ * bureau ; la consultation reste ouverte, l'atelier de coupe doit pouvoir lire
+ * la fiche de matelassage. Une sous-commande renvoie vers son porteur : on
+ * coupe le tissu une fois pour le groupe. */
+function BlocPlan({ row, droits }: { row: PreparationRow; droits: Droits }) {
+  const cible = row.parentId ?? row.id;
+  const plan = row.plan;
+
+  const etat = !plan
+    ? { label: "À préparer", tone: "warning" as const }
+    : {
+        label:
+          `${plan.nbMatieres} matière${plan.nbMatieres > 1 ? "s" : ""} · ${plan.nbTraces} tracé${plan.nbTraces > 1 ? "s" : ""}` +
+          (plan.estime ? " · longueurs à confirmer" : " · longueurs réelles ✓") +
+          (plan.par ? ` · par ${plan.par}${plan.date ? ` le ${plan.date}` : ""}` : ""),
+        tone: plan.estime ? ("warning" as const) : ("success" as const),
+      };
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
+      <span className="text-[13px] font-bold">📐 Plan de coupe (matelassage)</span>
+      {row.parentId ? (
+        <StatusBadge tone="neutral">géré par l&apos;OF porteur {row.porteurOf || ""}</StatusBadge>
+      ) : (
+        <StatusBadge tone={etat.tone}>{etat.label}</StatusBadge>
+      )}
+      {plan && !row.parentId && (
+        <span className="text-[11px] text-muted-foreground">
+          {nb.format(plan.pieces)} pièces · {plan.metres.toFixed(1)} m
+        </span>
+      )}
+      <Link
+        href={`/modelisme/${cible}/plan`}
+        className="ml-auto rounded-md border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
+      >
+        {droits.modelisme && !row.parentId ? "📐 Préparer le plan" : "👁 Consulter le plan"}
+      </Link>
     </div>
   );
 }

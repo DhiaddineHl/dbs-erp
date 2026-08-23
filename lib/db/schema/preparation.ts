@@ -78,6 +78,88 @@ export const commandeFournitureLigne = pgTable(
   (t) => [index("commande_four_cmd_idx").on(t.commandeId)],
 );
 
+/* ═══════════ PLAN DE COUPE (matelassage) ═══════════
+ *
+ * La fiche de matelassage que prépare la modéliste : combien de tracés, à
+ * combien de plis, quelles tailles dans chaque tracé. C'est elle qui dit
+ * combien de tissu la commande consomme vraiment, et donc elle qui alimente
+ * la consommation réelle de la nomenclature.
+ *
+ * Une commande, un plan : clé primaire sur la commande, comme le lancement.
+ * Une sous-commande n'en a pas — on coupe le tissu une fois pour le groupe,
+ * c'est le porteur qui porte le plan, exactement comme il porte la réception
+ * tissu et le contrôle qualité. */
+
+/** Un tracé (un matelas) : sa longueur, son nombre de plis, et les pièces de
+ * chaque taille qu'il contient UNE fois. Multiplié par les plis, cela donne
+ * les pièces coupées ; multiplié par la longueur, les mètres consommés.
+ *
+ * Rangé en `jsonb` dans sa matière plutôt qu'en table : un tracé n'existe pas
+ * hors du matelas qui le porte, et sa carte taille → quantité a la forme déjà
+ * admise pour `commande.tailles`. */
+export type TracePlan = {
+  nom: string;
+  /** Longueur du tracé, en mètres. */
+  longueur: number;
+  plis: number;
+  /** Longueur ESTIMÉE par le proposeur, pas encore mesurée après placement.
+   *
+   * Ce drapeau est le garde-fou du plan : tant qu'un tracé est estimé, la
+   * consommation calculée est une prévision et le report vers la nomenclature
+   * est refusé. Saisir la longueur à la main l'efface. */
+  estime: boolean;
+  /** Pièces de chaque taille présentes une fois dans le tracé. */
+  qty: Record<string, number>;
+};
+
+export const commandePlan = pgTable("commande_plan", {
+  commandeId: integer()
+    .primaryKey()
+    .references(() => commande.id, { onDelete: "cascade" }),
+  /** Gamme de tailles gérée par le plan, dans l'ordre d'affichage. */
+  sizes: jsonb().$type<string[]>().notNull().default([]),
+  /** Quantité à couper par taille. Initialisée depuis la commande, puis
+   * corrigeable : c'est souvent le plan qui détaille une commande saisie en
+   * taille unique, et qui la corrige en retour. */
+  ordre: jsonb().$type<Record<string, number>>().notNull().default({}),
+
+  /* ── contraintes de l'atelier ── */
+  /** Pièces différentes admises dans un même tracé. */
+  maxPiecesTrace: integer().notNull().default(4),
+  /** Plis qu'un matelas peut empiler. */
+  maxPlis: integer().notNull().default(100),
+  /** Surplus toléré par taille quand le proposeur arrondit. */
+  surplusTolere: integer().notNull().default(0),
+
+  par: text().notNull().default(""),
+  date: date(),
+  updatedAt: timestamp().notNull().defaultNow(),
+});
+
+/** Une matière du plan : le tissu principal, la doublure, le thermocollant…
+ * Chacune a sa laise, sa consommation prévue et ses propres tracés, parce
+ * qu'on ne matelasse pas une doublure comme un tissu de dessus. */
+export const commandePlanMatiere = pgTable(
+  "commande_plan_matiere",
+  {
+    id: serial().primaryKey(),
+    commandeId: integer()
+      .notNull()
+      .references(() => commandePlan.commandeId, { onDelete: "cascade" }),
+    /** Rang d'affichage : les onglets matière gardent leur ordre de saisie. */
+    rang: integer().notNull().default(0),
+    nom: text().notNull().default("Tissu principal"),
+    /** Laise du rouleau, en centimètres. */
+    laise: doublePrecision(),
+    /** Consommation attendue, en mètres par pièce. */
+    consoPrevue: doublePrecision(),
+    /** Perte en bout de matelas, en mètres. */
+    perteBout: doublePrecision(),
+    traces: jsonb().$type<TracePlan[]>().notNull().default([]),
+  },
+  (t) => [index("commande_plan_matiere_idx").on(t.commandeId, t.rang)],
+);
+
 /** Une commande lancée en a une seule — d'où la clé primaire sur la commande. */
 export const commandeLancement = pgTable("commande_lancement", {
   commandeId: integer()
@@ -125,6 +207,13 @@ export const commandeEtapeRelations = relations(commandeEtape, ({ one }) => ({
 }));
 export const commandeFournitureLigneRelations = relations(commandeFournitureLigne, ({ one }) => ({
   commande: one(commande, { fields: [commandeFournitureLigne.commandeId], references: [commande.id] }),
+}));
+export const commandePlanRelations = relations(commandePlan, ({ one, many }) => ({
+  commande: one(commande, { fields: [commandePlan.commandeId], references: [commande.id] }),
+  matieres: many(commandePlanMatiere),
+}));
+export const commandePlanMatiereRelations = relations(commandePlanMatiere, ({ one }) => ({
+  plan: one(commandePlan, { fields: [commandePlanMatiere.commandeId], references: [commandePlan.commandeId] }),
 }));
 export const commandeLancementRelations = relations(commandeLancement, ({ one }) => ({
   commande: one(commande, { fields: [commandeLancement.commandeId], references: [commande.id] }),

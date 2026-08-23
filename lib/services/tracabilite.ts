@@ -9,6 +9,7 @@ import {
   client,
   commande,
   commandeEtape,
+  commandePlan,
   commandeLancement,
   commandeTds,
   coupe,
@@ -81,9 +82,10 @@ export async function getFrise(commandeId: number): Promise<Frise | null> {
   if (!tete) return null;
   const c = tete.c;
 
-  const [tds, etapes, lancement, coupes, receptions, mouvements, inspections, livraisons] = await Promise.all([
+  const [tds, etapes, plans, lancement, coupes, receptions, mouvements, inspections, livraisons] = await Promise.all([
     db.select().from(commandeTds).where(eq(commandeTds.commandeId, commandeId)).orderBy(asc(commandeTds.n)),
     db.select().from(commandeEtape).where(eq(commandeEtape.commandeId, commandeId)),
+    db.select().from(commandePlan).where(eq(commandePlan.commandeId, commandeId)),
     db.select().from(commandeLancement).where(eq(commandeLancement.commandeId, commandeId)),
     db.select().from(coupe).where(eq(coupe.commandeId, commandeId)).orderBy(asc(coupe.date)),
     db.select().from(br).where(eq(br.commandeId, commandeId)).orderBy(asc(br.date)),
@@ -196,6 +198,20 @@ export async function getFrise(commandeId: number): Promise<Frise | null> {
       detail: "Bureau modélisme",
       tone: "success",
       acteur: e.par,
+    });
+  }
+
+  /* Le plan de coupe est un travail de préparation au même titre que le
+   * patronage : il porte sa date et son auteur, il a sa place dans la frise. */
+  const plan = plans[0];
+  if (plan?.date) {
+    noter({
+      date: plan.date,
+      etape: "preparation",
+      titre: "Plan de coupe préparé",
+      detail: "Fiche de matelassage — bureau modélisme",
+      tone: "success",
+      acteur: plan.par,
     });
   }
 

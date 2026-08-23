@@ -141,6 +141,13 @@
       "when": 1787422157783,
       "tag": "0019_lien_sous_commande",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1787424859560,
+      "tag": "0020_plan_coupe",
+      "breakpoints": true
     }
   ]
 }

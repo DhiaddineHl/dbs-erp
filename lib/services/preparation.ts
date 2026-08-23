@@ -15,6 +15,8 @@ import {
 import * as biz from "@/lib/domain/commande";
 import * as fx from "@/lib/domain/feux";
 import { getChuteDefaut } from "@/lib/services/commandes";
+import { type Auteur, journaliserFiche } from "@/lib/services/journal-fiche";
+import { type ResumePlan, resumesPlans } from "@/lib/services/plan-coupe";
 
 /* Lecture agrégée des cinq écrans de préparation. Une seule requête par table,
  * recollées en mémoire : la liste tient dans quelques centaines de lignes et
@@ -74,6 +76,8 @@ export type PreparationRow = {
   okPro: boolean;
   refOkPro: string;
   etapes: fx.Etape[];
+  /** Plan de coupe, résumé — `null` tant que la modéliste ne l'a pas préparé. */
+  plan: ResumePlan | null;
 
   /* lancement */
   lancement: fx.Lancement | null;
@@ -89,7 +93,7 @@ export type PreparationRow = {
 const iso = (d: string | null) => d ?? "";
 
 export async function listPreparation(): Promise<PreparationRow[]> {
-  const [rows, chuteDefaut] = await Promise.all([
+  const [rows, chuteDefaut, plans] = await Promise.all([
     db
       .select({ c: commande, clientNom: client.nom, faconnierNom: faconnier.nom, chaineNom: chaine.nom })
       .from(commande)
@@ -99,6 +103,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       .where(eq(commande.archived, false))
       .orderBy(commande.id),
     getChuteDefaut(),
+    resumesPlans(),
   ]);
 
   const ids = rows.map((r) => r.c.id);
@@ -248,6 +253,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       okPro: fx.estOkPro(tds),
       refOkPro: fx.referenceOkPro(tds),
       etapes,
+      plan: plans.get(c.id) ?? null,
 
       lancement,
 
@@ -283,29 +289,12 @@ export async function journalDe(commandeId: number, domaine?: string) {
  * Chaque mutation passe par une transaction qui écrit aussi la ligne de
  * journal : une modification sans trace n'existe pas. */
 
-export type Auteur = { id: string; name: string; role: string };
+/* Le journal de fiche vit dans `journal-fiche.ts` : le plan de coupe y écrit
+ * aussi, et le partager depuis ici créerait un cycle entre les deux services. */
+export type { Auteur, Tx } from "@/lib/services/journal-fiche";
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-async function log(
-  tx: Tx,
-  commandeId: number,
-  auteur: Auteur,
-  domaine: fx.DomainePrepa,
-  action: string,
-  opts: { detail?: string; avant?: string | number | null; apres?: string | number | null } = {},
-) {
-  await tx.insert(commandeJournal).values({
-    commandeId,
-    par: auteur.name,
-    role: auteur.role,
-    domaine,
-    action,
-    detail: opts.detail ?? "",
-    avant: opts.avant == null ? "" : String(opts.avant),
-    apres: opts.apres == null ? "" : String(opts.apres),
-  });
-}
+/** Alias local : les mutations de ce fichier l'appellent depuis toujours. */
+const log = journaliserFiche;
 
 const VERDICT_LABEL: Record<string, string> = {
   attente: "En attente client",

@@ -706,6 +706,19 @@ export function CommandesClient({
               </button>{" "}
             </>
           )}
+          {/* Le plan de coupe se prépare sur le porteur : c'est lui qui répond
+              du tissu du groupe, donc lui qu'on matelasse. */}
+          <Link
+            href={`/modelisme/${c.parentId ?? c.id}/plan`}
+            className="rounded border border-input px-1 py-0.5 text-[10px] hover:bg-muted"
+            title={
+              part
+                ? `Plan de coupe — géré par ${c.parentOf}`
+                : "Plan de coupe (matelassage) — conso, tracés, correction des tailles"
+            }
+          >
+            📐
+          </Link>{" "}
           {c.of ? (
             <Link
               href={`/tracabilite?of=${encodeURIComponent(c.of)}`}
