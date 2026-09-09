@@ -10,8 +10,8 @@ import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@dbs.local");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -55,6 +55,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="username"
+              placeholder="vous@entreprise.com"
               className="h-11"
               required
             />
@@ -68,6 +69,7 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
+              placeholder="••••••••"
               className="h-11"
               required
             />
@@ -77,12 +79,6 @@ export default function LoginPage() {
             {loading ? <Loader2 className="size-4 animate-spin" /> : <>Se connecter <ArrowRight className="size-4" /></>}
           </Button>
         </form>
-
-        <div className="mt-6 border-t pt-4 text-[11px] leading-relaxed text-muted-foreground/80">
-          <b className="text-muted-foreground">Comptes de démonstration :</b>
-          <br />
-          admin@dbs.local / admin123 · resp@dbs.local / resp123 · dbs@dbs.local / dbs123
-        </div>
       </div>
     </div>
   );
