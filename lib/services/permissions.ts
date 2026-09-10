@@ -3,6 +3,12 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { appSetting, role as roleTable, rolePermission } from "@/lib/db/schema";
 import { BUILTIN_ROLES, defaultModuleAccess, estRoleBuiltin } from "@/lib/auth/permissions";
+import { NAV_STRUCTURE } from "@/lib/nav";
+
+/** Route to send a signed-in user to when no target page is specified — the
+ * first menu item their role actually has (same filter as the sidebar), so
+ * no one ever lands on a page their role can't see, cockpit included. */
+export const SANS_ACCES_PATH = "/sans-acces";
 
 export type RoleRow = { key: string; label: string; color: string; builtin: boolean };
 
@@ -65,6 +71,20 @@ export async function getPermMatrix(): Promise<PermMatrix> {
 export async function getRoleModules(role: string): Promise<Record<string, boolean>> {
   const matrix = await getPermMatrix();
   return matrix[role] ?? defaultModuleAccess("analyst");
+}
+
+/** First page a role can actually land on: the same order and filter the
+ * sidebar uses (menu-visible + allowed), so login and "/" never send someone
+ * to a module — cockpit included — that their role doesn't have. Falls back
+ * to `/sans-acces` for a role stripped of every module. */
+export async function getLandingPath(role: string): Promise<string> {
+  const modules = await getRoleModules(role);
+  for (const group of NAV_STRUCTURE) {
+    for (const item of group.items) {
+      if (!item.masque && modules[item.id] !== false) return item.href;
+    }
+  }
+  return SANS_ACCES_PATH;
 }
 
 export async function setPermission(role: string, moduleId: string, allowed: boolean) {

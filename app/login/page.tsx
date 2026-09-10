@@ -25,7 +25,9 @@ export default function LoginPage() {
       setError(error.message || "Identifiants invalides");
       return;
     }
-    router.push("/cockpit");
+    // "/" resolves to the first page the signed-in user's role actually has
+    // access to — never a hardcoded page they might not be allowed to see.
+    router.push("/");
     router.refresh();
   }
 

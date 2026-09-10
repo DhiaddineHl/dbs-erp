@@ -30,6 +30,7 @@ import {
   ScrollText,
   UsersRound,
   ShieldCheck,
+  ShieldOff,
   ListChecks,
   Settings,
 } from "lucide-react";
@@ -140,6 +141,9 @@ export const PAGE_META: Record<
   { label: string; subtitle: string; icon: LucideIcon }
 > = {
   cockpit: { label: "Cockpit", subtitle: "Vue d'ensemble", icon: Target },
+  // Route hors menu : getLandingPath() (lib/services/permissions.ts) y envoie
+  // un rôle qui n'a plus aucun module — pas d'entrée dans NAV_STRUCTURE.
+  "sans-acces": { label: "Aucun accès", subtitle: "Ce compte n'a de droit sur aucun module", icon: ShieldOff },
 };
 
 const SUBTITLES: Record<string, string> = {

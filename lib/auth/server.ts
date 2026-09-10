@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import type { AppRole } from "@/lib/auth/permissions";
+import { getLandingPath } from "@/lib/services/permissions";
 
 export async function getSession() {
   return auth.api.getSession({ headers: await headers() });
@@ -23,10 +24,11 @@ export async function requireUser() {
   return user;
 }
 
-/** Page guard: must be admin, else bounce to the cockpit. */
+/** Page guard: must be admin, else bounce to the first page their role has. */
 export async function requireAdmin() {
   const user = await requireUser();
-  if (userRole(user) !== "admin") redirect("/cockpit");
+  const role = userRole(user);
+  if (role !== "admin") redirect(await getLandingPath(role));
   return user;
 }
 
