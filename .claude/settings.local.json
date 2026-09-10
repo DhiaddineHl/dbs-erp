@@ -3,7 +3,10 @@
     "allow": [
       "Bash(ls:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx next build)",
+      "Bash(npm install:*)"
     ]
   }
 }

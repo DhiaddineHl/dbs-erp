@@ -53,7 +53,7 @@ export async function createUser(input: { email: string; password: string; name:
     headers: await headers(),
     body: { email: input.email, password: input.password, name: input.name },
   });
-  await db.update(schema.user).set({ role: input.role }).where(eq(schema.user.id, res.id));
+  await db.update(schema.user).set({ role: input.role }).where(eq(schema.user.id, res.user.id));
   return res;
 }
 
