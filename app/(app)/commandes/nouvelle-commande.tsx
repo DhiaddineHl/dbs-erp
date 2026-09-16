@@ -1,10 +1,13 @@
 "use client";
 
 import { useMemo } from "react";
+import { Pencil } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { EntityFormDialog, type ReglesFormulaire } from "@/components/shared/entity-form-dialog";
-import { COMMANDE_FIELDS } from "@/lib/modules/forms";
+import { COMMANDE_FIELDS, COMMANDE_EDIT_FIELDS } from "@/lib/modules/forms";
 import { apercuCommande, erreurRepartition, montantSaisi, quantiteSaisie } from "@/lib/domain/commande";
-import { createCommande } from "@/lib/actions/commandes";
+import { createCommande, updateCommandeRow } from "@/lib/actions/commandes";
+import type { CommandeRow } from "@/lib/services/commandes";
 import { EditeurSousCommandes, lireBrouillons, totalBrouillons } from "./sous-commandes";
 
 const nb = new Intl.NumberFormat("fr-FR");
@@ -122,6 +125,115 @@ export function NouvelleCommande({
       regles={regles}
       action={createCommande}
       successMessage="Commande créée"
+    />
+  );
+}
+
+/* ─────────── Modification d'une commande existante ───────────
+ *
+ * Même formulaire que la création — sans la grille de tailles (voir
+ * COMMANDE_EDIT_FIELDS) — pré-rempli avec les valeurs actuelles de la
+ * commande, ouvert depuis un bouton « ✏️ Modifier » dans le tableau plutôt
+ * que par la saisie ligne par ligne. Écrit par la même action que l'édition
+ * en ligne (`updateCommandeRow`), donc les mêmes règles serveur s'appliquent
+ * (rattachement client, journal des prix, synchro GPAO…). */
+function construireReglesEdition(): ReglesFormulaire {
+  return {
+    ajuster: (v) => {
+      const a = apercuCommande(v);
+      return a.interne ? { ...v, prixFacon: v.prixVente ?? "" } : v;
+    },
+    verrous: (v): Record<string, string> =>
+      apercuCommande(v).interne
+        ? { prixFacon: "Production interne — le prix façon suit le prix de vente (marge 0)" }
+        : {},
+    apercu: (v) => {
+      const a = apercuCommande(v);
+      if (a.qte === 0) return null;
+      const signe = a.margeUnitaire >= 0 ? "text-success-foreground" : "text-[var(--danger-d)]";
+      return (
+        <div className="rounded-lg bg-accent/40 px-3 py-2 text-xs">
+          <span className="mr-3">
+            📊 <b>{nb.format(a.qte)}</b> pcs
+          </span>
+          <span className="mr-3">
+            Marge unit. <b className={signe}>{dec.format(a.margeUnitaire)} €</b>
+          </span>
+          <span className="mr-3">
+            Marge totale <b className={signe}>{eur.format(a.margeTotale)} €</b>
+          </span>
+          <span className="mr-3">
+            CA <b>{eur.format(a.ca)} €</b>
+          </span>
+          <span>
+            Taux <b className={signe}>{a.tauxPct}%</b>
+          </span>
+          {a.interne && (
+            <div className="mt-1 text-[10.5px] text-muted-foreground">
+              🏭 Production interne : marge nulle par convention.
+            </div>
+          )}
+        </div>
+      );
+    },
+  };
+}
+
+const versChamp = (v: number | null | undefined) => (v == null ? "" : String(v));
+
+export function ModifierCommande({
+  commande,
+  clients,
+  faconniers,
+  chaines,
+}: {
+  commande: CommandeRow;
+  clients: Choix[];
+  faconniers: Choix[];
+  chaines: Choix[];
+}) {
+  const regles = useMemo(() => construireReglesEdition(), []);
+
+  const initialValues = {
+    modele: commande.modele,
+    refArticle: commande.refArticle,
+    couleur: commande.couleur,
+    saison: commande.saison,
+    client: commande.client,
+    faconnier: commande.faconnier,
+    chaineId: versChamp(commande.chaineId),
+    qte: versChamp(commande.qte),
+    prixVente: versChamp(commande.prixVente),
+    prixFacon: versChamp(commande.prixFacon),
+    consoTheo: versChamp(commande.consoTheo),
+    receptTissu: commande.receptTissu,
+    dateExport: commande.dateExport,
+    dateExportReel: commande.dateExportReel,
+    produit: versChamp(commande.produit),
+    note: commande.note,
+  };
+
+  return (
+    <EntityFormDialog
+      trigger={
+        <Button
+          type="button"
+          variant="outline"
+          className="h-auto gap-1 rounded border border-input px-1.5 py-0.5 text-[10px] font-semibold hover:bg-muted"
+          title="Modifier la commande — mêmes champs qu'à la création"
+        >
+          <Pencil className="size-3" /> Modifier
+        </Button>
+      }
+      triggerLabel="Modifier"
+      title={`Modifier ${commande.of || "cette commande"} — ${commande.modele}`}
+      fields={COMMANDE_EDIT_FIELDS}
+      dynamicOptions={{ client: clients, faconnier: faconniers, chaineId: chaines }}
+      regles={regles}
+      initialValues={initialValues}
+      action={(data) => updateCommandeRow(commande.id, data)}
+      successMessage="Commande modifiée"
+      submitLabel="Enregistrer les modifications"
     />
   );
 }

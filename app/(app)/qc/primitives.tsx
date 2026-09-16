@@ -141,6 +141,7 @@ export function BoutonAction({
   confirmer,
   succes,
   disabled,
+  title,
 }: {
   onRun: () => Promise<Retour>;
   children: React.ReactNode;
@@ -148,6 +149,7 @@ export function BoutonAction({
   confirmer?: string;
   succes?: string;
   disabled?: boolean;
+  title?: string;
 }) {
   const run = useAction();
   const [pending, start] = useTransition();
@@ -156,6 +158,7 @@ export function BoutonAction({
       variant={variant}
       size="sm"
       disabled={disabled || pending}
+      title={title}
       onClick={() => {
         if (confirmer && !confirm(confirmer)) return;
         start(() => run(onRun, succes).then(() => undefined));

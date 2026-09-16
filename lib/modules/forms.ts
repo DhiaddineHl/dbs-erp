@@ -57,6 +57,15 @@ export const COMMANDE_FIELDS: Field[] = [
   { name: "note", label: "Note", full: true },
 ];
 
+/* Modification d'une commande existante : même formulaire que la création,
+ * sans la grille de tailles — la répartition par taille touche la
+ * production déjà lancée (coupe, sous-commandes) et se corrige depuis les
+ * écrans dédiés, pas en réécrivant la commande. La quantité globale reste
+ * modifiable pour autant. */
+export const COMMANDE_EDIT_FIELDS: Field[] = COMMANDE_FIELDS.filter((f) => f.name !== "tailles").map((f) =>
+  f.name === "qte" ? { ...f, label: "Quantité" } : f,
+);
+
 export const FACONNIER_FIELDS: Field[] = [
   { name: "nom", label: "Nom", required: true, full: true },
   { name: "specialite", label: "Spécialité", placeholder: "Pantalon · Chino" },

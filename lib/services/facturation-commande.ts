@@ -107,10 +107,19 @@ export async function facturerCommande(
         .where(eq(facture.id, factureId));
     } else {
       /* Le client de la facture est rattaché par sa clé quand elle existe :
-       * sans ça la facture tombe dans « AUTRE » et fausse le CA par société. */
-      const [fiche] = ligneCmd.client
-        ? await tx.select({ key: clientTable.key }).from(clientTable).where(eq(clientTable.id, ligneCmd.clientId ?? -1))
-        : [];
+       * sans ça la facture tombe dans « AUTRE » et fausse le CA par société.
+       * La commande porte parfois un nom de client sans fiche liée (clientId
+       * vide, saisie libre) — on retente alors par le nom avant d'abandonner,
+       * pour ne pas perdre le rattachement alors que le nom est correct. */
+      let fiche: { key: string } | undefined;
+      if (ligneCmd.clientId != null) {
+        [fiche] = await tx.select({ key: clientTable.key }).from(clientTable).where(eq(clientTable.id, ligneCmd.clientId));
+      }
+      if (!fiche && ligneCmd.client) {
+        const cle = biz.normaliserNom(ligneCmd.client);
+        const candidats = await tx.select({ key: clientTable.key, nom: clientTable.nom }).from(clientTable);
+        fiche = candidats.find((c) => biz.normaliserNom(c.nom) === cle);
+      }
       const [cree] = await tx
         .insert(facture)
         .values({

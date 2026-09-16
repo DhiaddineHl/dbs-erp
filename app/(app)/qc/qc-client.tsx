@@ -7,26 +7,30 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Input } from "@/components/ui/input";
 import { VERDICTS } from "@/lib/domain/qc";
-import type { BaremeRow, InspectionRow } from "@/lib/services/qc";
+import type { BaremeRow, ChecklistRow, InspectionRow } from "@/lib/services/qc";
 import * as A from "@/lib/actions/qc";
 import { BoutonAction } from "./primitives";
 import { Editeur, type CommandeChoix } from "./editeur";
 import { Baremes } from "./baremes";
+import { DashboardQualite } from "./dashboard";
+import { Checklists } from "./checklists";
 
 const nb = new Intl.NumberFormat("fr-FR");
 
 export function QcClient({
   inspections,
   baremes,
+  checklists,
   commandes,
   peutSaisir,
 }: {
   inspections: InspectionRow[];
   baremes: BaremeRow[];
+  checklists: ChecklistRow[];
   commandes: CommandeChoix[];
   peutSaisir: boolean;
 }) {
-  const [onglet, setOnglet] = useState<"insp" | "baremes">("insp");
+  const [onglet, setOnglet] = useState<"insp" | "dashboard" | "baremes" | "checklists">("insp");
   const [ouverte, setOuverte] = useState<number | null>(null);
   const [q, setQ] = useState("");
 
@@ -63,7 +67,9 @@ export function QcClient({
         <Editeur
           insp={courante}
           baremes={baremes}
+          checklists={checklists}
           commandes={commandes}
+          toutes={inspections}
           onRetour={() => setOuverte(null)}
           onOuvrir={(id) => setOuverte(id)}
         />
@@ -110,6 +116,8 @@ export function QcClient({
         {(
           [
             ["insp", "Inspections"],
+            ["dashboard", "Tableau de bord"],
+            ["checklists", "Checklists"],
             ["baremes", "Barèmes de mesures"],
           ] as const
         ).map(([k, l]) => (
@@ -127,6 +135,10 @@ export function QcClient({
 
       {onglet === "baremes" ? (
         <Baremes baremes={baremes} peutSaisir={peutSaisir} />
+      ) : onglet === "checklists" ? (
+        <Checklists checklists={checklists} peutSaisir={peutSaisir} />
+      ) : onglet === "dashboard" ? (
+        <DashboardQualite inspections={inspections} />
       ) : (
         <SectionPanel
           title="Inspections"

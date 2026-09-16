@@ -62,3 +62,26 @@ export async function setCostLineAction(
     return fail(e);
   }
 }
+
+export async function suggererClientAction(
+  lignes: { modele: string; ref: string }[],
+): Promise<Result<{ suggestions: svc.SuggestionClient[] }>> {
+  try {
+    await assertUser();
+    const suggestions = await svc.suggererClientPourFacture(lignes);
+    return { ok: true, suggestions };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function reattribuerClientAction(num: string, type: string, clientKey: string): Promise<Result> {
+  try {
+    await assertUser();
+    await svc.reattribuerClientFacture(num, type, clientKey);
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}

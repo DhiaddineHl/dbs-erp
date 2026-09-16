@@ -4,6 +4,7 @@ export * from "./referentiel";
 export * from "./fichier";
 export * from "./commande";
 export * from "./preparation";
+export * from "./tissu";
 export * from "./qc";
 export * from "./aval";
 export * from "./facturation";

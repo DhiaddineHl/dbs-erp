@@ -6,6 +6,7 @@
 
 export const COLONNES_COMMANDE = [
   { cle: "of", label: "N° OF" },
+  { cle: "refArticle", label: "N° OF client" },
   { cle: "modele", label: "Modèle" },
   { cle: "client", label: "Client" },
   { cle: "assigne", label: "Assigné" },

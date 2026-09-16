@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import {
   CLIENT_NAMES,
   FACONNIERS,
@@ -12,6 +13,8 @@ import {
   getLine,
   nb,
 } from "@/lib/facturation/store";
+import { reattribuerClientAction, suggererClientAction } from "@/lib/actions/facturation";
+import type { SuggestionClient } from "@/lib/services/facturation";
 
 export function DetailModal({
   facture: f,
@@ -64,6 +67,8 @@ export function DetailModal({
             ✕
           </button>
         </div>
+
+        <ClientReattribution facture={f} toast={toast} />
 
         <div className="detail-body">
           <div className="detail-kpis">
@@ -200,6 +205,141 @@ export function DetailModal({
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* Réattribution du client d'une facture.
+ *
+ * Deux voies, comme demandé : (1) le bouton « Rechercher le client » confronte
+ * les modèles/références de la facture aux commandes (actives + archivées) et
+ * propose le client le plus probable ; (2) la liste déroulante laisse toujours
+ * la main pour choisir/corriger manuellement. Visible surtout quand la facture
+ * est en « AUTRE », mais utilisable pour corriger n'importe quelle facture. */
+function ClientReattribution({ facture: f, toast }: { facture: Facture; toast: (m: string) => void }) {
+  const [suggestions, setSuggestions] = useState<SuggestionClient[] | null>(null);
+  const [choix, setChoix] = useState(f.client && f.client !== "autre" ? f.client : "");
+  const [pending, start] = useTransition();
+
+  const estAutre = !f.client || f.client === "autre";
+  // Options : les clients connus (mêmes clés que le registre) + « AUTRE ».
+  const options = Object.entries(CLIENT_NAMES).filter(([k]) => k !== "autre");
+
+  const rechercher = () =>
+    start(async () => {
+      const r = await suggererClientAction(f.lignes.map((l) => ({ modele: l.modele, ref: l.ref })));
+      if (!r.ok) {
+        toast(r.error);
+        return;
+      }
+      setSuggestions(r.suggestions);
+      if (r.suggestions[0]) setChoix(r.suggestions[0].key);
+      if (r.suggestions.length === 0) toast("Aucune correspondance trouvée dans les commandes");
+    });
+
+  const appliquer = (key: string) =>
+    start(async () => {
+      const r = await reattribuerClientAction(f.id, f.type, key);
+      if (!r.ok) {
+        toast(r.error);
+        return;
+      }
+      toast(key && key !== "autre" ? `Facture rattachée à ${CLIENT_NAMES[key] ?? key}` : "Client retiré");
+    });
+
+  return (
+    <div
+      style={{
+        margin: "0 16px 12px",
+        padding: "10px 12px",
+        borderRadius: 8,
+        border: estAutre ? "1px solid var(--gold, #C9A227)" : "1px solid var(--line, #E5E1D8)",
+        background: estAutre ? "#FBF7EA" : "var(--card, #fff)",
+      }}
+    >
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 700 }}>
+          Client : {CLIENT_NAMES[f.client] || f.client || "AUTRE"}
+          {estAutre && <span style={{ color: "var(--gold, #C9A227)" }}> — à rattacher</span>}
+        </span>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={rechercher}
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            padding: "4px 10px",
+            borderRadius: 6,
+            border: "1px solid var(--line, #d9d4c8)",
+            background: "#fff",
+            cursor: "pointer",
+          }}
+        >
+          🔎 Rechercher le client (via commandes)
+        </button>
+      </div>
+
+      {suggestions && suggestions.length > 0 && (
+        <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {suggestions.slice(0, 4).map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setChoix(s.key);
+                appliquer(s.key);
+              }}
+              title={`Correspondance : ${s.preuve}`}
+              style={{
+                fontSize: 11,
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid var(--navy, #1f3a5f)",
+                background: s.key === choix ? "var(--navy, #1f3a5f)" : "#fff",
+                color: s.key === choix ? "#fff" : "var(--navy, #1f3a5f)",
+                cursor: "pointer",
+              }}
+            >
+              {CLIENT_NAMES[s.key] ?? s.nom} · {s.preuve}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 11, color: "var(--slate, #6B7589)" }}>Ou choisir à la main :</span>
+        <select
+          value={choix}
+          onChange={(e) => setChoix(e.target.value)}
+          style={{ fontSize: 12, padding: "4px 8px", borderRadius: 6, border: "1px solid var(--line, #d9d4c8)" }}
+        >
+          <option value="">— AUTRE (non rattaché) —</option>
+          {options.map(([k, nom]) => (
+            <option key={k} value={k}>
+              {nom}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => appliquer(choix)}
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            padding: "4px 10px",
+            borderRadius: 6,
+            border: "1px solid var(--navy, #1f3a5f)",
+            background: "var(--navy, #1f3a5f)",
+            color: "#fff",
+            cursor: "pointer",
+          }}
+        >
+          Appliquer
+        </button>
       </div>
     </div>
   );

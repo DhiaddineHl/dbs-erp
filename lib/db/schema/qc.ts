@@ -38,7 +38,16 @@ export const qcInspection = pgTable(
     modele: text().notNull().default(""),
     ref: text().notNull().default(""),
     couleur: text().notNull().default(""),
+    /** Désignation produit et saison, copiées pour le rapport client. */
+    saison: text().notNull().default(""),
     faconnier: text().notNull().default(""),
+    /** Type de contrôle : ppm | inline | prefinal | final. */
+    typeControle: text().notNull().default("final"),
+    /** Quantités affichées sur le rapport. Copiées de la commande à la liaison,
+     * puis ajustables par le contrôleur (qteControlee surtout). */
+    qteCommande: integer().notNull().default(0),
+    qteProduite: integer().notNull().default(0),
+    qteControlee: integer().notNull().default(0),
     /** Taille du lot présenté — détermine l'échantillon AQL. */
     lot: integer().notNull().default(0),
     controleur: text().notNull().default(""),
@@ -71,6 +80,8 @@ export const qcDefaut = pgTable(
     description: text().notNull().default(""),
     /** critique | majeur | mineur */
     gravite: text().notNull().default("majeur"),
+    /** Emplacement du défaut sur le vêtement : « Manche gauche », « Col »… */
+    emplacement: text().notNull().default(""),
     nombre: integer().notNull().default(1),
     createdAt: timestamp().notNull().defaultNow(),
   },
@@ -113,6 +124,41 @@ export const qcPhoto = pgTable(
   (t) => [index("qc_photo_insp_idx").on(t.inspectionId)],
 );
 
+/* ─────────── actions correctives ───────────
+ *
+ * Quand un défaut important est trouvé, on ouvre une action corrective qui vit
+ * SA propre vie après le contrôle : cause, action décidée, responsable,
+ * échéance, statut, et deux photos (avant / après correction). Contrairement
+ * aux défauts et mesures, une action corrective reste modifiable une fois
+ * l'inspection clôturée — c'est un suivi, pas une saisie de contrôle.
+ *
+ * Rattachée à l'inspection, et optionnellement au défaut d'origine. Les photos
+ * réutilisent le stockage `fichier` par hash, comme les photos de défaut. */
+export const qcActionCorrective = pgTable(
+  "qc_action_corrective",
+  {
+    id: serial().primaryKey(),
+    inspectionId: integer()
+      .notNull()
+      .references(() => qcInspection.id, { onDelete: "cascade" }),
+    /** Défaut d'origine, si l'action découle d'un défaut précis. */
+    defautId: integer().references(() => qcDefaut.id, { onDelete: "set null" }),
+    /** Défaut constaté (repris ou saisi librement). */
+    defaut: text().notNull().default(""),
+    cause: text().notNull().default(""),
+    action: text().notNull().default(""),
+    responsable: text().notNull().default(""),
+    echeance: date(),
+    /** a_traiter | en_cours | corrige | verifie | cloture */
+    statut: text().notNull().default("a_traiter"),
+    /** Photos avant / après correction (hash fichier). */
+    photoAvant: text().references(() => fichier.hash),
+    photoApres: text().references(() => fichier.hash),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [index("qc_action_insp_idx").on(t.inspectionId)],
+);
+
 /* ─────────── barèmes de mesures clients ───────────
  * Ce sont les dossiers techniques réels des donneurs d'ordre : une matrice
  * point de mesure × taille, avec une tolérance par point. */
@@ -151,6 +197,11 @@ export const qcInspectionRelations = relations(qcInspection, ({ one, many }) => 
   defauts: many(qcDefaut),
   mesures: many(qcMesure),
   photos: many(qcPhoto),
+  actions: many(qcActionCorrective),
+}));
+export const qcActionCorrectiveRelations = relations(qcActionCorrective, ({ one }) => ({
+  inspection: one(qcInspection, { fields: [qcActionCorrective.inspectionId], references: [qcInspection.id] }),
+  defaut: one(qcDefaut, { fields: [qcActionCorrective.defautId], references: [qcDefaut.id] }),
 }));
 export const qcDefautRelations = relations(qcDefaut, ({ one, many }) => ({
   inspection: one(qcInspection, { fields: [qcDefaut.inspectionId], references: [qcInspection.id] }),
@@ -168,4 +219,63 @@ export const qcBaremeRelations = relations(qcBareme, ({ many }) => ({
 }));
 export const qcBaremePointRelations = relations(qcBaremePoint, ({ one }) => ({
   bareme: one(qcBareme, { fields: [qcBaremePoint.baremeId], references: [qcBareme.id] }),
+}));
+
+/* ─────────── checklists de contrôle ───────────
+ *
+ * Modèles de checklist réutilisables, par type de produit (Chemise, Pantalon…)
+ * et éventuellement par type de contrôle. Configurables depuis l'application,
+ * sans toucher au code. Comme les barèmes, les points sont COPIÉS sur
+ * l'inspection au moment où le contrôleur applique la checklist : l'inspection
+ * garde sa trace même si le modèle évolue plus tard. */
+export const qcChecklist = pgTable("qc_checklist", {
+  id: serial().primaryKey(),
+  nom: text().notNull(),
+  /** Type de produit visé : « Chemise », « Pantalon »… (libre). */
+  typeProduit: text().notNull().default(""),
+  /** Type de contrôle visé, ou "" pour tous : ppm | inline | prefinal | final. */
+  typeControle: text().notNull().default(""),
+  createdAt: timestamp().notNull().defaultNow(),
+});
+
+export const qcChecklistPoint = pgTable(
+  "qc_checklist_point",
+  {
+    id: serial().primaryKey(),
+    checklistId: integer()
+      .notNull()
+      .references(() => qcChecklist.id, { onDelete: "cascade" }),
+    ordre: integer().notNull().default(0),
+    label: text().notNull(),
+  },
+  (t) => [index("qc_checklist_point_idx").on(t.checklistId)],
+);
+
+/** Réponses de checklist d'une inspection : points copiés d'un modèle, cochés
+ * au fil du contrôle. statut : "" (à vérifier) | ok | ko | na. */
+export const qcChecklistReponse = pgTable(
+  "qc_checklist_reponse",
+  {
+    id: serial().primaryKey(),
+    inspectionId: integer()
+      .notNull()
+      .references(() => qcInspection.id, { onDelete: "cascade" }),
+    ordre: integer().notNull().default(0),
+    label: text().notNull(),
+    /** "" | ok | ko | na */
+    statut: text().notNull().default(""),
+    note: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [index("qc_checklist_rep_insp_idx").on(t.inspectionId)],
+);
+
+export const qcChecklistRelations = relations(qcChecklist, ({ many }) => ({
+  points: many(qcChecklistPoint),
+}));
+export const qcChecklistPointRelations = relations(qcChecklistPoint, ({ one }) => ({
+  checklist: one(qcChecklist, { fields: [qcChecklistPoint.checklistId], references: [qcChecklist.id] }),
+}));
+export const qcChecklistReponseRelations = relations(qcChecklistReponse, ({ one }) => ({
+  inspection: one(qcInspection, { fields: [qcChecklistReponse.inspectionId], references: [qcInspection.id] }),
 }));

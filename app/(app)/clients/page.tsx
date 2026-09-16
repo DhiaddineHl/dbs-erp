@@ -31,7 +31,7 @@ export default async function ClientsPage() {
         actions={
           <>
             <ExportCsvButton rows={CLIENTS} columns={CLIENT_COLUMNS} filename="clients" />
-            {peutFusionner && <BoutonFusionClients />}
+            {peutFusionner && <BoutonFusionClients clients={CLIENTS} />}
             <ImportButton action={importClients} label="Importer (CSV/Excel)" />
             <EntityFormDialog
               triggerLabel="Nouveau client"

@@ -1,7 +1,8 @@
 import "server-only";
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { client, facture, factureCostLine, factureExtra, factureLigne, faconnier } from "@/lib/db/schema";
+import { client, commande, facture, factureCostLine, factureExtra, factureLigne, faconnier } from "@/lib/db/schema";
+import * as biz from "@/lib/domain/commande";
 
 /* ─────────── Domain shapes (match the existing client store) ─────────── */
 export type Ligne = { modele: string; desig: string; ref: string; couleur: string; qte: number; pu: number; mt: number };
@@ -199,4 +200,87 @@ export async function setCostLine(
     .insert(factureCostLine)
     .values({ factureId: f.id, lineIdx, ...data })
     .onConflictDoUpdate({ target: [factureCostLine.factureId, factureCostLine.lineIdx], set: data });
+}
+
+/* ─────────── Rapprochement client d'une facture ───────────
+ *
+ * Une facture saisie directement (hors pont commande) peut arriver sans client
+ * rattaché → elle s'affiche « AUTRE ». Plutôt que de laisser deviner, on
+ * confronte ses modèles et références aux commandes (actives ET archivées) :
+ * le client d'une commande qui porte le même modèle/référence est presque
+ * toujours le bon. On rend une proposition classée par nombre de
+ * correspondances, l'utilisateur garde la main pour choisir. */
+
+export type SuggestionClient = { key: string; nom: string; score: number; preuve: string };
+
+export async function suggererClientPourFacture(
+  lignes: { modele: string; ref: string }[],
+): Promise<SuggestionClient[]> {
+  if (lignes.length === 0) return [];
+
+  const rows = await db
+    .select({
+      modele: commande.modele,
+      ref: commande.refArticle,
+      clientId: commande.clientId,
+      clientNom: client.nom,
+      clientKey: client.key,
+    })
+    .from(commande)
+    .leftJoin(client, eq(commande.clientId, client.id));
+
+  /* Index modèle normalisé → client, et référence normalisée → client. Le
+   * modèle vaut plus que la référence (une réf peut se répéter entre saisons),
+   * mais les deux concordant donnent la certitude. */
+  const parModele = new Map<string, { key: string; nom: string }>();
+  const parRef = new Map<string, { key: string; nom: string }>();
+  for (const r of rows) {
+    if (!r.clientKey || !r.clientNom) continue;
+    const c = { key: r.clientKey, nom: r.clientNom };
+    const m = biz.normaliserNom(r.modele);
+    const ref = biz.normaliserNom(r.ref);
+    if (m) parModele.set(m, c);
+    if (ref) parRef.set(ref, c);
+  }
+
+  const scores = new Map<string, { nom: string; score: number; modeles: Set<string>; refs: Set<string> }>();
+  const ajoute = (c: { key: string; nom: string }, points: number, quoi: string, ou: "m" | "r") => {
+    const s = scores.get(c.key) ?? { nom: c.nom, score: 0, modeles: new Set<string>(), refs: new Set<string>() };
+    s.score += points;
+    if (ou === "m") s.modeles.add(quoi);
+    else s.refs.add(quoi);
+    scores.set(c.key, s);
+  };
+
+  for (const l of lignes) {
+    const m = biz.normaliserNom(l.modele);
+    const ref = biz.normaliserNom(l.ref);
+    const cm = m ? parModele.get(m) : undefined;
+    const cr = ref ? parRef.get(ref) : undefined;
+    if (cm) ajoute(cm, 3, l.modele, "m");
+    if (cr) ajoute(cr, 2, l.ref, "r");
+  }
+
+  return [...scores.entries()]
+    .map(([key, s]) => {
+      const preuves: string[] = [];
+      if (s.modeles.size) preuves.push(`${s.modeles.size} modèle(s)`);
+      if (s.refs.size) preuves.push(`${s.refs.size} référence(s)`);
+      return { key, nom: s.nom, score: s.score, preuve: preuves.join(" · ") };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+/** Réattribue le client d'une facture (num + type) à une clé client donnée. */
+export async function reattribuerClientFacture(num: string, type: string, clientKey: string) {
+  const key = clientKey === "autre" || clientKey === "" ? null : clientKey;
+  let marque = "";
+  if (key) {
+    const [c] = await db.select({ nom: client.nom }).from(client).where(eq(client.key, key));
+    marque = c?.nom ?? "";
+  }
+  await db
+    .update(facture)
+    .set(key ? { clientKey: key, marque } : { clientKey: null })
+    .where(and(eq(facture.num, num), eq(facture.type, type)));
 }

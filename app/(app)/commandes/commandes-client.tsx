@@ -34,6 +34,7 @@ import { DialogDoublons, DialogPlanifier, DialogPrix } from "./outils";
 import { PhotoCommande } from "./photo";
 import { DialogAjoutSousCommandes } from "./sous-commandes";
 import { DialogRegrouper } from "./regrouper";
+import { ModifierCommande } from "./nouvelle-commande";
 import { resteAFacturer } from "@/lib/domain/facturation-commande";
 
 const nb = new Intl.NumberFormat("fr-FR");
@@ -439,6 +440,17 @@ export function CommandesClient({
             </div>
           </td>
         )}
+        {visible("refArticle") && (
+          <td className="px-3 py-1.5 text-muted-foreground">
+            {part && c.lienParent === "decoupe" ? (
+              <span className="px-1" title="Référence héritée de la commande mère">
+                {c.refArticle || "—"}
+              </span>
+            ) : (
+              <Cellule valeur={c.refArticle} onSave={(v) => enregistrer(c.id, "refArticle", v)} />
+            )}
+          </td>
+        )}
         {visible("modele") && (
           <td className="px-3 py-1.5 font-semibold">
             {part && c.lienParent === "decoupe" ? (
@@ -450,7 +462,9 @@ export function CommandesClient({
                 <span className="px-1 font-normal text-muted-foreground" title="Modèle hérité de la commande mère">
                   {c.modele}
                 </span>
-                {c.couleur && <div className="px-1 text-[10px] font-normal text-muted-foreground">{c.couleur}</div>}
+                <div className="px-1 text-[10px] font-normal text-muted-foreground">
+                  <Cellule valeur={c.couleur} onSave={(v) => enregistrer(c.id, "couleur", v)} />
+                </div>
               </div>
             ) : (
               /* La photo est collée au modèle : c'est le nom qu'elle illustre,
@@ -464,7 +478,9 @@ export function CommandesClient({
                 />
                 <div className="min-w-0 flex-1">
                   <Cellule valeur={c.modele} onSave={(v) => enregistrer(c.id, "modele", v)} />
-                  {c.couleur && <div className="px-1 text-[10px] font-normal text-muted-foreground">{c.couleur}</div>}
+                  <div className="px-1 text-[10px] font-normal text-muted-foreground">
+                    <Cellule valeur={c.couleur} onSave={(v) => enregistrer(c.id, "couleur", v)} />
+                  </div>
                 </div>
               </div>
             )}
@@ -673,6 +689,14 @@ export function CommandesClient({
               >
                 ⛓️‍💥
               </button>{" "}
+            </>
+          )}
+          {/* Fenêtre de modification complète — les mêmes champs qu'à la
+              création, pour tout changer d'un coup plutôt que cellule par
+              cellule. Masquée en Planning, qui ne connaît pas les prix. */}
+          {!planning && !c.archived && (
+            <>
+              <ModifierCommande commande={c} clients={clients} faconniers={faconniers} chaines={chaines} />{" "}
             </>
           )}
           {/* Une part ne se redécoupe pas : le découpage s'arrête à un niveau,
@@ -945,6 +969,7 @@ export function CommandesClient({
                   />
                 </th>
                 {visible("of") && <th className="px-3 py-2 text-left">N° OF</th>}
+                {visible("refArticle") && <th className="px-3 py-2 text-left">N° OF client</th>}
                 {visible("modele") && <th className="px-3 py-2 text-left">Modèle</th>}
                 {visible("client") && <th className="px-3 py-2 text-left">Client</th>}
                 {visible("assigne") && <th className="px-3 py-2 text-left">Assigné</th>}
@@ -958,7 +983,7 @@ export function CommandesClient({
                 {visible("retard") && <th className="px-3 py-2 text-left">Retard</th>}
                 {visible("av") && <th className="px-3 py-2 text-right">Avancement</th>}
                 {visible("statut") && <th className="px-3 py-2 text-left">Statut</th>}
-                <th className="w-24 px-2 py-2 text-right">Fiche</th>
+                <th className="w-40 px-2 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>

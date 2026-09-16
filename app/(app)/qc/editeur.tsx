@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Camera, Trash2, X } from "lucide-react";
@@ -8,8 +8,18 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { SectionPanel } from "@/components/shared/section-panel";
-import { FAMILLES_DEFAUT, GRAVITES, POINTS_MESURE, VERDICTS } from "@/lib/domain/qc";
-import type { BaremeRow, InspectionRow } from "@/lib/services/qc";
+import {
+  FAMILLES_DEFAUT,
+  GRAVITES,
+  POINTS_MESURE,
+  STATUTS_ACTION,
+  STATUTS_POINT,
+  TYPES_CONTROLE,
+  VERDICTS,
+  historiqueReference,
+  type InspectionBilan,
+} from "@/lib/domain/qc";
+import type { BaremeRow, ChecklistRow, InspectionRow } from "@/lib/services/qc";
 import * as A from "@/lib/actions/qc";
 import { ChampAction, BoutonAction, SelectAction, useAction } from "./primitives";
 
@@ -29,13 +39,18 @@ export type CommandeChoix = {
 export function Editeur({
   insp,
   baremes,
+  checklists,
   commandes,
+  toutes,
   onRetour,
   onOuvrir,
 }: {
   insp: InspectionRow;
   baremes: BaremeRow[];
+  checklists: ChecklistRow[];
   commandes: CommandeChoix[];
+  /** Toutes les inspections, pour l'historique qualité de la référence. */
+  toutes: InspectionRow[];
   onRetour: () => void;
   onOuvrir: (id: number) => void;
 }) {
@@ -44,6 +59,20 @@ export function Editeur({
   const fige = insp.statut === "cloture";
   const v = VERDICTS[insp.verdict];
   const p = insp.proposition;
+
+  /* Historique de la référence : les contrôles passés du même modèle, hors
+   * l'inspection courante. Le contrôleur voit les défauts récurrents avant de
+   * commencer. */
+  const histo = useMemo(
+    () =>
+      insp.modele
+        ? historiqueReference(
+            toutes.filter((i) => i.id !== insp.id) as unknown as (InspectionBilan & { numero?: number })[],
+            insp.modele,
+          )
+        : null,
+    [toutes, insp.modele, insp.id],
+  );
 
   const baremeChoisi = insp.baremeApparieId ?? baremes[0]?.id ?? 0;
   const [barId, setBarId] = useState(baremeChoisi);
@@ -182,6 +211,14 @@ export function Editeur({
               ))}
             </select>
           </Bloc>
+          <Bloc label="Type de contrôle">
+            <SelectAction
+              valeur={insp.typeControle || "final"}
+              options={TYPES_CONTROLE.map((t) => ({ value: t.value, label: t.court }))}
+              fige={fige}
+              onSave={(x) => A.majInspection(insp.id, "typeControle", x)}
+            />
+          </Bloc>
           <Bloc label="Date contrôle">
             <ChampAction valeur={insp.date} type="date" fige={fige} onSave={(x) => A.majInspection(insp.id, "date", x)} />
           </Bloc>
@@ -199,12 +236,175 @@ export function Editeur({
           </Bloc>
         </div>
 
+        {/* Quantités reportées sur le rapport client. */}
+        <div className="mt-2.5 grid gap-2.5 sm:grid-cols-3">
+          <Bloc label="Qté commandée">
+            <ChampAction
+              valeur={insp.qteCommande ? String(insp.qteCommande) : ""}
+              type="number"
+              fige={fige}
+              onSave={(x) => A.majInspection(insp.id, "qteCommande", x)}
+            />
+          </Bloc>
+          <Bloc label="Qté produite">
+            <ChampAction
+              valeur={insp.qteProduite ? String(insp.qteProduite) : ""}
+              type="number"
+              fige={fige}
+              onSave={(x) => A.majInspection(insp.id, "qteProduite", x)}
+            />
+          </Bloc>
+          <Bloc label="Qté contrôlée">
+            <ChampAction
+              valeur={insp.qteControlee ? String(insp.qteControlee) : ""}
+              type="number"
+              placeholder={`échantillon ${p.plan.n}`}
+              fige={fige}
+              onSave={(x) => A.majInspection(insp.id, "qteControlee", x)}
+            />
+          </Bloc>
+        </div>
+
         <div className="mt-4 grid gap-2.5 sm:grid-cols-4">
           <Tuile titre="Échantillon à contrôler" valeur={String(p.plan.n)} accent />
           <Tuile titre="Majeurs (AQL 2,5)" valeur={`Ac ${p.plan.ac25} · Re ${p.plan.re25}`} />
           <Tuile titre="Mineurs (AQL 4,0)" valeur={`Ac ${p.plan.ac40} · Re ${p.plan.re40}`} />
           <Tuile titre="Critiques" valeur="0 toléré" danger />
         </div>
+      </SectionPanel>
+
+      {/* ─── Historique qualité de la référence ─── */}
+      {histo && histo.controles > 0 && (
+        <SectionPanel title={`Historique qualité — ${insp.modele} (${histo.controles} contrôle(s) passé(s))`}>
+          <div className="grid gap-3 lg:grid-cols-[repeat(3,minmax(0,1fr))_2fr]">
+            <Tuile
+              titre="Taux de conformité"
+              valeur={histo.tauxConformite === null ? "—" : `${histo.tauxConformite} %`}
+              accent={histo.tauxConformite !== null && histo.tauxConformite >= 90}
+              danger={histo.tauxConformite !== null && histo.tauxConformite < 75}
+            />
+            <Tuile titre="Contrôles" valeur={String(histo.controles)} />
+            <Tuile titre="Lots refusés" valeur={String(histo.refuses)} danger={histo.refuses > 0} />
+            <div className="rounded-xl border bg-card p-3">
+              <div className="mb-1 text-[10.5px] font-bold uppercase text-muted-foreground">Défauts récurrents</div>
+              {histo.defautsRecurrents.length === 0 ? (
+                <div className="text-xs text-muted-foreground">Aucun défaut relevé sur les contrôles passés.</div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {histo.defautsRecurrents.map((r) => (
+                    <span key={r.famille} className="rounded-full bg-muted px-2 py-0.5 text-[11px]">
+                      {r.famille} <b>{r.nombre}</b>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          {histo.derniers.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {histo.derniers.map((h, i) => {
+                const vv = VERDICTS[h.verdict];
+                return (
+                  <div key={i} className="rounded-lg border bg-muted/30 px-2.5 py-1.5 text-[11px]">
+                    <span className="text-muted-foreground">{h.date}</span> ·{" "}
+                    <StatusBadge tone={vv.tone}>{vv.label}</StatusBadge>{" "}
+                    {h.totalDefauts > 0 && <span className="text-muted-foreground">{h.totalDefauts} déf.</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            💡 Vérifiez les défauts récurrents ci-dessus avant de commencer : ce sont les points à contrôler en priorité
+            sur cette référence.
+          </p>
+        </SectionPanel>
+      )}
+
+      {/* ─── Checklist de contrôle ─── */}
+      <SectionPanel
+        title={`Checklist de contrôle (${insp.checklist.filter((c) => c.statut === "ok").length}/${insp.checklist.length} OK)`}
+        actions={
+          !fige && (
+            <div className="flex items-center gap-2">
+              {checklists.length > 0 && (
+                <ChargeurChecklist inspId={insp.id} checklists={checklists} />
+              )}
+              <BoutonAction onRun={() => A.ajouterPointReponse(insp.id, "Nouveau point")} succes="Point ajouté">
+                + Point libre
+              </BoutonAction>
+            </div>
+          )
+        }
+      >
+        {insp.checklist.length === 0 ? (
+          <div className="text-xs text-muted-foreground">
+            {checklists.length === 0
+              ? "Aucune checklist configurée. Créez des modèles dans l'onglet « Checklists » (Chemise, Pantalon…)."
+              : "Appliquez une checklist (bouton ci-dessus) pour dérouler les points à contrôler, ou ajoutez des points libres."}
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {insp.checklist.map((pt, i) => (
+              <div key={pt.id} className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-2">
+                <span className="w-6 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">{i + 1}.</span>
+                <div className="min-w-[160px] flex-1">
+                  <ChampAction
+                    valeur={pt.label}
+                    fige={fige}
+                    onSave={(x) => A.majReponseChecklist(insp.id, pt.id, "label", x)}
+                  />
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  {STATUTS_POINT.filter((s) => s.value !== "").map((s) => {
+                    const actif = pt.statut === s.value;
+                    const couleur =
+                      s.value === "ok"
+                        ? actif
+                          ? "bg-green-600 text-white"
+                          : "text-green-700 hover:bg-green-50"
+                        : s.value === "ko"
+                          ? actif
+                            ? "bg-red-600 text-white"
+                            : "text-red-700 hover:bg-red-50"
+                          : actif
+                            ? "bg-neutral-600 text-white"
+                            : "text-neutral-600 hover:bg-neutral-100";
+                    return (
+                      <button
+                        key={s.value}
+                        type="button"
+                        disabled={fige}
+                        title={s.label}
+                        className={`rounded border px-2 py-1 text-[11px] font-bold ${couleur} disabled:opacity-50`}
+                        onClick={async () => {
+                          const r = await A.majReponseChecklist(insp.id, pt.id, "statut", actif ? "" : s.value);
+                          if (!r.ok) toast.error(r.error);
+                          else router.refresh();
+                        }}
+                      >
+                        {s.court}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="min-w-[120px] flex-1">
+                  <ChampAction
+                    valeur={pt.note}
+                    placeholder="Note…"
+                    fige={fige}
+                    onSave={(x) => A.majReponseChecklist(insp.id, pt.id, "note", x)}
+                  />
+                </div>
+                {!fige && (
+                  <BoutonAction variant="ghost" onRun={() => A.supprimerReponseChecklist(insp.id, pt.id)}>
+                    <Trash2 className="size-3.5" />
+                  </BoutonAction>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </SectionPanel>
 
       {/* ─── 2 · défauts ─── */}
@@ -408,6 +608,29 @@ export function Editeur({
         )}
       </SectionPanel>
 
+      {/* ─── Actions correctives ─── */}
+      <SectionPanel
+        title={`Actions correctives (${insp.actions.length})`}
+        actions={
+          <BoutonAction onRun={() => A.ajouterAction(insp.id, null)} succes="Action créée">
+            + Action corrective
+          </BoutonAction>
+        }
+      >
+        {insp.actions.length === 0 ? (
+          <div className="text-xs text-muted-foreground">
+            Aucune action corrective. Sur un défaut important, ouvrez-en une (bouton 🛠 sur le défaut, ou ci-dessus).
+            Les actions restent modifiables après clôture — c&apos;est un suivi.
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {insp.actions.map((a) => (
+              <LigneAction key={a.id} action={a} />
+            ))}
+          </div>
+        )}
+      </SectionPanel>
+
       {/* ─── 5 · verdict ─── */}
       <SectionPanel title="5 · Verdict">
         <div className="flex flex-wrap items-center gap-4">
@@ -466,6 +689,36 @@ export function Editeur({
 
 /* ─────────── éléments ─────────── */
 
+/** Sélecteur + bouton pour appliquer un modèle de checklist à l'inspection. */
+function ChargeurChecklist({ inspId, checklists }: { inspId: number; checklists: ChecklistRow[] }) {
+  const [choix, setChoix] = useState(checklists[0]?.id ?? 0);
+  return (
+    <div className="flex items-center gap-1.5">
+      <select
+        value={choix}
+        onChange={(e) => setChoix(Number(e.target.value))}
+        className="h-8 rounded-md border border-input bg-card px-2 text-xs"
+      >
+        {checklists.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.nom}
+            {c.typeProduit ? ` · ${c.typeProduit}` : ""} ({c.points.length})
+          </option>
+        ))}
+      </select>
+      <BoutonAction
+        onRun={async () => {
+          const r = await A.appliquerChecklist(inspId, choix);
+          return r.ok ? { ok: true } : r;
+        }}
+        succes="Checklist appliquée"
+      >
+        Appliquer
+      </BoutonAction>
+    </div>
+  );
+}
+
 function Bloc({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -508,6 +761,14 @@ function LigneDefaut({
             onSave={(x) => A.majDefaut(insp.id, defaut.id, "description", x)}
           />
         </div>
+        <div className="w-32">
+          <ChampAction
+            valeur={defaut.emplacement}
+            placeholder="Emplacement…"
+            fige={fige}
+            onSave={(x) => A.majDefaut(insp.id, defaut.id, "emplacement", x)}
+          />
+        </div>
         <div className="w-28">
           <SelectAction
             valeur={defaut.gravite}
@@ -528,6 +789,14 @@ function LigneDefaut({
         {!fige && (
           <>
             <BoutonPhoto inspectionId={insp.id} defautId={defaut.id} compact />
+            <BoutonAction
+              variant="ghost"
+              onRun={() => A.ajouterAction(insp.id, defaut.id)}
+              succes="Action corrective créée"
+              title="Ouvrir une action corrective pour ce défaut"
+            >
+              🛠
+            </BoutonAction>
             <BoutonAction variant="ghost" onRun={() => A.supprimerDefaut(insp.id, defaut.id)}>
               <Trash2 className="size-3.5" />
             </BoutonAction>
@@ -626,6 +895,115 @@ function BoutonPhoto({
         }}
       />
     </>
+  );
+}
+
+/* ─── Action corrective : une carte éditable, avec photos avant/après ───
+ *
+ * Modifiable même après clôture (suivi). Statuts : à traiter → en cours →
+ * corrigé → vérifié → clôturé. Deux emplacements photo (avant / après) qui
+ * réutilisent la compression et le stockage par hash. */
+function LigneAction({ action: a }: { action: InspectionRow["actions"][number] }) {
+  const st = STATUTS_ACTION.find((s) => s.value === a.statut);
+  return (
+    <div className="rounded-xl border bg-card p-3">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <StatusBadge tone={st?.tone ?? "neutral"}>{st?.label ?? a.statut}</StatusBadge>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="w-40">
+            <SelectAction
+              valeur={a.statut}
+              options={STATUTS_ACTION.map((s) => ({ value: s.value, label: s.label }))}
+              onSave={(x) => A.majAction(a.id, "statut", x)}
+            />
+          </div>
+          <BoutonAction variant="ghost" confirmer="Supprimer cette action ?" onRun={() => A.supprimerAction(a.id)}>
+            <Trash2 className="size-3.5" />
+          </BoutonAction>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Bloc label="Défaut constaté">
+          <ChampAction valeur={a.defaut} placeholder="Défaut…" onSave={(x) => A.majAction(a.id, "defaut", x)} />
+        </Bloc>
+        <Bloc label="Cause (5M)">
+          <ChampAction valeur={a.cause} placeholder="Cause racine…" onSave={(x) => A.majAction(a.id, "cause", x)} />
+        </Bloc>
+        <Bloc label="Action corrective">
+          <ChampAction valeur={a.action} placeholder="Action décidée…" onSave={(x) => A.majAction(a.id, "action", x)} />
+        </Bloc>
+        <div className="grid grid-cols-2 gap-2">
+          <Bloc label="Responsable">
+            <ChampAction
+              valeur={a.responsable}
+              placeholder="Nom…"
+              onSave={(x) => A.majAction(a.id, "responsable", x)}
+            />
+          </Bloc>
+          <Bloc label="Échéance">
+            <ChampAction valeur={a.echeance} type="date" onSave={(x) => A.majAction(a.id, "echeance", x)} />
+          </Bloc>
+        </div>
+      </div>
+
+      <div className="mt-2 grid grid-cols-2 gap-3">
+        <PhotoAction actionId={a.id} quand="avant" hash={a.photoAvant} />
+        <PhotoAction actionId={a.id} quand="apres" hash={a.photoApres} />
+      </div>
+    </div>
+  );
+}
+
+function PhotoAction({ actionId, quand, hash }: { actionId: number; quand: "avant" | "apres"; hash: string | null }) {
+  const router = useRouter();
+  const input = useRef<HTMLInputElement>(null);
+  const [pending, start] = useTransition();
+  const label = quand === "avant" ? "Photo AVANT" : "Photo APRÈS";
+
+  return (
+    <div className="rounded-lg border border-dashed p-2">
+      <div className="mb-1 text-[10.5px] font-bold uppercase text-muted-foreground">{label}</div>
+      {hash ? (
+        <div className="flex items-start gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`/api/fichier/${hash}`} alt={label} className="h-24 w-auto rounded border object-cover" />
+          <BoutonAction variant="ghost" onRun={() => A.retirerPhotoAction(actionId, quand)}>
+            <Trash2 className="size-3.5" />
+          </BoutonAction>
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" disabled={pending} onClick={() => input.current?.click()}>
+          <Camera className="size-3.5" /> {pending ? "Envoi…" : "Ajouter"}
+        </Button>
+      )}
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          const compressee = await compresser(f);
+          const fd = new FormData();
+          fd.set("actionId", String(actionId));
+          fd.set("quand", quand);
+          fd.set("fichier", compressee, "photo.jpg");
+          start(async () => {
+            const r = await A.photoAction(fd);
+            if (!r.ok) {
+              toast.error(r.error);
+              return;
+            }
+            toast.success("Photo ajoutée");
+            router.refresh();
+          });
+        }}
+      />
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, cloneElement, isValidElement, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -55,21 +55,36 @@ export function EntityFormDialog({
   dynamicOptions,
   regles,
   successMessage = "Enregistré",
+  initialValues,
+  trigger,
+  submitLabel = "Enregistrer",
 }: {
   triggerLabel: string;
   title: string;
   fields: Field[];
-  /** Server action that inserts the row. */
+  /** Server action that inserts (or updates) the row. */
   action: (data: Valeurs) => Promise<Result>;
   /** Runtime dropdown sources for fields marked `dynamic` (keyed by field name). */
   dynamicOptions?: Record<string, Choice[]>;
   regles?: ReglesFormulaire;
   successMessage?: string;
+  /** Pré-remplit le formulaire — pour un dialogue de modification plutôt que de création. */
+  initialValues?: Valeurs;
+  /** Élément déclencheur personnalisé (ex. un bouton icône « ✏️ Modifier » dans un tableau).
+   * À défaut, le bouton « + triggerLabel » habituel est utilisé. */
+  trigger?: ReactElement;
+  /** Libellé du bouton de validation (« Enregistrer » par défaut, « Modifier » en édition…). */
+  submitLabel?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [values, setValues] = useState<Valeurs>({});
+  const [values, setValues] = useState<Valeurs>(initialValues ?? {});
   const [pending, startTransition] = useTransition();
+
+  const ouvrir = () => {
+    setValues(initialValues ?? {});
+    setOpen(true);
+  };
 
   const set = (name: string, v: string) =>
     setValues((s) => {
@@ -95,7 +110,7 @@ export function EntityFormDialog({
       const res = await action(values);
       if (res.ok) {
         toast.success(successMessage);
-        setValues({});
+        setValues(initialValues ?? {});
         setOpen(false);
         router.refresh();
       } else {
@@ -106,14 +121,18 @@ export function EntityFormDialog({
 
   return (
     <>
-      <Button size="sm" onClick={() => setOpen(true)}>
-        <Plus className="size-4" /> {triggerLabel}
-      </Button>
+      {trigger && isValidElement(trigger) ? (
+        cloneElement(trigger, { onClick: ouvrir } as Record<string, unknown>)
+      ) : (
+        <Button size="sm" onClick={ouvrir}>
+          <Plus className="size-4" /> {triggerLabel}
+        </Button>
+      )}
       <Dialog
         open={open}
         onOpenChange={(o) => {
           setOpen(o);
-          if (!o) setValues({});
+          if (!o) setValues(initialValues ?? {});
         }}
       >
       <DialogContent className="max-h-[90vh] w-[95vw] max-w-[95vw] sm:max-w-3xl">
@@ -175,7 +194,7 @@ export function EntityFormDialog({
             Annuler
           </Button>
           <Button onClick={submit} disabled={pending}>
-            {pending ? "Enregistrement…" : "Enregistrer"}
+            {pending ? "Enregistrement…" : submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

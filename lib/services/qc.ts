@@ -7,8 +7,12 @@ import {
   commande,
   faconnier,
   mQrqc,
+  qcActionCorrective,
   qcBareme,
   qcBaremePoint,
+  qcChecklist,
+  qcChecklistPoint,
+  qcChecklistReponse,
   qcDefaut,
   qcInspection,
   qcMesure,
@@ -24,6 +28,7 @@ export type DefautRow = {
   famille: string;
   description: string;
   gravite: string;
+  emplacement: string;
   nombre: number;
   photos: { id: number; hash: string }[];
 };
@@ -39,6 +44,27 @@ export type MesureRow = {
   horsTolerance: boolean;
 };
 
+export type ActionRow = {
+  id: number;
+  defautId: number | null;
+  defaut: string;
+  cause: string;
+  action: string;
+  responsable: string;
+  echeance: string;
+  statut: string;
+  photoAvant: string | null;
+  photoApres: string | null;
+};
+
+export type ChecklistReponseRow = {
+  id: number;
+  ordre: number;
+  label: string;
+  statut: string;
+  note: string;
+};
+
 export type InspectionRow = {
   id: number;
   numero: number;
@@ -50,7 +76,12 @@ export type InspectionRow = {
   modele: string;
   ref: string;
   couleur: string;
+  saison: string;
   faconnier: string;
+  typeControle: string;
+  qteCommande: number;
+  qteProduite: number;
+  qteControlee: number;
   lot: number;
   controleur: string;
   statut: string;
@@ -62,6 +93,8 @@ export type InspectionRow = {
 
   defauts: DefautRow[];
   mesures: MesureRow[];
+  actions: ActionRow[];
+  checklist: ChecklistReponseRow[];
   photosGenerales: { id: number; hash: string; legende: string }[];
 
   /* dérivés */
@@ -108,15 +141,118 @@ export async function listBaremes(): Promise<BaremeRow[]> {
   }));
 }
 
+/* ─────────── checklists (modèles) ─────────── */
+
+export type ChecklistRow = {
+  id: number;
+  nom: string;
+  typeProduit: string;
+  typeControle: string;
+  points: { id: number; ordre: number; label: string }[];
+};
+
+export async function listChecklists(): Promise<ChecklistRow[]> {
+  const [modeles, points] = await Promise.all([
+    db.select().from(qcChecklist).orderBy(asc(qcChecklist.nom)),
+    db.select().from(qcChecklistPoint).orderBy(asc(qcChecklistPoint.ordre), asc(qcChecklistPoint.id)),
+  ]);
+  const parModele = new Map<number, typeof points>();
+  for (const p of points) {
+    const g = parModele.get(p.checklistId);
+    if (g) g.push(p);
+    else parModele.set(p.checklistId, [p]);
+  }
+  return modeles.map((m) => ({
+    id: m.id,
+    nom: m.nom,
+    typeProduit: m.typeProduit,
+    typeControle: m.typeControle,
+    points: (parModele.get(m.id) ?? []).map((p) => ({ id: p.id, ordre: p.ordre, label: p.label })),
+  }));
+}
+
+export async function creerChecklist(nom: string) {
+  const [row] = await db.insert(qcChecklist).values({ nom }).returning({ id: qcChecklist.id });
+  return row.id;
+}
+
+export async function majChecklist(id: number, patch: Partial<{ nom: string; typeProduit: string; typeControle: string }>) {
+  await db.update(qcChecklist).set(patch).where(eq(qcChecklist.id, id));
+}
+
+export async function supprimerChecklist(id: number) {
+  await db.delete(qcChecklist).where(eq(qcChecklist.id, id));
+}
+
+export async function ajouterPointChecklist(checklistId: number, label: string) {
+  const [max] = await db
+    .select({ m: sql<number>`coalesce(max(${qcChecklistPoint.ordre}), 0)::int` })
+    .from(qcChecklistPoint)
+    .where(eq(qcChecklistPoint.checklistId, checklistId));
+  await db.insert(qcChecklistPoint).values({ checklistId, label, ordre: (max?.m ?? 0) + 1 });
+}
+
+export async function majPointChecklist(id: number, label: string) {
+  await db.update(qcChecklistPoint).set({ label }).where(eq(qcChecklistPoint.id, id));
+}
+
+export async function supprimerPointChecklist(id: number) {
+  await db.delete(qcChecklistPoint).where(eq(qcChecklistPoint.id, id));
+}
+
+/** Applique un modèle de checklist à une inspection : copie ses points en
+ * réponses, sans recréer ceux déjà présents (même label). Comme chargerBareme,
+ * l'inspection devient autonome. */
+export async function appliquerChecklist(inspectionId: number, checklistId: number) {
+  const modele = (await listChecklists()).find((c) => c.id === checklistId);
+  if (!modele) throw new Error("Checklist introuvable");
+  const existantes = await db
+    .select()
+    .from(qcChecklistReponse)
+    .where(eq(qcChecklistReponse.inspectionId, inspectionId));
+  const deja = new Set(existantes.map((r) => r.label));
+  const nouvelles = modele.points
+    .filter((p) => !deja.has(p.label))
+    .map((p) => ({ inspectionId, ordre: p.ordre, label: p.label }));
+  if (nouvelles.length) await db.insert(qcChecklistReponse).values(nouvelles);
+  return nouvelles.length;
+}
+
+export async function ajouterPointReponse(inspectionId: number, label: string) {
+  const [max] = await db
+    .select({ m: sql<number>`coalesce(max(${qcChecklistReponse.ordre}), 0)::int` })
+    .from(qcChecklistReponse)
+    .where(eq(qcChecklistReponse.inspectionId, inspectionId));
+  await db.insert(qcChecklistReponse).values({ inspectionId, label: label || "Nouveau point", ordre: (max?.m ?? 0) + 1 });
+}
+
+export async function majReponseChecklist(id: number, champ: "statut" | "note" | "label", valeur: string) {
+  await db.update(qcChecklistReponse).set({ [champ]: valeur }).where(eq(qcChecklistReponse.id, id));
+}
+
+export async function supprimerReponseChecklist(id: number) {
+  await db.delete(qcChecklistReponse).where(eq(qcChecklistReponse.id, id));
+}
+
 export async function listInspections(): Promise<InspectionRow[]> {
   const inspections = await db.select().from(qcInspection).orderBy(desc(qcInspection.numero));
   if (!inspections.length) return [];
   const ids = inspections.map((i) => i.id);
 
-  const [defauts, mesures, photos, baremes] = await Promise.all([
+  const [defauts, mesures, photos, actions, checklist, baremes] = await Promise.all([
     db.select().from(qcDefaut).where(inArray(qcDefaut.inspectionId, ids)).orderBy(asc(qcDefaut.id)),
     db.select().from(qcMesure).where(inArray(qcMesure.inspectionId, ids)).orderBy(asc(qcMesure.id)),
     db.select().from(qcPhoto).where(inArray(qcPhoto.inspectionId, ids)).orderBy(asc(qcPhoto.id)),
+    db
+      .select()
+      .from(qcActionCorrective)
+      .where(inArray(qcActionCorrective.inspectionId, ids))
+      .orderBy(asc(qcActionCorrective.id)),
+    db
+      .select()
+      .from(qcChecklistReponse)
+      .where(inArray(qcChecklistReponse.inspectionId, ids))
+      .orderBy(asc(qcChecklistReponse.ordre), asc(qcChecklistReponse.id)),
     listBaremes(),
   ]);
 
@@ -132,6 +268,8 @@ export async function listInspections(): Promise<InspectionRow[]> {
   const parDefaut = group(defauts);
   const parMesure = group(mesures);
   const parPhoto = group(photos);
+  const parAction = group(actions);
+  const parChecklist = group(checklist);
   // Chaînage inverse : quelle inspection re-contrôle celle-ci.
   const recontrolePar = new Map(inspections.filter((i) => i.recontroleDeId).map((i) => [i.recontroleDeId!, i.id]));
 
@@ -145,7 +283,8 @@ export async function listInspections(): Promise<InspectionRow[]> {
     });
     const photosInsp = parPhoto.get(i.id) ?? [];
     const defautsRows: DefautRow[] = (parDefaut.get(i.id) ?? []).map((d) => ({
-      id: d.id, famille: d.famille, description: d.description, gravite: d.gravite, nombre: d.nombre,
+      id: d.id, famille: d.famille, description: d.description, gravite: d.gravite,
+      emplacement: d.emplacement, nombre: d.nombre,
       photos: photosInsp.filter((p) => p.defautId === d.id).map((p) => ({ id: p.id, hash: p.hash })),
     }));
 
@@ -163,7 +302,12 @@ export async function listInspections(): Promise<InspectionRow[]> {
       modele: i.modele,
       ref: i.ref,
       couleur: i.couleur,
+      saison: i.saison,
       faconnier: i.faconnier,
+      typeControle: i.typeControle,
+      qteCommande: i.qteCommande,
+      qteProduite: i.qteProduite,
+      qteControlee: i.qteControlee,
       lot: i.lot,
       controleur: i.controleur,
       statut: i.statut,
@@ -175,6 +319,25 @@ export async function listInspections(): Promise<InspectionRow[]> {
 
       defauts: defautsRows,
       mesures: mesuresRows,
+      actions: (parAction.get(i.id) ?? []).map((a) => ({
+        id: a.id,
+        defautId: a.defautId,
+        defaut: a.defaut,
+        cause: a.cause,
+        action: a.action,
+        responsable: a.responsable,
+        echeance: iso(a.echeance),
+        statut: a.statut,
+        photoAvant: a.photoAvant,
+        photoApres: a.photoApres,
+      })),
+      checklist: (parChecklist.get(i.id) ?? []).map((c) => ({
+        id: c.id,
+        ordre: c.ordre,
+        label: c.label,
+        statut: c.statut,
+        note: c.note,
+      })),
       photosGenerales: photosInsp
         .filter((p) => p.defautId === null)
         .map((p) => ({ id: p.id, hash: p.hash, legende: p.legende })),
@@ -209,7 +372,7 @@ export async function listCommandesPourQc() {
   const rows = await db
     .select({
       id: commande.id, of: commande.ofNumber, modele: commande.modele, ref: commande.refArticle,
-      couleur: commande.couleur, qte: commande.qte,
+      couleur: commande.couleur, saison: commande.saison, qte: commande.qte, produit: commande.produit,
       clientNom: client.nom, faconnierNom: faconnier.nom, chaineNom: chaine.nom,
     })
     .from(commande)
@@ -219,7 +382,8 @@ export async function listCommandesPourQc() {
     .leftJoin(chaine, eq(commande.chaineId, chaine.id))
     .orderBy(desc(commande.id));
   return rows.map((r) => ({
-    id: r.id, of: r.of, modele: r.modele, ref: r.ref, couleur: r.couleur, qte: r.qte,
+    id: r.id, of: r.of, modele: r.modele, ref: r.ref, couleur: r.couleur, saison: r.saison,
+    qte: r.qte, produit: r.produit,
     client: r.clientNom ?? "",
     faconnier: r.faconnierNom ?? r.chaineNom ?? "",
   }));
@@ -256,9 +420,12 @@ export async function lierCommande(inspectionId: number, commandeId: number | nu
     .update(qcInspection)
     .set({
       commandeId: c.id, of: c.of, client: c.client, modele: c.modele, ref: c.ref,
-      couleur: c.couleur, faconnier: c.faconnier,
-      // La taille du lot n'est proposée que si le contrôleur ne l'a pas saisie.
+      couleur: c.couleur, saison: c.saison, faconnier: c.faconnier,
+      // La taille du lot et les quantités ne sont proposées que si le contrôleur
+      // ne les a pas déjà saisies — on ne réécrit jamais par-dessus son travail.
       lot: insp?.lot ? insp.lot : c.qte,
+      qteCommande: insp?.qteCommande ? insp.qteCommande : c.qte,
+      qteProduite: insp?.qteProduite ? insp.qteProduite : c.produit,
     })
     .where(eq(qcInspection.id, inspectionId));
 }
@@ -266,11 +433,15 @@ export async function lierCommande(inspectionId: number, commandeId: number | nu
 /** Champs de l'inspection modifiables directement depuis l'éditeur. */
 export type ChampInspection =
   | "date" | "controleur" | "lot" | "note" | "verdictForce"
-  | "of" | "client" | "modele" | "ref" | "couleur" | "faconnier";
+  | "of" | "client" | "modele" | "ref" | "couleur" | "saison" | "faconnier"
+  | "typeControle" | "qteCommande" | "qteProduite" | "qteControlee";
+
+const CHAMPS_ENTIERS = new Set(["lot", "qteCommande", "qteProduite", "qteControlee"]);
 
 export async function majInspection(id: number, champ: ChampInspection, valeur: string) {
-  const patch: Record<string, unknown> =
-    champ === "lot" ? { lot: Math.max(0, Math.trunc(Number(valeur) || 0)) } : { [champ]: valeur };
+  const patch: Record<string, unknown> = CHAMPS_ENTIERS.has(champ)
+    ? { [champ]: Math.max(0, Math.trunc(Number(valeur) || 0)) }
+    : { [champ]: valeur };
   await db.update(qcInspection).set(patch).where(eq(qcInspection.id, id));
 }
 
@@ -288,7 +459,7 @@ export async function ajouterDefaut(inspectionId: number, famille: string) {
   return row.id;
 }
 
-export async function majDefaut(id: number, champ: "description" | "gravite" | "nombre", valeur: string) {
+export async function majDefaut(id: number, champ: "description" | "gravite" | "nombre" | "emplacement", valeur: string) {
   const patch =
     champ === "nombre" ? { nombre: Math.max(1, Math.trunc(Number(valeur) || 1)) } : { [champ]: valeur };
   await db.update(qcDefaut).set(patch).where(eq(qcDefaut.id, id));
@@ -347,6 +518,45 @@ export async function attacherPhoto(inspectionId: number, hash: string, defautId
 
 export async function detacherPhoto(photoId: number) {
   await db.delete(qcPhoto).where(eq(qcPhoto.id, photoId));
+}
+
+/* ── actions correctives ──
+ *
+ * Volontairement NON bloquées par la clôture : une action corrective se suit
+ * après le contrôle (on renseigne la cause, on affecte, on prend les photos
+ * avant/après une fois la retouche faite). Elle peut naître d'un défaut précis
+ * ou être saisie librement. */
+
+export async function ajouterAction(inspectionId: number, defautId: number | null) {
+  let defautTexte = "";
+  if (defautId != null) {
+    const [d] = await db.select().from(qcDefaut).where(eq(qcDefaut.id, defautId));
+    if (d) defautTexte = [d.famille, d.emplacement, d.description].filter(Boolean).join(" · ");
+  }
+  const [row] = await db
+    .insert(qcActionCorrective)
+    .values({ inspectionId, defautId, defaut: defautTexte })
+    .returning({ id: qcActionCorrective.id });
+  return row.id;
+}
+
+export type ChampAction = "defaut" | "cause" | "action" | "responsable" | "echeance" | "statut";
+
+export async function majAction(id: number, champ: ChampAction, valeur: string) {
+  const patch: Record<string, unknown> = champ === "echeance" ? { echeance: valeur || null } : { [champ]: valeur };
+  await db.update(qcActionCorrective).set(patch).where(eq(qcActionCorrective.id, id));
+}
+
+/** Rattache une photo avant/après à une action (hash déjà stocké dans fichier). */
+export async function photoAction(id: number, quand: "avant" | "apres", hash: string | null) {
+  await db
+    .update(qcActionCorrective)
+    .set(quand === "avant" ? { photoAvant: hash } : { photoApres: hash })
+    .where(eq(qcActionCorrective.id, id));
+}
+
+export async function supprimerAction(id: number) {
+  await db.delete(qcActionCorrective).where(eq(qcActionCorrective.id, id));
 }
 
 /* ── clôture / réouverture / re-contrôle ── */

@@ -152,14 +152,23 @@ export function EcranPreparation({
         actions={
           <div className="flex items-center gap-2">
             {ecran === "magtissu" && (
-              <Link
-                href="/magtissu/inventaire"
-                target="_blank"
-                title="Imprimer l'inventaire tissu (toutes commandes)"
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-[11px] font-semibold hover:bg-muted"
-              >
-                <Printer className="size-3.5" /> Inventaire
-              </Link>
+              <>
+                <Link
+                  href="/magtissu/reception"
+                  title="Bon de réception tissu — entrée physique par lots"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-brand bg-brand px-2.5 text-[11px] font-semibold text-white hover:opacity-90"
+                >
+                  📦 Réception tissu
+                </Link>
+                <Link
+                  href="/magtissu/inventaire"
+                  target="_blank"
+                  title="Imprimer l'inventaire tissu (toutes commandes)"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-[11px] font-semibold hover:bg-muted"
+                >
+                  <Printer className="size-3.5" /> Inventaire
+                </Link>
+              </>
             )}
             <div className="relative">
               <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />

@@ -105,7 +105,7 @@ export async function ajouterDefaut(inspectionId: number, famille: string): Prom
 export async function majDefaut(
   inspectionId: number,
   defautId: number,
-  champ: "description" | "gravite" | "nombre",
+  champ: "description" | "gravite" | "nombre" | "emplacement",
   valeur: string,
 ): Promise<Result> {
   try {
@@ -212,6 +212,70 @@ export async function retirerPhoto(inspectionId: number, photoId: number): Promi
     await exigerControle();
     await exigerBrouillon(inspectionId);
     await svc.detacherPhoto(photoId);
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─── actions correctives (modifiables même après clôture : c'est un suivi) ─── */
+
+export async function ajouterAction(inspectionId: number, defautId: number | null): Promise<Result<number>> {
+  try {
+    await exigerControle();
+    const id = await svc.ajouterAction(inspectionId, defautId);
+    revalider();
+    return ok(id);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function majAction(id: number, champ: svc.ChampAction, valeur: string): Promise<Result> {
+  try {
+    await exigerControle();
+    await svc.majAction(id, champ, valeur);
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function supprimerAction(id: number): Promise<Result> {
+  try {
+    await exigerControle();
+    await svc.supprimerAction(id);
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Téléverse et rattache une photo avant/après à une action corrective. */
+export async function photoAction(formData: FormData): Promise<Result<{ hash: string }>> {
+  try {
+    await exigerControle();
+    const id = Number(formData.get("actionId"));
+    const quand = formData.get("quand") === "apres" ? "apres" : "avant";
+    const f = formData.get("fichier");
+    if (!Number.isInteger(id)) return { ok: false, error: "Action introuvable" };
+    if (!(f instanceof File)) return { ok: false, error: "Aucun fichier fourni" };
+    const { hash } = await enregistrerFichier(Buffer.from(await f.arrayBuffer()), f.type);
+    await svc.photoAction(id, quand, hash);
+    revalider();
+    return ok({ hash });
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function retirerPhotoAction(id: number, quand: "avant" | "apres"): Promise<Result> {
+  try {
+    await exigerControle();
+    await svc.photoAction(id, quand, null);
     revalider();
     return ok();
   } catch (e) {
@@ -339,6 +403,135 @@ export async function supprimerPointBareme(id: number): Promise<Result> {
   try {
     await exigerControle();
     await svc.supprimerPointBareme(id);
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── checklists (modèles + application) ─────────── */
+
+export async function creerChecklist(nom: string): Promise<Result<number>> {
+  try {
+    await exigerControle();
+    const propre = nom.trim();
+    if (!propre) return { ok: false, error: "Nom requis" };
+    const id = await svc.creerChecklist(propre);
+    revalider();
+    return ok(id);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function majChecklist(
+  id: number,
+  patch: Partial<{ nom: string; typeProduit: string; typeControle: string }>,
+): Promise<Result> {
+  try {
+    await exigerControle();
+    await svc.majChecklist(id, patch);
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function supprimerChecklist(id: number): Promise<Result> {
+  try {
+    await exigerControle();
+    await svc.supprimerChecklist(id);
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function ajouterPointChecklist(checklistId: number, label: string): Promise<Result> {
+  try {
+    await exigerControle();
+    await svc.ajouterPointChecklist(checklistId, label.trim() || "Nouveau point");
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function majPointChecklist(id: number, label: string): Promise<Result> {
+  try {
+    await exigerControle();
+    await svc.majPointChecklist(id, label);
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function supprimerPointChecklist(id: number): Promise<Result> {
+  try {
+    await exigerControle();
+    await svc.supprimerPointChecklist(id);
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* Application à une inspection — soumise au brouillon (c'est de la saisie de
+ * contrôle, contrairement aux actions correctives). */
+
+export async function appliquerChecklist(inspectionId: number, checklistId: number): Promise<Result<number>> {
+  try {
+    await exigerControle();
+    await exigerBrouillon(inspectionId);
+    const n = await svc.appliquerChecklist(inspectionId, checklistId);
+    revalider();
+    return ok(n);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function ajouterPointReponse(inspectionId: number, label: string): Promise<Result> {
+  try {
+    await exigerControle();
+    await exigerBrouillon(inspectionId);
+    await svc.ajouterPointReponse(inspectionId, label.trim());
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function majReponseChecklist(
+  inspectionId: number,
+  id: number,
+  champ: "statut" | "note" | "label",
+  valeur: string,
+): Promise<Result> {
+  try {
+    await exigerControle();
+    await exigerBrouillon(inspectionId);
+    await svc.majReponseChecklist(id, champ, valeur);
+    revalider();
+    return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function supprimerReponseChecklist(inspectionId: number, id: number): Promise<Result> {
+  try {
+    await exigerControle();
+    await exigerBrouillon(inspectionId);
+    await svc.supprimerReponseChecklist(id);
     revalider();
     return ok();
   } catch (e) {
