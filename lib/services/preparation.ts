@@ -10,12 +10,13 @@ import {
   commandeJournal,
   commandeLancement,
   commandeTds,
+  commandeTissuLigne,
   faconnier,
 } from "@/lib/db/schema";
 import * as biz from "@/lib/domain/commande";
 import * as fx from "@/lib/domain/feux";
 import { getChuteDefaut } from "@/lib/services/commandes";
-import { type Auteur, journaliserFiche } from "@/lib/services/journal-fiche";
+import { type Auteur, type Tx, journaliserFiche } from "@/lib/services/journal-fiche";
 import { type ResumePlan, resumesPlans } from "@/lib/services/plan-coupe";
 
 /* Lecture agrégée des cinq écrans de préparation. Une seule requête par table,
@@ -71,6 +72,9 @@ export type PreparationRow = {
   fournituresStatut: string;
   fournitures: fx.LigneFourniture[];
 
+  /* tissu — détail par matière (multi-tissus). Vide = mode mono historique. */
+  tissuLignes: fx.LigneTissu[];
+
   /* tds + modélisme */
   tds: fx.Tds[];
   okPro: boolean;
@@ -89,6 +93,58 @@ export type PreparationRow = {
   lancee: boolean;
   statut: fx.StatutPrepa;
 };
+
+/* ─────────── inventaire tissu ───────────
+ *
+ * L'état des stocks tissu, à plat : une ligne par matière reçue, avec sa
+ * commande d'origine, sa laize et son écart. Sert à l'impression inventaire
+ * en un clic — le magasin coche et signe ce qu'il a réellement en rayon. */
+export type LigneInventaireTissu = {
+  of: string;
+  modele: string;
+  client: string;
+  matiere: string;
+  reference: string;
+  couleur: string;
+  laize: number | null;
+  metragePrevu: number;
+  metrageRecu: number;
+  ecart: number;
+  controle: string;
+};
+
+export async function inventaireTissu(): Promise<LigneInventaireTissu[]> {
+  const rows = await listPreparation();
+  const lignes: LigneInventaireTissu[] = [];
+  for (const r of rows) {
+    /* On ne compte que les matières réellement saisies sur la commande : un
+     * membre de regroupement n'a pas de stock propre, c'est le porteur qui le
+     * porte. */
+    for (const m of r.tissuLignes) {
+      lignes.push({
+        of: r.of,
+        modele: r.modele,
+        client: r.client,
+        matiere: m.nom,
+        reference: m.reference,
+        couleur: m.couleur,
+        laize: m.laize,
+        metragePrevu: m.metragePrevu,
+        metrageRecu: m.metrageRecu,
+        ecart: Math.round((m.metrageRecu - m.metragePrevu) * 100) / 100,
+        controle: m.controle,
+      });
+    }
+  }
+  /* Regroupé par matière puis référence : à l'inventaire on compte le tissu
+   * par type, pas par commande. */
+  return lignes.sort(
+    (a, b) =>
+      a.matiere.localeCompare(b.matiere, "fr") ||
+      a.reference.localeCompare(b.reference, "fr") ||
+      a.of.localeCompare(b.of, "fr", { numeric: true }),
+  );
+}
 
 const iso = (d: string | null) => d ?? "";
 
@@ -109,7 +165,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
   const ids = rows.map((r) => r.c.id);
   if (!ids.length) return [];
 
-  const [tdsRows, etapeRows, fournRows, lancRows] = await Promise.all([
+  const [tdsRows, etapeRows, fournRows, tissuRows, lancRows] = await Promise.all([
     db.select().from(commandeTds).where(inArray(commandeTds.commandeId, ids)).orderBy(asc(commandeTds.n)),
     db.select().from(commandeEtape).where(inArray(commandeEtape.commandeId, ids)),
     db
@@ -117,11 +173,20 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       .from(commandeFournitureLigne)
       .where(inArray(commandeFournitureLigne.commandeId, ids))
       .orderBy(asc(commandeFournitureLigne.id)),
+    db
+      .select()
+      .from(commandeTissuLigne)
+      .where(inArray(commandeTissuLigne.commandeId, ids))
+      .orderBy(asc(commandeTissuLigne.id)),
     db.select().from(commandeLancement).where(inArray(commandeLancement.commandeId, ids)),
   ]);
 
   const versLigneFourniture = (f: (typeof fournRows)[number]): fx.LigneFourniture => ({
     id: f.id, designation: f.designation, qtePrevue: f.qtePrevue, qteRecue: f.qteRecue, unite: f.unite,
+  });
+  const versLigneTissu = (t: (typeof tissuRows)[number]): fx.LigneTissu => ({
+    id: t.id, nom: t.nom, reference: t.reference, couleur: t.couleur, laize: t.laize,
+    metragePrevu: t.metragePrevu, metrageRecu: t.metrageRecu, controle: t.controle, note: t.note,
   });
 
   const groupBy = <T extends { commandeId: number }>(list: T[]) => {
@@ -136,6 +201,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
   const parTds = groupBy(tdsRows);
   const parEtape = groupBy(etapeRows);
   const parFourn = groupBy(fournRows);
+  const parTissu = groupBy(tissuRows);
   const parLanc = new Map(lancRows.map((l) => [l.commandeId, l]));
   const now = new Date();
 
@@ -161,6 +227,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       etape: e.etape, fait: e.fait, date: e.date, par: e.par,
     }));
     const fournitures: fx.LigneFourniture[] = (parFourn.get(c.id) ?? []).map(versLigneFourniture);
+    const tissuLignes: fx.LigneTissu[] = (parTissu.get(c.id) ?? []).map(versLigneTissu);
     const l = parLanc.get(c.id);
     const lancement: fx.Lancement | null = l
       ? {
@@ -184,6 +251,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
      * propre à la ligne : ce sont des travaux par commande, pas des achats. */
     const source = porteur ?? c;
     const fournituresEff = porteur ? (parFourn.get(porteur.id) ?? []).map(versLigneFourniture) : fournitures;
+    const tissuLignesEff = porteur ? (parTissu.get(porteur.id) ?? []).map(versLigneTissu) : tissuLignes;
     const commandeFacts = {
       ...c,
       tissuRecu: source.tissuRecu,
@@ -200,6 +268,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       tds,
       etapes,
       fournitures: fournituresEff,
+      tissuLignes: tissuLignesEff,
       lancement,
       chuteDefaut,
     };
@@ -248,6 +317,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
 
       fournituresStatut: source.fournituresStatut,
       fournitures: fournituresEff,
+      tissuLignes: tissuLignesEff,
 
       tds,
       okPro: fx.estOkPro(tds),
@@ -499,6 +569,96 @@ export async function supprimerLigneFourniture(ligneId: number, auteur: Auteur) 
   });
 }
 
+/* ── tissu (détail par matière) ── */
+
+export async function ajouterLigneTissu(commandeId: number, auteur: Auteur) {
+  return db.transaction(async (tx) => {
+    await tx.insert(commandeTissuLigne).values({ commandeId });
+    await log(tx, commandeId, auteur, "tissu", "Matière ajoutée", { apres: "nouvelle matière" });
+  });
+}
+
+export type ChampLigneTissu =
+  | "nom"
+  | "reference"
+  | "couleur"
+  | "laize"
+  | "metragePrevu"
+  | "metrageRecu"
+  | "controle"
+  | "note";
+
+const CHAMPS_LIGNE_TISSU: Record<ChampLigneTissu, { label: string; type: "text" | "number" | "enum" }> = {
+  nom: { label: "matière", type: "text" },
+  reference: { label: "référence", type: "text" },
+  couleur: { label: "couleur", type: "text" },
+  laize: { label: "laize (cm)", type: "number" },
+  metragePrevu: { label: "métrage prévu", type: "number" },
+  metrageRecu: { label: "métrage reçu", type: "number" },
+  controle: { label: "contrôle qualité", type: "enum" },
+  note: { label: "note", type: "text" },
+};
+
+/** Le feu tissu et le drapeau `tissuLibere` de la commande sont recalculés à
+ * chaque écriture de matière : dès qu'il existe des lignes de détail, ce sont
+ * elles qui libèrent (ou non) la coupe, exactement comme le contrôle mono le
+ * faisait sur la commande. */
+async function recalculerTissuLibere(tx: Tx, commandeId: number) {
+  const lignes = await tx.select().from(commandeTissuLigne).where(eq(commandeTissuLigne.commandeId, commandeId));
+  const libere = fx.tissuLibereParLignes(
+    lignes.map((l) => ({
+      id: l.id, nom: l.nom, reference: l.reference, couleur: l.couleur, laize: l.laize,
+      metragePrevu: l.metragePrevu, metrageRecu: l.metrageRecu, controle: l.controle, note: l.note,
+    })),
+  );
+  await tx.update(commande).set({ tissuLibere: libere, updatedAt: new Date() }).where(eq(commande.id, commandeId));
+}
+
+export async function majLigneTissu(ligneId: number, champ: ChampLigneTissu, valeur: string, auteur: Auteur) {
+  const cfg = CHAMPS_LIGNE_TISSU[champ];
+  return db.transaction(async (tx) => {
+    const [l] = await tx.select().from(commandeTissuLigne).where(eq(commandeTissuLigne.id, ligneId));
+    if (!l) throw new Error("Matière introuvable");
+
+    let nouvelle: string | number | null;
+    if (cfg.type === "number") {
+      if (valeur === "") nouvelle = champ === "laize" ? null : 0;
+      else {
+        const n = Number(valeur.replace(",", "."));
+        if (!Number.isFinite(n) || n < 0) throw new Error("Valeur invalide");
+        nouvelle = n;
+      }
+    } else {
+      nouvelle = valeur;
+    }
+
+    const avant = l[champ];
+    if (String(avant ?? "") === String(nouvelle ?? "")) return;
+
+    await tx.update(commandeTissuLigne).set({ [champ]: nouvelle }).where(eq(commandeTissuLigne.id, ligneId));
+
+    const action = champ === "controle" ? "Contrôle tissu" : `Modification matière — ${cfg.label}`;
+    const lisible = (v: unknown) =>
+      champ === "controle" ? (CONTROLE_LABEL[String(v ?? "")] ?? String(v ?? "")) : v;
+    await log(tx, l.commandeId, auteur, "tissu", `${l.nom || "Matière"} — ${action}`, {
+      avant: lisible(avant) as string,
+      apres: lisible(nouvelle) as string,
+    });
+
+    if (champ === "controle") await recalculerTissuLibere(tx, l.commandeId);
+  });
+}
+
+export async function supprimerLigneTissu(ligneId: number, auteur: Auteur) {
+  return db.transaction(async (tx) => {
+    const [l] = await tx.select().from(commandeTissuLigne).where(eq(commandeTissuLigne.id, ligneId));
+    if (!l) return;
+    await tx.delete(commandeTissuLigne).where(eq(commandeTissuLigne.id, ligneId));
+    await log(tx, l.commandeId, auteur, "tissu", "Matière retirée", { avant: l.nom || "matière sans nom" });
+    await recalculerTissuLibere(tx, l.commandeId);
+  });
+}
+
 /* ── lancement ── */
 
 export type ModeLancement = "interne" | "soustraitance";
@@ -569,6 +729,7 @@ export async function contexteDe(commandeId: number): Promise<fx.ContextePrepa |
     tds: r.tds,
     etapes: r.etapes,
     fournitures: r.fournitures,
+    tissuLignes: r.tissuLignes,
     lancement: r.lancement,
     chuteDefaut: await getChuteDefaut(),
   };

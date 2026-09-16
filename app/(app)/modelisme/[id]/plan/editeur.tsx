@@ -208,6 +208,31 @@ export function EditeurPlan({
         {sale && peutModifier && <StatusBadge tone="warning">modifications non enregistrées</StatusBadge>}
       </div>
 
+      {/* ═══════════ laize travaillable — saisie par le magasin tissu ═══════════
+          La modéliste la lit ici pour poser ses tracés, sans ouvrir l'écran
+          magasin. Rien à saisir : c'est un rappel de ce que le magasin a
+          renseigné. */}
+      {ctx.tissuMagasin.length > 0 && (
+        <div className="mb-4 rounded-lg border bg-card px-3 py-2">
+          <div className="mb-1.5 text-[11px] font-bold uppercase text-muted-foreground">
+            🧶 Laize travaillable (renseignée par le magasin tissu)
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {ctx.tissuMagasin.map((m, i) => (
+              <div key={i} className="rounded-md border bg-muted/40 px-2.5 py-1.5 text-[11px]">
+                <span className="font-semibold">{m.nom || "Matière"}</span>
+                {m.reference ? <span className="text-muted-foreground"> · {m.reference}</span> : null}
+                {m.couleur ? <span className="text-muted-foreground"> · {m.couleur}</span> : null}
+                <span className="ml-1.5 font-bold text-brand">
+                  {m.laize != null ? `laize ${m2.format(m.laize)} cm` : "laize non renseignée"}
+                </span>
+                {m.metrageRecu > 0 && <span className="text-muted-foreground"> · reçu {m2.format(m.metrageRecu)} m</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {ctx.tailles.length === 0 && (
         <div className="mb-4 rounded-lg border border-warning bg-warning-muted px-3 py-2 text-xs">
           ⚠ Cette commande est saisie en <b>taille unique</b>. Détaillez les vraies tailles ci-dessous, puis

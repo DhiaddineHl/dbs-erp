@@ -10,10 +10,13 @@ import { RESPONSABLE_DOMAINE } from "@/lib/domain/feux";
 import type { PreparationRow } from "@/lib/services/preparation";
 import {
   ajouterLigneFourniture,
+  ajouterLigneTissu,
   majChamp,
   majEtape,
   majLigneFourniture,
+  majLigneTissu,
   supprimerLigneFourniture,
+  supprimerLigneTissu,
 } from "@/lib/actions/preparation";
 import { BandeauLectureSeule, BoutonAction, ChampServeur, type Droits } from "./ecran";
 
@@ -230,6 +233,8 @@ const CONTROLES = [
 ];
 
 export function FicheTissu({ row, droits }: { row: PreparationRow; droits: Droits }) {
+  const matieres = row.tissuLignes;
+  const detaille = matieres.length > 0;
   return (
     <div>
       <BandeauLectureSeule autorise={droits.tissu} qui={RESPONSABLE_DOMAINE.tissu} />
@@ -246,12 +251,168 @@ export function FicheTissu({ row, droits }: { row: PreparationRow; droits: Droit
           <Printer className="size-3.5" /> Bon de réception
         </Link>
         <span className="text-[11px] text-muted-foreground">
-          {row.tissuDateReelle
+          {row.tissuDateReelle || detaille
             ? "Métrage, écart, contrôle et journal des mouvements."
             : "Imprimable dès maintenant — il portera la mention « non réceptionné »."}
         </span>
       </div>
 
+      {/* ─── Matières reçues (multi-tissus) ───
+          Un modèle n'est pas toujours mono-tissu : tissu principal, doublure,
+          thermocollant… Chaque matière porte son nom, sa référence, sa laize
+          (largeur travaillable, lue par la modéliste) et son métrage. Dès
+          qu'une matière est saisie ici, c'est le détail qui pilote le feu. */}
+      <div className="mb-3 rounded-lg border">
+        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/40 px-3 py-2">
+          <span className="text-[11px] font-bold uppercase text-muted-foreground">Matières & stock tissu</span>
+          {droits.tissu && (
+            <BoutonAction onRun={() => ajouterLigneTissu(row.id)} succes="Matière ajoutée">
+              + Ajouter une matière
+            </BoutonAction>
+          )}
+          <span className="text-[11px] text-muted-foreground">
+            {detaille
+              ? "Le détail ci-dessous fait foi et pilote le feu tissu."
+              : "Ajoutez chaque tissu (principal, doublure, thermocollant…) avec sa référence, sa laize et son métrage."}
+          </span>
+        </div>
+
+        {detaille && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b bg-muted/20 text-[10.5px] uppercase text-muted-foreground">
+                  <th className="px-2 py-1.5 text-left">Matière</th>
+                  <th className="px-2 py-1.5 text-left">Référence</th>
+                  <th className="px-2 py-1.5 text-left">Couleur</th>
+                  <th className="px-2 py-1.5 text-center">Laize (cm)</th>
+                  <th className="px-2 py-1.5 text-center">Prévu (m)</th>
+                  <th className="px-2 py-1.5 text-center">Reçu (m)</th>
+                  <th className="px-2 py-1.5 text-center">Écart</th>
+                  <th className="px-2 py-1.5 text-left">Contrôle</th>
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {matieres.map((l) => {
+                  const ecart = l.metrageRecu - l.metragePrevu;
+                  const manque = l.metragePrevu > 0 && ecart < 0;
+                  return (
+                    <tr key={l.id} className="border-b last:border-0 align-top">
+                      <td className="px-2 py-1.5">
+                        <ChampServeur
+                          valeur={l.nom}
+                          placeholder="Tissu principal, doublure…"
+                          autorise={droits.tissu}
+                          onSave={(v) => majLigneTissu(l.id, "nom", v)}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <ChampServeur
+                          valeur={l.reference}
+                          placeholder="Réf. rouleau"
+                          autorise={droits.tissu}
+                          onSave={(v) => majLigneTissu(l.id, "reference", v)}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <ChampServeur
+                          valeur={l.couleur}
+                          autorise={droits.tissu}
+                          onSave={(v) => majLigneTissu(l.id, "couleur", v)}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <ChampServeur
+                          valeur={l.laize != null ? String(l.laize) : ""}
+                          type="number"
+                          step="0.5"
+                          className="text-center"
+                          placeholder="—"
+                          autorise={droits.tissu}
+                          onSave={(v) => majLigneTissu(l.id, "laize", v)}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <ChampServeur
+                          valeur={String(l.metragePrevu)}
+                          type="number"
+                          step="0.01"
+                          className="text-center"
+                          autorise={droits.tissu}
+                          onSave={(v) => majLigneTissu(l.id, "metragePrevu", v)}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <ChampServeur
+                          valeur={String(l.metrageRecu)}
+                          type="number"
+                          step="0.01"
+                          className="text-center"
+                          autorise={droits.tissu}
+                          onSave={(v) => majLigneTissu(l.id, "metrageRecu", v)}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {l.metragePrevu > 0 ? (
+                          <StatusBadge tone={manque ? "danger" : "success"}>
+                            {ecart >= 0 ? "+" : ""}
+                            {Number(ecart.toFixed(2))}
+                          </StatusBadge>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <ChampServeur
+                          valeur={l.controle}
+                          type="select"
+                          options={CONTROLES}
+                          autorise={droits.tissu}
+                          onSave={(v) => majLigneTissu(l.id, "controle", v)}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {droits.tissu && (
+                          <BoutonAction
+                            variant="ghost"
+                            onRun={() => supprimerLigneTissu(l.id)}
+                            confirmer="Retirer cette matière ?"
+                            succes="Matière retirée"
+                          >
+                            ×
+                          </BoutonAction>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {detaille ? (
+        <details className="mb-2 text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer select-none">Saisie mono-tissu (héritée) — dépliez si besoin</summary>
+          <div className="mt-2">
+            <FicheTissuMono row={row} droits={droits} />
+          </div>
+        </details>
+      ) : (
+        <FicheTissuMono row={row} droits={droits} />
+      )}
+    </div>
+  );
+}
+
+/** Ancienne saisie 1:1 : une seule réception, un seul contrôle, portés par la
+ * commande. Reste disponible (repli et compatibilité) mais le détail par
+ * matière au-dessus prend le dessus dès qu'une matière existe. */
+function FicheTissuMono({ row, droits }: { row: PreparationRow; droits: Droits }) {
+  return (
+    <div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Champ label="Date de réception prévue">
           <ChampServeur
@@ -331,9 +492,30 @@ const STATUTS_GLOBAUX = [
 
 export function FicheFournitures({ row, droits }: { row: PreparationRow; droits: Droits }) {
   const detaille = row.fournitures.length > 0;
+  const manquantes = row.fournitures.filter((l) => l.qteRecue < l.qtePrevue);
   return (
     <div>
       <BandeauLectureSeule autorise={droits.four} qui={RESPONSABLE_DOMAINE.four} />
+
+      {/* Le bon s'imprime à tout moment : il confronte prévu et reçu, et
+          liste en tête ce qui manque. Nouvel onglet, pour ne pas faire perdre
+          au magasinier la fiche qu'il est en train de remplir. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Link
+          href={`/magfour/${row.id}/imprimer`}
+          target="_blank"
+          className="inline-flex items-center gap-1.5 rounded-md border border-input px-2.5 py-1 text-[11px] font-semibold hover:bg-muted"
+        >
+          <Printer className="size-3.5" /> Bon de réception
+        </Link>
+        <span className="text-[11px] text-muted-foreground">
+          {detaille
+            ? manquantes.length > 0
+              ? `⚠ ${manquantes.length} fourniture(s) manquante(s) — le bon les liste en tête.`
+              : "Toutes les fournitures sont reçues."
+            : "Ajoutez des références ci-dessous pour un bon détaillé et une alerte des manquants."}
+        </span>
+      </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <label className="text-[11px] font-bold uppercase text-muted-foreground">Statut global</label>

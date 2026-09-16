@@ -148,6 +148,20 @@
       "when": 1787424859560,
       "tag": "0020_plan_coupe",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787424860560,
+      "tag": "0021_journee_heures_decimales",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789493562206,
+      "tag": "0022_commande_tissu_ligne",
+      "breakpoints": true
     }
   ]
 }

@@ -122,7 +122,11 @@ export const journee = pgTable("journee", {
     .notNull()
     .references(() => modele.id),
   effectif: integer().notNull().default(0),
-  nbHeures: integer().notNull().default(8),
+  /** Heures travaillées dans la journée. En décimal : une demi-journée ou une
+   * journée écourtée valent 8,5 ou 8,25 h, et le rendement (dont c'est le
+   * dénominateur) doit en tenir compte. Le nombre de colonnes horaires de
+   * saisie, lui, reste entier — voir `cols`, dérivé de l'arrondi supérieur. */
+  nbHeures: doublePrecision().notNull().default(8),
   cloture: boolean().notNull().default(false),
   objManuel: doublePrecision(),
   cols: jsonb().$type<string[]>().notNull().default([]),

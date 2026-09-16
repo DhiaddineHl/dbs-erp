@@ -32,11 +32,17 @@ export async function createDay(input: {
 }) {
   try {
     await assertUser();
-    const cols = Array.from({ length: input.nbHeures }, (_, i) => `H${i + 1}`);
+    /* Les heures peuvent être décimales (8,5 h), mais on ne peut pas afficher
+     * une demi-colonne de saisie horaire : le nombre de colonnes suit l'arrondi
+     * SUPÉRIEUR (une journée de 8,5 h a 9 cases, la dernière partielle), tandis
+     * que nbHeures garde sa valeur exacte pour le calcul du rendement. */
+    const nbHeures = input.nbHeures > 0 ? input.nbHeures : 8;
+    const nbCols = Math.max(1, Math.ceil(nbHeures));
+    const cols = Array.from({ length: nbCols }, (_, i) => `H${i + 1}`);
     /* L'effectif est figé ici, une fois pour toutes : la journée gardera cette
      * liste même si la chaîne change demain. */
     const ouvrieres = await g.ouvrieresDeChaine(input.chaineId);
-    const row = await g.insertJournee({ ...input, cols, ouvrieres, sortie: {}, ops: {}, cloture: false });
+    const row = await g.insertJournee({ ...input, nbHeures, cols, ouvrieres, sortie: {}, ops: {}, cloture: false });
     revalidatePath(PATH);
     return { ok: true as const, row };
   } catch (e) {

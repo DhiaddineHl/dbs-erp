@@ -78,6 +78,43 @@ export const commandeFournitureLigne = pgTable(
   (t) => [index("commande_four_cmd_idx").on(t.commandeId)],
 );
 
+/** Tissus reçus d'une commande, un par matière.
+ *
+ * Le tissu d'un modèle n'est pas toujours mono : un même vêtement peut mêler
+ * plusieurs matières (tissu principal, doublure, thermocollant…), chacune avec
+ * sa propre référence, sa laize et son métrage. Le champ 1:1 historique sur la
+ * commande (`tissuRecu`, `tissuControle`) ne savait porter qu'une seule
+ * matière ; dès qu'au moins une ligne existe ici, c'est elle qui fait foi pour
+ * le magasin, l'inventaire et le feu tissu — comme les fournitures.
+ *
+ * La `laize` (largeur travaillable, en cm) est saisie par le magasin et lue
+ * par la modéliste au moment du plan de coupe : c'est elle qui conditionne le
+ * nombre de pièces par largeur de tracé. */
+export const commandeTissuLigne = pgTable(
+  "commande_tissu_ligne",
+  {
+    id: serial().primaryKey(),
+    commandeId: integer()
+      .notNull()
+      .references(() => commande.id, { onDelete: "cascade" }),
+    /** Nom de la matière : « Tissu principal », « Doublure », « Thermocollant »… */
+    nom: text().notNull().default("Tissu principal"),
+    /** Référence fournisseur / rouleau. */
+    reference: text().notNull().default(""),
+    couleur: text().notNull().default(""),
+    /** Laize travaillable en cm — l'information que cherche la modéliste. */
+    laize: doublePrecision(),
+    /** Métrage attendu et métrage effectivement reçu (en mètres). */
+    metragePrevu: doublePrecision().notNull().default(0),
+    metrageRecu: doublePrecision().notNull().default(0),
+    /** "" | conforme | reserve | refuse — contrôle qualité de cette matière. */
+    controle: text().notNull().default(""),
+    note: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [index("commande_tissu_cmd_idx").on(t.commandeId)],
+);
+
 /* ═══════════ PLAN DE COUPE (matelassage) ═══════════
  *
  * La fiche de matelassage que prépare la modéliste : combien de tracés, à
