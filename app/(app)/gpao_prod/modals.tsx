@@ -28,7 +28,7 @@ export function NewDayModal({
     () => (state.modeles.find((m) => !m.archive) ?? state.modeles[0])?.id ?? 0,
   );
   const [effectif, setEffectif] = useState(state.chaines[0]?.ouvrieres.length ?? 22);
-  const [nbHeures, setNbHeures] = useState(8);
+  const [nbHeures, setNbHeures] = useState("8");
 
   /* Les modèles archivés (finis) ne sont plus proposés : on les réactive
    * depuis Cumul si l'on doit vraiment relancer une série. */
@@ -37,6 +37,10 @@ export function NewDayModal({
 
   const m = findM(state, modeleId);
   const objH = m && m.sam > 0 ? (effectif * 3600) / m.sam : 0;
+  /* Heures saisies : on accepte la virgule comme le point (8,5 ou 8.5), et une
+   * saisie en cours de frappe (« 8, ») ne casse pas l'aperçu — elle vaut 8
+   * tant qu'aucune décimale n'est tapée. */
+  const heures = Math.max(0, Number(String(nbHeures).replace(",", ".")) || 0);
 
   return (
     <Overlay onClose={onClose}>
@@ -72,14 +76,20 @@ export function NewDayModal({
         </div>
         <div className="fld">
           <label>Heures de travail</label>
-          <input type="number" min={1} max={12} value={nbHeures} onChange={(e) => setNbHeures(+e.target.value)} />
+          <input
+            type="text"
+            inputMode="decimal"
+            placeholder="8,5"
+            value={nbHeures}
+            onChange={(e) => setNbHeures(e.target.value.replace(/[^0-9.,]/g, ""))}
+          />
         </div>
       </div>
       <div className="note">
         {m && m.sam > 0 ? (
           <>
             🎯 <b>Objectif général chaîne</b> = (effectif {effectif} × 3600) / SAM {m.sam}s ={" "}
-            <b>{objH.toFixed(1)} p/h</b> → <b>{Math.round(objH * nbHeures)} pièces / jour</b> ({nbHeures}h)
+            <b>{objH.toFixed(1)} p/h</b> → <b>{Math.round(objH * heures)} pièces / jour</b> ({heures || 8}h)
           </>
         ) : (
           "—"
@@ -97,7 +107,7 @@ export function NewDayModal({
               chaineId,
               modeleId,
               effectif: effectif || findC(state, chaineId)?.ouvrieres.length || 0,
-              nbHeures: Math.max(1, Math.min(12, nbHeures || 8)),
+              nbHeures: heures > 0 ? heures : 8,
             })
           }
         >

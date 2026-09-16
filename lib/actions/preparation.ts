@@ -149,6 +149,45 @@ export async function supprimerLigneFourniture(ligneId: number): Promise<Result>
   }
 }
 
+/* ─────────── tissu (détail par matière) ─────────── */
+
+export async function ajouterLigneTissu(commandeId: number): Promise<Result> {
+  try {
+    const auteur = await exigerDroit("tissu");
+    await svc.ajouterLigneTissu(commandeId, auteur);
+    revalider();
+    return ok;
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function majLigneTissu(
+  ligneId: number,
+  champ: svc.ChampLigneTissu,
+  valeur: string,
+): Promise<Result> {
+  try {
+    const auteur = await exigerDroit("tissu");
+    await svc.majLigneTissu(ligneId, champ, valeur, auteur);
+    revalider();
+    return ok;
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function supprimerLigneTissu(ligneId: number): Promise<Result> {
+  try {
+    const auteur = await exigerDroit("tissu");
+    await svc.supprimerLigneTissu(ligneId, auteur);
+    revalider();
+    return ok;
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 /* ─────────── lancement ─────────── */
 
 export async function lancer(

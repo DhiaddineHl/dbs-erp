@@ -96,7 +96,60 @@ export default async function BonReceptionTissuPage({ params }: { params: Promis
         </div>
       </div>
 
-      <table className="mt-5 w-full border-collapse text-[12px]">
+      {/* ─── Détail par matière (multi-tissus) ───
+          Dès que le magasin a saisi des matières, elles font foi. On les
+          imprime en clair — nom, référence, laize, métrage, contrôle — car
+          c'est ce détail que la coupe et la modéliste utilisent. */}
+      {r.tissuLignes.length > 0 && (
+        <>
+          <div className="mt-5 text-[9.5px] font-bold uppercase text-neutral-500">
+            Matières reçues ({r.tissuLignes.length})
+          </div>
+          <table className="mt-1 w-full border-collapse text-[12px]">
+            <thead>
+              <tr className="border-y border-neutral-300 bg-neutral-100">
+                <th className="py-1.5 pl-1 text-left">Matière</th>
+                <th className="py-1.5 text-left">Référence</th>
+                <th className="py-1.5 text-left">Couleur</th>
+                <th className="py-1.5 pr-1 text-center">Laize</th>
+                <th className="py-1.5 pr-1 text-right">Prévu</th>
+                <th className="py-1.5 pr-1 text-right">Reçu</th>
+                <th className="py-1.5 pr-1 text-right">Écart</th>
+                <th className="py-1.5 pr-1 text-left">Contrôle</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.tissuLignes.map((m) => {
+                const ecart = Math.round((m.metrageRecu - m.metragePrevu) * 100) / 100;
+                const manqueM = m.metragePrevu > 0 && ecart < 0;
+                return (
+                  <tr key={m.id} className="border-b border-neutral-200">
+                    <td className="py-2 pl-1 font-semibold">{m.nom || "Matière"}</td>
+                    <td className="py-2">{m.reference || <span className="text-neutral-400">—</span>}</td>
+                    <td className="py-2">{m.couleur || <span className="text-neutral-400">—</span>}</td>
+                    <td className="py-2 pr-1 text-center tabular-nums">
+                      {m.laize != null ? `${m1.format(m.laize)} cm` : "—"}
+                    </td>
+                    <td className="py-2 pr-1 text-right tabular-nums">{m1.format(m.metragePrevu)} m</td>
+                    <td className="py-2 pr-1 text-right font-bold tabular-nums">{m1.format(m.metrageRecu)} m</td>
+                    <td className={`py-2 pr-1 text-right font-bold tabular-nums ${manqueM ? "text-red-700" : ""}`}>
+                      {m.metragePrevu > 0 ? `${ecart >= 0 ? "+" : "−"}${m1.format(Math.abs(ecart))} m` : "—"}
+                    </td>
+                    <td className="py-2 pr-1">
+                      {(CONTROLE[m.controle] ?? CONTROLE[""]).label}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="mt-4 text-[9.5px] font-bold uppercase text-neutral-500">
+            Rappel besoin théorique (nomenclature)
+          </div>
+        </>
+      )}
+
+      <table className="mt-1 w-full border-collapse text-[12px]">
         <thead>
           <tr className="border-y border-neutral-300 bg-neutral-100">
             <th className="py-1.5 pl-1 text-left">Désignation</th>

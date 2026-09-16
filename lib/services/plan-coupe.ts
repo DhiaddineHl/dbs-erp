@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { client, commande, commandeEtape, commandePlan, commandePlanMatiere } from "@/lib/db/schema";
+import { client, commande, commandeEtape, commandePlan, commandePlanMatiere, commandeTissuLigne } from "@/lib/db/schema";
 import * as biz from "@/lib/domain/commande";
 import * as pc from "@/lib/domain/plan-coupe";
 import { type Auteur, journaliserFiche, type Tx } from "@/lib/services/journal-fiche";
@@ -50,6 +50,11 @@ export type ContexteCommande = {
   factureQte: number;
   /** Vrai si des parts de découpe prennent sur cette quantité. */
   aDesParts: boolean;
+
+  /* ── ce que le magasin a saisi côté tissu ──
+   * Les matières reçues, avec leur laize travaillable. La modéliste les lit
+   * ici pour poser ses tracés sans aller la chercher dans l'écran magasin. */
+  tissuMagasin: { nom: string; reference: string; couleur: string; laize: number | null; metrageRecu: number }[];
 };
 
 /** La commande et son entourage de groupe, en une requête large.
@@ -67,6 +72,15 @@ export async function contexteCommande(commandeId: number): Promise<ContexteComm
 
   const enfants = await db.select().from(commande).where(eq(commande.parentId, c.id));
   const [porteur] = c.parentId != null ? await db.select().from(commande).where(eq(commande.id, c.parentId)) : [];
+
+  /* La laize vient du porteur quand il y en a un : c'est lui qui porte la
+   * réception tissu du groupe. */
+  const sourceTissuId = c.parentId ?? c.id;
+  const matieresMagasin = await db
+    .select()
+    .from(commandeTissuLigne)
+    .where(eq(commandeTissuLigne.commandeId, sourceTissuId))
+    .orderBy(asc(commandeTissuLigne.id));
 
   return {
     id: c.id,
@@ -93,6 +107,14 @@ export async function contexteCommande(commandeId: number): Promise<ContexteComm
     magasinQte: c.magasinQte,
     factureQte: c.factureQte,
     aDesParts: enfants.some((e) => e.lienParent === "decoupe"),
+
+    tissuMagasin: matieresMagasin.map((m) => ({
+      nom: m.nom,
+      reference: m.reference,
+      couleur: m.couleur,
+      laize: m.laize,
+      metrageRecu: m.metrageRecu,
+    })),
   };
 }
 

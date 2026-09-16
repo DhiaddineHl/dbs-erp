@@ -42,6 +42,18 @@ export type VerdictTds = "attente" | "ok" | "refus";
 export type Tds = { id: number; n: number; envoi: string | null; retour: string | null; verdict: string; commentaire: string; par: string };
 export type Etape = { etape: string; fait: boolean; date: string | null; par: string };
 export type LigneFourniture = { id: number; designation: string; qtePrevue: number; qteRecue: number; unite: string };
+/** Une matière reçue d'une commande : nom, référence, laize (cm), métrages et contrôle. */
+export type LigneTissu = {
+  id: number;
+  nom: string;
+  reference: string;
+  couleur: string;
+  laize: number | null;
+  metragePrevu: number;
+  metrageRecu: number;
+  controle: string;
+  note: string;
+};
 export type Lancement = {
   date: string;
   mode: "interne" | "soustraitance" | string;
@@ -58,6 +70,10 @@ export type ContextePrepa = {
   tds: Tds[];
   etapes: Etape[];
   fournitures: LigneFourniture[];
+  /** Matières reçues, une par tissu. Dès qu'une ligne existe, elle fait foi
+   * pour le feu tissu, comme le détail fournitures. Vide = ancien mode mono
+   * (champs `tissuRecu`/`tissuControle` de la commande). */
+  tissuLignes?: LigneTissu[];
   lancement: Lancement | null;
   chuteDefaut: number;
 };
@@ -85,7 +101,26 @@ export function etatTds(tds: Tds[]): EtatFeu {
 
 /* ─────────── tissu ─────────── */
 
-export function etatTissu(c: ContextePrepa["commande"]): EtatFeu {
+/** Feu tissu à partir du détail par matière : toutes conformes → vert ; une
+ * refusée → rouge ; reçues mais pas toutes contrôlées → orange ; rien reçu →
+ * attente. Une matière « sous réserve » vaut acceptée (elle libère la coupe),
+ * mais tant qu'il en reste une non contrôlée le feu reste orange. */
+export function etatTissuLignes(lignes: LigneTissu[]): EtatFeu {
+  const n = lignes.length;
+  if (lignes.some((l) => l.controle === "refuse")) return etat("ko", "Une matière refusée");
+  const acceptee = (l: LigneTissu) => l.controle === "conforme" || l.controle === "reserve";
+  if (lignes.every(acceptee)) {
+    const sousReserve = lignes.some((l) => l.controle === "reserve");
+    return etat("ok", sousReserve ? `Acceptées (${n} matières)` : `Conformes (${n} matières)`);
+  }
+  const recu = lignes.some((l) => !!l.metrageRecu || acceptee(l));
+  if (!recu) return etat("wait", `Aucune reçue (${n} matières)`);
+  const aControler = lignes.filter((l) => !acceptee(l)).length;
+  return etat("warn", `${aControler}/${n} matière(s) à contrôler`);
+}
+
+export function etatTissu(c: ContextePrepa["commande"], lignes?: LigneTissu[]): EtatFeu {
+  if (lignes && lignes.length) return etatTissuLignes(lignes);
   const controle = c.tissuControle ?? "";
   if (controle === "refuse") return etat("ko", "Refusé");
   if (controle === "conforme") return etat("ok", "Conforme");
@@ -94,6 +129,13 @@ export function etatTissu(c: ContextePrepa["commande"]): EtatFeu {
   if (recu) return etat("warn", "Reçu, à contrôler");
   if (c.receptTissu) return etat("wait", `Attendu ${c.receptTissu}`);
   return etat("wait", "Non reçu");
+}
+
+/** Le tissu libère la coupe quand il est accepté. En mode détail : toutes les
+ * matières acceptées (conforme ou sous réserve) et aucune refusée. */
+export function tissuLibereParLignes(lignes: LigneTissu[]): boolean {
+  if (!lignes.length) return false;
+  return lignes.every((l) => l.controle === "conforme" || l.controle === "reserve");
 }
 
 /* ─────────── fournitures ─────────── */
@@ -146,7 +188,7 @@ export function feux(ctx: ContextePrepa): Feu[] {
     { id: "tds", domaine: "tds", label: "Tête de série", icone: "🧵", bloquant: true, ecran: "/dt", etat: etatTds(ctx.tds) },
     { id: "patronage", domaine: "modelisme", label: "Patronage modéliste", icone: "📐", bloquant: true, ecran: "/modelisme", etat: etatEtape(ctx.etapes, "patronage") },
     { id: "traces", domaine: "modelisme", label: "Tirage des tracés", icone: "🖨", bloquant: true, ecran: "/modelisme", etat: etatEtape(ctx.etapes, "traces") },
-    { id: "tissu", domaine: "tissu", label: "Tissu", icone: "🧶", bloquant: true, ecran: "/magtissu", etat: etatTissu(ctx.commande) },
+    { id: "tissu", domaine: "tissu", label: "Tissu", icone: "🧶", bloquant: true, ecran: "/magtissu", etat: etatTissu(ctx.commande, ctx.tissuLignes) },
     { id: "four", domaine: "four", label: "Fournitures", icone: "🔩", bloquant: true, ecran: "/magfour", etat: etatFournitures(ctx.fournitures, ctx.commande.statutGlobalFournitures) },
     { id: "nomen", domaine: "nomen", label: "Nomenclature", icone: "📋", bloquant: false, ecran: "/nomen", etat: etatNomenclature(ctx.commande) },
   ];

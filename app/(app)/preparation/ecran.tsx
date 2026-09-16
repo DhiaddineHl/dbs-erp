@@ -150,14 +150,26 @@ export function EcranPreparation({
           </div>
         }
         actions={
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="OF, modèle, réf…"
-              className="h-8 w-56 bg-card pl-7"
-            />
+          <div className="flex items-center gap-2">
+            {ecran === "magtissu" && (
+              <Link
+                href="/magtissu/inventaire"
+                target="_blank"
+                title="Imprimer l'inventaire tissu (toutes commandes)"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-[11px] font-semibold hover:bg-muted"
+              >
+                <Printer className="size-3.5" /> Inventaire
+              </Link>
+            )}
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="OF, modèle, réf…"
+                className="h-8 w-56 bg-card pl-7"
+              />
+            </div>
           </div>
         }
         flush
@@ -410,6 +422,19 @@ function Cellules({ ecran, row }: { ecran: EcranId; row: PreparationRow }) {
         </td>
         <td className="px-3 py-2">
           <StatusBadge tone={feu.etat.tone}>{feu.etat.label}</StatusBadge>
+        </td>
+        <td className="px-3 py-2 text-center">
+          {/* stopPropagation : la ligne entière déplie la fiche, et imprimer
+              n'est pas consulter. */}
+          <Link
+            href={`/magfour/${row.id}/imprimer`}
+            target="_blank"
+            onClick={(e) => e.stopPropagation()}
+            title={`Bon de réception fournitures — ${row.of || row.modele}`}
+            className="inline-flex rounded border border-input p-1 hover:bg-muted"
+          >
+            <Printer className="size-3.5" />
+          </Link>
         </td>
       </>
     );

@@ -192,6 +192,7 @@ const MAGFOUR: EcranConfig = {
     { titre: "Reçues", align: "center" },
     { titre: "Manquantes", align: "center" },
     { titre: "Statut" },
+    { titre: "Bon", align: "center" },
   ],
   kpis: (rows) => {
     const att = rows.filter((r) => feuDe(r, "four").etat.kind === "wait" && !r.lancee).length;
