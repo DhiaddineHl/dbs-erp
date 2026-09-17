@@ -14,6 +14,7 @@ export const COLONNES_COMMANDE = [
   { cle: "prixVente", label: "P. vente" },
   { cle: "prixFacon", label: "P. façon" },
   { cle: "margeTotale", label: "Marge" },
+  { cle: "tissu", label: "Tissu (besoin/affecté)" },
   { cle: "dateExport", label: "Export" },
   { cle: "retard", label: "Retard" },
   { cle: "av", label: "Avancement" },

@@ -12,6 +12,7 @@ import {
   commandeTds,
   commandeTissuLigne,
   faconnier,
+  fournitureCatalogue,
 } from "@/lib/db/schema";
 import * as biz from "@/lib/domain/commande";
 import * as fx from "@/lib/domain/feux";
@@ -529,6 +530,46 @@ export async function ajouterLigneFourniture(commandeId: number, auteur: Auteur)
   return db.transaction(async (tx) => {
     await tx.insert(commandeFournitureLigne).values({ commandeId });
     await log(tx, commandeId, auteur, "four", "Ligne de fourniture ajoutée", { apres: "nouvelle ligne" });
+  });
+}
+
+/* ── catalogue de fournitures récurrentes (point 6) ── */
+
+export type CatalogueFournitureRow = { id: number; designation: string; unite: string; qteDefaut: number; note: string };
+
+export async function listCatalogueFournitures(): Promise<CatalogueFournitureRow[]> {
+  const rows = await db.select().from(fournitureCatalogue).orderBy(asc(fournitureCatalogue.designation));
+  return rows.map((r) => ({ id: r.id, designation: r.designation, unite: r.unite, qteDefaut: r.qteDefaut, note: r.note }));
+}
+
+export async function ajouterAuCatalogue(v: { designation: string; unite?: string; qteDefaut?: number; note?: string }) {
+  const designation = v.designation.trim();
+  if (!designation) throw new Error("Désignation requise");
+  await db
+    .insert(fournitureCatalogue)
+    .values({ designation, unite: v.unite || "pcs", qteDefaut: v.qteDefaut ?? 0, note: v.note ?? "" })
+    .onConflictDoUpdate({
+      target: fournitureCatalogue.designation,
+      set: { unite: v.unite || "pcs", qteDefaut: v.qteDefaut ?? 0, note: v.note ?? "" },
+    });
+}
+
+export async function supprimerDuCatalogue(id: number) {
+  await db.delete(fournitureCatalogue).where(eq(fournitureCatalogue.id, id));
+}
+
+/** Ajoute une ligne à une commande en la pré-remplissant depuis le catalogue. */
+export async function ajouterLigneDepuisCatalogue(commandeId: number, catalogueId: number, auteur: Auteur) {
+  return db.transaction(async (tx) => {
+    const [c] = await tx.select().from(fournitureCatalogue).where(eq(fournitureCatalogue.id, catalogueId));
+    if (!c) throw new Error("Fourniture introuvable au catalogue");
+    await tx.insert(commandeFournitureLigne).values({
+      commandeId,
+      designation: c.designation,
+      unite: c.unite,
+      qtePrevue: c.qteDefaut,
+    });
+    await log(tx, commandeId, auteur, "four", "Fourniture ajoutée (catalogue)", { apres: c.designation });
   });
 }
 

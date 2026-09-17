@@ -127,6 +127,44 @@ export function EditeurPlan({
     return true;
   };
 
+  /* Importe les lots affectés (magasin tissu) comme matières du plan : nom =
+   * identifiant du lot, laize pré-remplie, lien lotId posé pour la déduction. */
+  const importerMatieres = () =>
+    start(async () => {
+      setPlan((p) => {
+        const next = structuredClone(p);
+        for (const lot of ctx.tissuMagasin) {
+          if (next.matieres.some((m) => m.lotId === lot.lotId)) continue;
+          const vide = next.matieres.find((m) => m.lotId == null && !m.laise && m.traces.every((t) => t.longueur === 0));
+          if (vide) {
+            vide.lotId = lot.lotId;
+            vide.nom = lot.identifiant;
+            if (lot.laize != null) vide.laise = lot.laize;
+          } else {
+            const m = pc.matiereVide(next.sizes, next.matieres.length, lot.identifiant);
+            m.lotId = lot.lotId;
+            if (lot.laize != null) m.laise = lot.laize;
+            next.matieres.push(m);
+          }
+        }
+        return next;
+      });
+      toast.success("Matières importées du magasin — pensez à enregistrer le plan");
+    });
+
+  const deduireDuMagasin = () =>
+    exigerEnregistre() &&
+    start(async () => {
+      const res = await A.deduireDuMagasin(ctx.id, matiere.rang);
+      if (!res.ok) return void toast.error(res.error);
+      toast.success(
+        res.data.sortie === 0
+          ? "Stock déjà à jour pour cette matière"
+          : `${m3.format(res.data.sortie)} m déduits du lot ${res.data.lot}`,
+      );
+      router.refresh();
+    });
+
   const reporterConsoReelle = () =>
     exigerEnregistre() &&
     start(async () => {
@@ -208,27 +246,37 @@ export function EditeurPlan({
         {sale && peutModifier && <StatusBadge tone="warning">modifications non enregistrées</StatusBadge>}
       </div>
 
-      {/* ═══════════ laize travaillable — saisie par le magasin tissu ═══════════
-          La modéliste la lit ici pour poser ses tracés, sans ouvrir l'écran
-          magasin. Rien à saisir : c'est un rappel de ce que le magasin a
-          renseigné. */}
+      {/* ═══════════ Import des matières depuis le magasin tissu ═══════════
+          Les lots affectés à cette commande : la modéliste les importe comme
+          matières de plan (nom + laize pré-remplis), et voit le disponible réel.
+          Après matelassage, elle déduit la conso du lot (bouton sur la matière). */}
       {ctx.tissuMagasin.length > 0 && (
         <div className="mb-4 rounded-lg border bg-card px-3 py-2">
-          <div className="mb-1.5 text-[11px] font-bold uppercase text-muted-foreground">
-            🧶 Laize travaillable (renseignée par le magasin tissu)
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold uppercase text-muted-foreground">
+              🧶 Lots affectés au magasin tissu
+            </span>
+            {peutModifier && (
+              <Button size="sm" variant="outline" disabled={pending} onClick={importerMatieres}>
+                Importer comme matières
+              </Button>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
-            {ctx.tissuMagasin.map((m, i) => (
-              <div key={i} className="rounded-md border bg-muted/40 px-2.5 py-1.5 text-[11px]">
-                <span className="font-semibold">{m.nom || "Matière"}</span>
-                {m.reference ? <span className="text-muted-foreground"> · {m.reference}</span> : null}
-                {m.couleur ? <span className="text-muted-foreground"> · {m.couleur}</span> : null}
-                <span className="ml-1.5 font-bold text-brand">
-                  {m.laize != null ? `laize ${m2.format(m.laize)} cm` : "laize non renseignée"}
-                </span>
-                {m.metrageRecu > 0 && <span className="text-muted-foreground"> · reçu {m2.format(m.metrageRecu)} m</span>}
-              </div>
-            ))}
+            {ctx.tissuMagasin.map((m) => {
+              const importe = plan.matieres.some((x) => x.lotId === m.lotId);
+              return (
+                <div key={m.lotId} className="rounded-md border bg-muted/40 px-2.5 py-1.5 text-[11px]">
+                  <span className="font-mono font-semibold">{m.identifiant}</span>
+                  {m.couleur ? <span className="text-muted-foreground"> · {m.couleur}</span> : null}
+                  <span className="ml-1.5 font-bold text-brand">
+                    {m.laize != null ? `laize ${m2.format(m.laize)} cm` : "laize —"}
+                  </span>
+                  <span className="text-muted-foreground"> · dispo {m2.format(m.disponible)} m</span>
+                  {importe && <span className="ml-1 text-success-foreground">✓ importée</span>}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -683,6 +731,18 @@ export function EditeurPlan({
               <Button size="sm" variant="outline" disabled={pending} onClick={reporterTailles}>
                 ↩ Corriger les tailles de la commande
               </Button>
+              {/* Sens inverse (point 2) : la conso réelle sort du stock du lot lié. */}
+              {matiere.lotId != null && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={pending || calc.estime || !calc.pieces}
+                  title="Déduit le métrage consommé du lot au magasin tissu"
+                  onClick={deduireDuMagasin}
+                >
+                  📦 Déduire la conso du magasin
+                </Button>
+              )}
               {calc.complet && !tracesFaites && (
                 <Button size="sm" variant="outline" disabled={pending} onClick={validerTraces}>
                   ✅ Valider « Tirage des tracés »

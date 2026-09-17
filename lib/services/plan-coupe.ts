@@ -1,9 +1,19 @@
 import "server-only";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { client, commande, commandeEtape, commandePlan, commandePlanMatiere, commandeTissuLigne } from "@/lib/db/schema";
+import {
+  client,
+  commande,
+  commandeEtape,
+  commandePlan,
+  commandePlanMatiere,
+  tissuAffectation,
+  tissuLot,
+  tissuMouvement,
+} from "@/lib/db/schema";
 import * as biz from "@/lib/domain/commande";
 import * as pc from "@/lib/domain/plan-coupe";
+import * as tx from "@/lib/domain/tissu";
 import { type Auteur, journaliserFiche, type Tx } from "@/lib/services/journal-fiche";
 
 /* Lecture et écriture du plan de coupe.
@@ -54,13 +64,72 @@ export type ContexteCommande = {
   /* ── ce que le magasin a saisi côté tissu ──
    * Les matières reçues, avec leur laize travaillable. La modéliste les lit
    * ici pour poser ses tracés sans aller la chercher dans l'écran magasin. */
-  tissuMagasin: { nom: string; reference: string; couleur: string; laize: number | null; metrageRecu: number }[];
+  /* ── lots du magasin tissu affectés à cette commande (nouveau modèle) ──
+   * La modéliste les importe comme matières (nom + laize pré-remplis), et la
+   * consommation qu'elle reporte sera déduite de ces lots. */
+  tissuMagasin: {
+    lotId: number;
+    identifiant: string;
+    nom: string;
+    reference: string;
+    couleur: string;
+    laize: number | null;
+    affecte: number;
+    disponible: number;
+  }[];
 };
 
 /** La commande et son entourage de groupe, en une requête large.
  *
  * Volontairement distinct de `listPreparation()` : l'éditeur travaille sur une
  * seule commande et n'a que faire des feux de toutes les autres. */
+/** Les lots du magasin tissu affectés à une commande, avec leur laize et le
+ * disponible physique du lot — pour l'import comme matières de plan de coupe. */
+async function lotsAffectesACommande(commandeId: number): Promise<ContexteCommande["tissuMagasin"]> {
+  const affs = await db
+    .select({
+      lotId: tissuAffectation.lotId,
+      quantite: tissuAffectation.quantite,
+      identifiant: tissuLot.identifiant,
+      reference: tissuLot.reference,
+      couleur: tissuLot.couleur,
+      laize: tissuLot.laize,
+      recu: tissuLot.quantiteRecue,
+    })
+    .from(tissuAffectation)
+    .leftJoin(tissuLot, eq(tissuAffectation.lotId, tissuLot.id))
+    .where(eq(tissuAffectation.commandeId, commandeId));
+  if (affs.length === 0) return [];
+
+  // Disponible physique de chaque lot concerné (reçu − consommé net).
+  const lotIds = [...new Set(affs.map((a) => a.lotId))];
+  const mvts = await db.select().from(tissuMouvement);
+  const bilanParLot = new Map<number, number>();
+  for (const id of lotIds) {
+    const recu = affs.find((a) => a.lotId === id)?.recu ?? 0;
+    const m = mvts.filter((x) => x.lotId === id);
+    bilanParLot.set(id, tx.bilanLot(recu, [], m).disponible);
+  }
+
+  // Somme les affectations par lot (une commande peut avoir plusieurs lignes).
+  const parLot = new Map<number, ContexteCommande["tissuMagasin"][number]>();
+  for (const a of affs) {
+    const e = parLot.get(a.lotId) ?? {
+      lotId: a.lotId,
+      identifiant: a.identifiant ?? "?",
+      nom: a.identifiant ?? "Matière",
+      reference: a.reference ?? "",
+      couleur: a.couleur ?? "",
+      laize: a.laize,
+      affecte: 0,
+      disponible: bilanParLot.get(a.lotId) ?? 0,
+    };
+    e.affecte += a.quantite;
+    parLot.set(a.lotId, e);
+  }
+  return [...parLot.values()];
+}
+
 export async function contexteCommande(commandeId: number): Promise<ContexteCommande | null> {
   const [ligne] = await db
     .select({ c: commande, clientNom: client.nom })
@@ -73,14 +142,9 @@ export async function contexteCommande(commandeId: number): Promise<ContexteComm
   const enfants = await db.select().from(commande).where(eq(commande.parentId, c.id));
   const [porteur] = c.parentId != null ? await db.select().from(commande).where(eq(commande.id, c.parentId)) : [];
 
-  /* La laize vient du porteur quand il y en a un : c'est lui qui porte la
-   * réception tissu du groupe. */
+  /* Les lots affectés au groupe : c'est le porteur qui porte la réception. */
   const sourceTissuId = c.parentId ?? c.id;
-  const matieresMagasin = await db
-    .select()
-    .from(commandeTissuLigne)
-    .where(eq(commandeTissuLigne.commandeId, sourceTissuId))
-    .orderBy(asc(commandeTissuLigne.id));
+  const lotsAffectes = await lotsAffectesACommande(sourceTissuId);
 
   return {
     id: c.id,
@@ -108,13 +172,7 @@ export async function contexteCommande(commandeId: number): Promise<ContexteComm
     factureQte: c.factureQte,
     aDesParts: enfants.some((e) => e.lienParent === "decoupe"),
 
-    tissuMagasin: matieresMagasin.map((m) => ({
-      nom: m.nom,
-      reference: m.reference,
-      couleur: m.couleur,
-      laize: m.laize,
-      metrageRecu: m.metrageRecu,
-    })),
+    tissuMagasin: lotsAffectes,
   };
 }
 
@@ -134,6 +192,7 @@ const versPlan = (
   matieres: matieres.map((m) => ({
     rang: m.rang,
     nom: m.nom,
+    lotId: m.lotId,
     laise: m.laise,
     consoPrevue: m.consoPrevue,
     perteBout: m.perteBout,
@@ -278,6 +337,7 @@ function assainir(plan: pc.Plan): pc.Plan {
       return {
         rang: i,
         nom: String(m.nom ?? "").trim().slice(0, 80) || `Matière ${i + 1}`,
+        lotId: m.lotId ?? null,
         laise: nOuNull(m.laise),
         consoPrevue: nOuNull(m.consoPrevue),
         perteBout: nOuNull(m.perteBout),
@@ -330,6 +390,7 @@ export async function enregistrerPlan(commandeId: number, brut: pc.Plan, auteur:
           commandeId,
           rang: m.rang,
           nom: m.nom,
+          lotId: m.lotId ?? null,
           laise: m.laise,
           consoPrevue: m.consoPrevue,
           perteBout: m.perteBout,
@@ -378,6 +439,77 @@ export async function reporterConsoReelle(commandeId: number, valeur: number, au
 
 export async function reporterConsoPrevue(commandeId: number, valeur: number, auteur: Auteur) {
   await db.transaction((tx) => reporterConso(tx, commandeId, "consoTheo", valeur, auteur));
+}
+
+/** Déduit du magasin la consommation réelle d'une matière liée à un lot.
+ *
+ * C'est le sens INVERSE de l'import : une fois le matelassage fait, le métrage
+ * réellement consommé sort du stock du lot (mouvement de sortie), et
+ * l'inventaire reflète le reste. On ne sort jamais plus que le disponible ;
+ * on ne double pas une sortie déjà passée pour ce plan (on ajuste au delta). */
+export type BilanConso = { ok: true; sortie: number; lot: string } | { ok: false; error: string };
+
+export async function consommerDepuisPlan(
+  commandeId: number,
+  rangMatiere: number,
+  metresConsommes: number,
+  auteur: Auteur,
+): Promise<BilanConso> {
+  return db.transaction(async (t): Promise<BilanConso> => {
+    const [m] = await t
+      .select()
+      .from(commandePlanMatiere)
+      .where(and(eq(commandePlanMatiere.commandeId, commandeId), eq(commandePlanMatiere.rang, rangMatiere)));
+    if (!m) return { ok: false, error: "Matière introuvable" };
+    if (m.lotId == null) return { ok: false, error: "Cette matière n'est pas liée à un lot du magasin tissu." };
+
+    const [lot] = await t.select().from(tissuLot).where(eq(tissuLot.id, m.lotId));
+    if (!lot) return { ok: false, error: "Lot introuvable au magasin." };
+
+    const [c] = await t
+      .select({ of: commande.ofNumber, modele: commande.modele })
+      .from(commande)
+      .where(eq(commande.id, commandeId));
+    const label = c ? `${c.of} · ${c.modele}` : "";
+
+    // Sorties déjà passées pour CE plan/matière (motif marqueur), pour n'ajouter
+    // que le delta et ne pas déduire deux fois si on reporte à nouveau.
+    const marqueur = `plan#${commandeId}#${rangMatiere}`;
+    const mvts = await t.select().from(tissuMouvement).where(eq(tissuMouvement.lotId, m.lotId));
+    const dejaSorti = mvts
+      .filter((x) => x.sens === "sortie" && x.motif.includes(marqueur))
+      .reduce((s, x) => s + x.quantite, 0);
+    const delta = Math.round((metresConsommes - dejaSorti) * 100) / 100;
+    if (Math.abs(delta) < 0.001) return { ok: true, sortie: 0, lot: lot.identifiant };
+
+    if (delta > 0) {
+      const dispo = tx.bilanLot(lot.quantiteRecue, [], mvts).disponible;
+      if (delta > dispo + 0.001) {
+        return { ok: false, error: `Consommation ${delta} m > disponible ${dispo} m sur ${lot.identifiant}.` };
+      }
+      await t.insert(tissuMouvement).values({
+        lotId: m.lotId,
+        sens: "sortie",
+        quantite: delta,
+        commandeId,
+        commandeLabel: label,
+        motif: `Consommation coupe (${marqueur})`,
+        createdBy: auteur.name,
+      });
+    } else {
+      // Correction à la baisse : on remet la différence par un retour.
+      await t.insert(tissuMouvement).values({
+        lotId: m.lotId,
+        sens: "retour",
+        quantite: -delta,
+        commandeId,
+        commandeLabel: label,
+        motif: `Ajustement consommation coupe (${marqueur})`,
+        createdBy: auteur.name,
+      });
+    }
+    return { ok: true, sortie: delta, lot: lot.identifiant };
+  });
 }
 
 /** Ce qui interdit de réécrire la grille de tailles d'une commande.

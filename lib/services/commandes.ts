@@ -6,6 +6,7 @@ import type { Taille } from "@/lib/db/schema";
 import type { Tone } from "@/components/shared/status-badge";
 import * as biz from "@/lib/domain/commande";
 import { getSetting } from "@/lib/services/permissions";
+import { couvertureTissuParCommande } from "@/lib/services/tissu";
 
 /* Read models. Amounts and dates come out of the DB typed; every status-like
  * field is computed here from lib/domain/commande.ts rather than stored. */
@@ -88,6 +89,10 @@ export type CommandeRow = {
   tissuRecu: number;
   besoinTissu: number;
   ecartTissu: number | null;
+  /* Couverture depuis le magasin tissu par lots. */
+  tissuAffecte: number;
+  tissuConsomme: number;
+  tissuLots: string[];
 
   receptTissu: string;
   dateExport: string;
@@ -156,7 +161,7 @@ type ListOptions = {
 };
 
 export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow[]> {
-  const [rows, chuteDefaut, modeles] = await Promise.all([
+  const [rows, chuteDefaut, modeles, couvertureTissu] = await Promise.all([
     db
       .select({
         c: commande,
@@ -171,6 +176,7 @@ export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow
       .orderBy(commande.id),
     getChuteDefaut(),
     db.select({ nom: modele.nom }).from(modele),
+    couvertureTissuParCommande(),
   ]);
 
   // A modèle already declared in GPAO counts as "in production" even before the
@@ -282,6 +288,9 @@ export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow
          * sous-commande, la quantité du groupe est la sienne. */
         besoinTissu: biz.besoinTissu(c, chuteDefaut, groupe.qte),
         ecartTissu: biz.ecartTissu(c, chuteDefaut, groupe.qte),
+        tissuAffecte: couvertureTissu.get(c.id)?.affecte ?? 0,
+        tissuConsomme: couvertureTissu.get(c.id)?.consomme ?? 0,
+        tissuLots: couvertureTissu.get(c.id)?.lots ?? [],
 
         receptTissu: iso(c.receptTissu),
         dateExport: iso(c.dateExport),

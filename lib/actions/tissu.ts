@@ -6,6 +6,7 @@ import { assertUser, userRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { commande, tissuAffectation, tissuLot, tissuMouvement, tissuReception } from "@/lib/db/schema";
 import { peutModifier } from "@/lib/domain/feux";
+import { getRoleModules } from "@/lib/services/permissions";
 import * as tx from "@/lib/domain/tissu";
 import * as svc from "@/lib/services/tissu";
 
@@ -22,7 +23,12 @@ const revalider = () => PATHS.forEach((p) => revalidatePath(p));
 async function auteur() {
   const user = await assertUser();
   const role = userRole(user);
-  if (!peutModifier("tissu", role)) throw new Error("Réservé au magasin tissu");
+  let autorise = peutModifier("tissu", role);
+  if (!autorise) {
+    const modules = await getRoleModules(role);
+    if (modules.magtissu) autorise = true;
+  }
+  if (!autorise) throw new Error("Réservé au magasin tissu");
   return { id: user.id, name: user.name as string, role };
 }
 

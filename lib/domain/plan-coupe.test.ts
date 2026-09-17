@@ -45,6 +45,7 @@ const trace = (o: Partial<TracePlan> = {}): TracePlan => ({
 const matiere = (o: Partial<Matiere> = {}): Matiere => ({
   rang: 0,
   nom: "Tissu principal",
+  lotId: null,
   laise: 150,
   consoPrevue: null,
   perteBout: null,

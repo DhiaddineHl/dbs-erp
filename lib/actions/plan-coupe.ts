@@ -161,6 +161,34 @@ export async function reporterConsoPrevue(commandeId: number, rangMatiere: numbe
   }
 }
 
+/** Sens inverse (point 2) : déduit du magasin tissu le métrage réellement
+ * consommé par une matière liée à un lot. Total = conso réelle/pièce × pièces
+ * coupées de cette matière. Idempotent (n'ajoute que le delta). */
+export async function deduireDuMagasin(commandeId: number, rangMatiere: number): Promise<Result<{ sortie: number; lot: string }>> {
+  try {
+    const auteur = await exigerModeliste();
+    const plan = await svc.getPlan(commandeId);
+    if (!plan) throw new Error("Enregistrez d'abord le plan");
+    const m = plan.matieres.find((x) => x.rang === rangMatiere);
+    if (!m) throw new Error("Matière introuvable");
+    if (m.lotId == null) throw new Error("Liez d'abord cette matière à un lot (bouton « Importer du magasin »)");
+    if (pc.estEstime(m)) throw new Error("Longueurs encore estimées — saisissez les vraies longueurs avant de déduire");
+
+    const consoPiece = pc.consoReellePiece(m, plan.sizes);
+    const pieces = pc.piecesTotales(m, plan.sizes);
+    if (consoPiece == null || consoPiece <= 0 || pieces <= 0) throw new Error("Aucune pièce coupée dans le plan");
+    const total = +(consoPiece * pieces).toFixed(2);
+
+    const r = await svc.consommerDepuisPlan(commandeId, rangMatiere, total, auteur);
+    if (!r.ok) throw new Error(r.error);
+    await journaliser("modification", "Magasin tissu", `sortie ${r.sortie} m du lot ${r.lot} (coupe commande ${commandeId})`);
+    revalider(commandeId);
+    return ok({ sortie: r.sortie, lot: r.lot });
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 /** Réécrit la grille de tailles de la commande depuis celle du plan.
  *
  * Le garde de `motifRefusCorrectionTailles` est appliqué ICI, sur le contexte

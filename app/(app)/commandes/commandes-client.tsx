@@ -25,6 +25,7 @@ import {
   trierCommandes,
 } from "@/lib/domain/commande";
 import type { CommandeRow } from "@/lib/services/commandes";
+import { couvertureCommande } from "@/lib/domain/tissu";
 import * as A from "@/lib/actions/commandes";
 import { COLONNES_ARGENT, COLONNES_COMMANDE, type CleColonne, storeColonnes } from "./colonnes";
 import { imprimerSelection } from "./impression";
@@ -572,6 +573,11 @@ export function CommandesClient({
             </div>
           </td>
         )}
+        {visible("tissu") && (
+          <td className="px-3 py-1.5">
+            <CelluleTissu commande={c} />
+          </td>
+        )}
         {visible("dateExport") && (
           <td className="px-3 py-1.5 tabular-nums">
             {planning ? (
@@ -977,6 +983,7 @@ export function CommandesClient({
                 {visible("prixVente") && <th className="px-3 py-2 text-right">P. vente</th>}
                 {visible("prixFacon") && <th className="px-3 py-2 text-right">P. façon</th>}
                 {visible("margeTotale") && <th className="px-3 py-2 text-right">Marge</th>}
+                {visible("tissu") && <th className="px-3 py-2 text-left">Tissu</th>}
                 {visible("dateExport") && (
                   <th className="px-3 py-2 text-left">{planning ? "Réception / Export" : "Export"}</th>
                 )}
@@ -1079,6 +1086,34 @@ function DatePlanning({
         }}
       />
     </label>
+  );
+}
+
+/* Vue tissu compacte d'une commande : besoin (nomenclature) → affecté depuis
+ * les lots → consommé, avec l'alerte de couverture et les lots d'origine.
+ * C'est la réponse directe à « combien il faut / affecté / d'où vient le tissu »
+ * sans quitter le carnet de commandes. */
+function CelluleTissu({ commande: c }: { commande: CommandeRow }) {
+  const cov = couvertureCommande(
+    c.besoinTissu,
+    c.tissuAffecte > 0 ? [{ quantite: c.tissuAffecte }] : [],
+    c.tissuConsomme > 0 ? [{ sens: "sortie", quantite: c.tissuConsomme }] : [],
+  );
+  const n2 = (n: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(n);
+  if (c.besoinTissu <= 0 && c.tissuAffecte <= 0) {
+    return <span className="text-[11px] text-muted-foreground">—</span>;
+  }
+  return (
+    <div className="flex flex-col gap-0.5 text-[11px]">
+      <StatusBadge tone={cov.statut.tone}>{cov.statut.label}</StatusBadge>
+      <span className="tabular-nums text-muted-foreground">
+        besoin {n2(c.besoinTissu)} · affecté {n2(c.tissuAffecte)}
+        {c.tissuConsomme > 0 && ` · cons. ${n2(c.tissuConsomme)}`}
+      </span>
+      {c.tissuLots.length > 0 && (
+        <span className="font-mono text-[10px] text-muted-foreground">{c.tissuLots.join(", ")}</span>
+      )}
+    </div>
   );
 }
 

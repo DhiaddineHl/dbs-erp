@@ -15,6 +15,7 @@ import type { DomaineDroit, Feu } from "@/lib/domain/feux";
 import { ECRANS, type EcranId, type KpiTone } from "./config";
 import { FicheDt } from "./fiche-dt";
 import { FicheModelisme, FicheNomen, FicheTissu, FicheFournitures } from "./fiches";
+import type { CatalogueFournitureRow } from "@/lib/services/preparation";
 import { Journal } from "./journal";
 
 export type Droits = Record<DomaineDroit, boolean>;
@@ -60,11 +61,13 @@ export function EcranPreparation({
   rows,
   droits,
   faconniers,
+  catalogue = [],
 }: {
   ecran: EcranId;
   rows: PreparationRow[];
   droits: Droits;
   faconniers: string[];
+  catalogue?: CatalogueFournitureRow[];
 }) {
   const cfg = ECRANS[ecran];
   const [onglet, setOnglet] = useState(cfg.defaut);
@@ -151,6 +154,15 @@ export function EcranPreparation({
         }
         actions={
           <div className="flex items-center gap-2">
+            {ecran === "magfour" && (
+              <Link
+                href="/magfour/catalogue"
+                title="Gérer les fournitures récurrentes (catalogue)"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-[11px] font-semibold hover:bg-muted"
+              >
+                📋 Catalogue
+              </Link>
+            )}
             {ecran === "magtissu" && (
               <>
                 <Link
@@ -218,6 +230,7 @@ export function EcranPreparation({
                     row={r}
                     droits={droits}
                     faconniers={faconniers}
+                    catalogue={catalogue}
                     ouverte={ouverte === r.id}
                     onToggle={() => setOuverte(ouverte === r.id ? null : r.id)}
                     nbColonnes={cfg.colonnes.length + 1}
@@ -237,6 +250,7 @@ function Ligne({
   row,
   droits,
   faconniers,
+  catalogue,
   ouverte,
   onToggle,
   nbColonnes,
@@ -245,6 +259,7 @@ function Ligne({
   row: PreparationRow;
   droits: Droits;
   faconniers: string[];
+  catalogue: CatalogueFournitureRow[];
   ouverte: boolean;
   onToggle: () => void;
   nbColonnes: number;
@@ -263,7 +278,7 @@ function Ligne({
       {ouverte && (
         <tr className="border-b bg-muted/20">
           <td colSpan={nbColonnes} className="px-4 py-4">
-            <Fiche ecran={ecran} row={row} droits={droits} faconniers={faconniers} />
+            <Fiche ecran={ecran} row={row} droits={droits} faconniers={faconniers} catalogue={catalogue} />
           </td>
         </tr>
       )}
@@ -536,11 +551,13 @@ function Fiche({
   row,
   droits,
   faconniers,
+  catalogue,
 }: {
   ecran: EcranId;
   row: PreparationRow;
   droits: Droits;
   faconniers: string[];
+  catalogue: CatalogueFournitureRow[];
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -553,7 +570,7 @@ function Fiche({
         (row.porteurOf ? (
           <RenvoiPorteur row={row} quoi="La réception des fournitures" />
         ) : (
-          <FicheFournitures row={row} droits={droits} />
+          <FicheFournitures row={row} droits={droits} catalogue={catalogue} />
         ))}
       <Journal commandeId={row.id} domaine={ecran === "dt" ? undefined : DOMAINE_ECRAN[ecran]} />
     </div>

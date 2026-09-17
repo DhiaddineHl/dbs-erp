@@ -231,3 +231,45 @@ export async function commandesPourAffectation() {
     .orderBy(desc(commande.id));
   return rows.map((r) => ({ id: r.id, label: `${r.of} · ${r.modele}${r.couleur ? ` · ${r.couleur}` : ""}` }));
 }
+
+/* ─────────── couverture tissu par commande ───────────
+ *
+ * Pour toutes les commandes d'un coup : combien de tissu leur est AFFECTÉ
+ * depuis les lots, et combien a été CONSOMMÉ. Le besoin théorique
+ * (nomenclature) est calculé ailleurs (fiche commande) ; ici on ne remonte que
+ * ce que le magasin par lots sait : affecté / consommé / lots d'origine.
+ * Sert à la vue « tissu » de la commande et aux alertes. */
+export type CouvertureTissuCommande = { affecte: number; consomme: number; lots: string[] };
+
+export async function couvertureTissuParCommande(): Promise<Map<number, CouvertureTissuCommande>> {
+  const [affs, mvts] = await Promise.all([
+    db
+      .select({ commandeId: tissuAffectation.commandeId, quantite: tissuAffectation.quantite, ident: tissuLot.identifiant })
+      .from(tissuAffectation)
+      .leftJoin(tissuLot, eq(tissuAffectation.lotId, tissuLot.id)),
+    db
+      .select({ commandeId: tissuMouvement.commandeId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite })
+      .from(tissuMouvement),
+  ]);
+
+  const out = new Map<number, CouvertureTissuCommande>();
+  const get = (id: number) => {
+    let e = out.get(id);
+    if (!e) {
+      e = { affecte: 0, consomme: 0, lots: [] };
+      out.set(id, e);
+    }
+    return e;
+  };
+  for (const a of affs) {
+    if (a.commandeId == null) continue;
+    const e = get(a.commandeId);
+    e.affecte += a.quantite;
+    if (a.ident && !e.lots.includes(a.ident)) e.lots.push(a.ident);
+  }
+  for (const m of mvts) {
+    if (m.commandeId == null || m.sens !== "sortie") continue;
+    get(m.commandeId).consomme += m.quantite;
+  }
+  return out;
+}

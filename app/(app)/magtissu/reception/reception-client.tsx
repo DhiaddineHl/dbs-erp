@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { SectionPanel } from "@/components/shared/section-panel";
@@ -28,9 +29,11 @@ const lotVide = (): LigneLot => ({ cle: compteur++, unite: "m" });
 export function ReceptionTissu({
   receptions,
   identifiantsExistants,
+  clients,
 }: {
   receptions: ReceptionRow[];
   identifiantsExistants: string[];
+  clients: string[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -76,6 +79,15 @@ export function ReceptionTissu({
 
   return (
     <div className="space-y-4">
+      {/* Retour vers le magasin tissu (point 1). */}
+      <div className="flex items-center gap-2">
+        <Link
+          href="/magtissu"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-[11px] font-semibold hover:bg-muted"
+        >
+          ← Retour au magasin tissu
+        </Link>
+      </div>
       <SectionPanel title="Nouveau bon de réception tissu">
         <div className="grid gap-3 sm:grid-cols-4">
           <Champ label="Date de réception">
@@ -85,7 +97,19 @@ export function ReceptionTissu({
             <Input value={fournisseur} onChange={(e) => setFournisseur(e.target.value)} placeholder="Fournisseur tissu" className="bg-card" />
           </Champ>
           <Champ label="Client / donneur d'ordre">
-            <Input value={client} onChange={(e) => setClient(e.target.value)} placeholder="Si tissu fourni par le client" className="bg-card" />
+            {/* Liste des clients créés + saisie libre en repli (point 3). */}
+            <input
+              list="clients-reception"
+              value={client}
+              onChange={(e) => setClient(e.target.value)}
+              placeholder="Choisir un client…"
+              className="h-9 w-full rounded-md border border-input bg-card px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/40"
+            />
+            <datalist id="clients-reception">
+              {clients.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </Champ>
           <Champ label="Observations">
             <Input value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="Note libre" className="bg-card" />

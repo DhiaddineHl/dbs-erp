@@ -60,6 +60,24 @@ export const commandeEtape = pgTable(
   (t) => [unique("commande_etape_unique").on(t.commandeId, t.etape)],
 );
 
+/** Catalogue de fournitures récurrentes (tickets, compositions, grosgrain de
+ * marque…). Sert de liste déroulante à la saisie pour éviter de retaper la même
+ * désignation à chaque commande. Purement un référentiel de confort : les
+ * lignes réelles restent dans commande_fourniture_ligne. */
+export const fournitureCatalogue = pgTable(
+  "fourniture_catalogue",
+  {
+    id: serial().primaryKey(),
+    designation: text().notNull(),
+    unite: text().notNull().default("pcs"),
+    /** Quantité proposée par défaut quand on choisit cette fourniture. */
+    qteDefaut: doublePrecision().notNull().default(0),
+    note: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [unique("fourniture_catalogue_desig").on(t.designation)],
+);
+
 /** Suivi référence par référence des fournitures. Dès qu'une ligne existe, elle
  * pilote le feu et le statut global se verrouille. */
 export const commandeFournitureLigne = pgTable(
@@ -186,6 +204,10 @@ export const commandePlanMatiere = pgTable(
     /** Rang d'affichage : les onglets matière gardent leur ordre de saisie. */
     rang: integer().notNull().default(0),
     nom: text().notNull().default("Tissu principal"),
+    /** Lot du magasin tissu (nouveau modèle) dont cette matière consomme le
+     * stock. Renseigné à l'import depuis le magasin ; permet de déduire la
+     * consommation réelle du bon lot. Null = matière non liée à un lot. */
+    lotId: integer(),
     /** Laise du rouleau, en centimètres. */
     laise: doublePrecision(),
     /** Consommation attendue, en mètres par pièce. */

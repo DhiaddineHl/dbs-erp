@@ -1,0 +1,1 @@
+ALTER TABLE "commande_plan_matiere" ADD COLUMN "lot_id" integer;

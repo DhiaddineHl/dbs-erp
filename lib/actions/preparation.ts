@@ -7,6 +7,7 @@ import { userRole } from "@/lib/auth/server";
 import * as fx from "@/lib/domain/feux";
 import * as svc from "@/lib/services/preparation";
 import { resolveFaconnierId } from "@/lib/services/commandes";
+import { getRoleModules } from "@/lib/services/permissions";
 import { journaliser } from "@/lib/services/activite";
 
 export type Result = { ok: true } | { ok: false; error: string };
@@ -31,7 +32,16 @@ function revalider() {
 async function exigerDroit(domaine: fx.DomaineDroit): Promise<svc.Auteur> {
   const user = await assertUser();
   const role = userRole(user);
-  if (!fx.peutModifier(domaine, role)) {
+  let autorise = fx.peutModifier(domaine, role);
+  /* Les droits d'écriture magasin suivent aussi l'accès module accordé par
+   * l'admin : un compte à qui on a ouvert le module magfour/magtissu peut y
+   * écrire, même si son rôle de base ne le prévoyait pas. */
+  if (!autorise && (domaine === "tissu" || domaine === "four")) {
+    const modules = await getRoleModules(role);
+    if (domaine === "tissu" && modules.magtissu) autorise = true;
+    if (domaine === "four" && modules.magfour) autorise = true;
+  }
+  if (!autorise) {
     throw new Error(`Modification réservée à ${fx.RESPONSABLE_DOMAINE[domaine]}`);
   }
   return { id: user.id, name: user.name, role };
@@ -116,6 +126,46 @@ export async function ajouterLigneFourniture(commandeId: number): Promise<Result
   try {
     const auteur = await exigerDroit("four");
     await svc.ajouterLigneFourniture(commandeId, auteur);
+    revalider();
+    return ok;
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ── catalogue de fournitures récurrentes (point 6) ── */
+
+export async function ajouterLigneDepuisCatalogue(commandeId: number, catalogueId: number): Promise<Result> {
+  try {
+    const auteur = await exigerDroit("four");
+    await svc.ajouterLigneDepuisCatalogue(commandeId, catalogueId, auteur);
+    revalider();
+    return ok;
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function ajouterAuCatalogue(v: {
+  designation: string;
+  unite?: string;
+  qteDefaut?: number;
+  note?: string;
+}): Promise<Result> {
+  try {
+    await exigerDroit("four");
+    await svc.ajouterAuCatalogue(v);
+    revalider();
+    return ok;
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function supprimerDuCatalogue(id: number): Promise<Result> {
+  try {
+    await exigerDroit("four");
+    await svc.supprimerDuCatalogue(id);
     revalider();
     return ok;
   } catch (e) {

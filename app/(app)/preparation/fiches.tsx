@@ -7,16 +7,14 @@ import { Printer } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { RESPONSABLE_DOMAINE } from "@/lib/domain/feux";
-import type { PreparationRow } from "@/lib/services/preparation";
+import type { PreparationRow, CatalogueFournitureRow } from "@/lib/services/preparation";
 import {
+  ajouterLigneDepuisCatalogue,
   ajouterLigneFourniture,
-  ajouterLigneTissu,
   majChamp,
   majEtape,
   majLigneFourniture,
-  majLigneTissu,
   supprimerLigneFourniture,
-  supprimerLigneTissu,
 } from "@/lib/actions/preparation";
 import { BandeauLectureSeule, BoutonAction, ChampServeur, type Droits } from "./ecran";
 
@@ -233,16 +231,21 @@ const CONTROLES = [
 ];
 
 export function FicheTissu({ row, droits }: { row: PreparationRow; droits: Droits }) {
-  const matieres = row.tissuLignes;
-  const detaille = matieres.length > 0;
   return (
     <div>
       <BandeauLectureSeule autorise={droits.tissu} qui={RESPONSABLE_DOMAINE.tissu} />
 
-      {/* Le bon s'imprime à tout moment : avant réception il vaut état d'attente,
-          après contrôle il vaut accusé. Nouvel onglet, pour ne pas faire perdre
-          au magasinier la fiche qu'il est en train de remplir. */}
+      {/* Le stock tissu est désormais géré par LOTS dans le Magasin tissu
+          (réception → lot → affectation → consommation). Cette fiche ne garde
+          que la date de réception prévue et l'accès au bon imprimable ; la
+          saisie détaillée se fait dans l'écran Magasin tissu. */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Link
+          href="/magtissu"
+          className="inline-flex items-center gap-1.5 rounded-md border border-brand bg-brand px-2.5 py-1 text-[11px] font-semibold text-white hover:opacity-90"
+        >
+          🧶 Ouvrir le Magasin tissu (lots)
+        </Link>
         <Link
           href={`/magtissu/${row.id}/imprimer`}
           target="_blank"
@@ -251,158 +254,11 @@ export function FicheTissu({ row, droits }: { row: PreparationRow; droits: Droit
           <Printer className="size-3.5" /> Bon de réception
         </Link>
         <span className="text-[11px] text-muted-foreground">
-          {row.tissuDateReelle || detaille
-            ? "Métrage, écart, contrôle et journal des mouvements."
-            : "Imprimable dès maintenant — il portera la mention « non réceptionné »."}
+          Réception, lots, affectation et consommation se gèrent dans le Magasin tissu.
         </span>
       </div>
 
-      {/* ─── Matières reçues (multi-tissus) ───
-          Un modèle n'est pas toujours mono-tissu : tissu principal, doublure,
-          thermocollant… Chaque matière porte son nom, sa référence, sa laize
-          (largeur travaillable, lue par la modéliste) et son métrage. Dès
-          qu'une matière est saisie ici, c'est le détail qui pilote le feu. */}
-      <div className="mb-3 rounded-lg border">
-        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/40 px-3 py-2">
-          <span className="text-[11px] font-bold uppercase text-muted-foreground">Matières & stock tissu</span>
-          {droits.tissu && (
-            <BoutonAction onRun={() => ajouterLigneTissu(row.id)} succes="Matière ajoutée">
-              + Ajouter une matière
-            </BoutonAction>
-          )}
-          <span className="text-[11px] text-muted-foreground">
-            {detaille
-              ? "Le détail ci-dessous fait foi et pilote le feu tissu."
-              : "Ajoutez chaque tissu (principal, doublure, thermocollant…) avec sa référence, sa laize et son métrage."}
-          </span>
-        </div>
-
-        {detaille && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b bg-muted/20 text-[10.5px] uppercase text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left">Matière</th>
-                  <th className="px-2 py-1.5 text-left">Référence</th>
-                  <th className="px-2 py-1.5 text-left">Couleur</th>
-                  <th className="px-2 py-1.5 text-center">Laize (cm)</th>
-                  <th className="px-2 py-1.5 text-center">Prévu (m)</th>
-                  <th className="px-2 py-1.5 text-center">Reçu (m)</th>
-                  <th className="px-2 py-1.5 text-center">Écart</th>
-                  <th className="px-2 py-1.5 text-left">Contrôle</th>
-                  <th className="w-8" />
-                </tr>
-              </thead>
-              <tbody>
-                {matieres.map((l) => {
-                  const ecart = l.metrageRecu - l.metragePrevu;
-                  const manque = l.metragePrevu > 0 && ecart < 0;
-                  return (
-                    <tr key={l.id} className="border-b last:border-0 align-top">
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={l.nom}
-                          placeholder="Tissu principal, doublure…"
-                          autorise={droits.tissu}
-                          onSave={(v) => majLigneTissu(l.id, "nom", v)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={l.reference}
-                          placeholder="Réf. rouleau"
-                          autorise={droits.tissu}
-                          onSave={(v) => majLigneTissu(l.id, "reference", v)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={l.couleur}
-                          autorise={droits.tissu}
-                          onSave={(v) => majLigneTissu(l.id, "couleur", v)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={l.laize != null ? String(l.laize) : ""}
-                          type="number"
-                          step="0.5"
-                          className="text-center"
-                          placeholder="—"
-                          autorise={droits.tissu}
-                          onSave={(v) => majLigneTissu(l.id, "laize", v)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={String(l.metragePrevu)}
-                          type="number"
-                          step="0.01"
-                          className="text-center"
-                          autorise={droits.tissu}
-                          onSave={(v) => majLigneTissu(l.id, "metragePrevu", v)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={String(l.metrageRecu)}
-                          type="number"
-                          step="0.01"
-                          className="text-center"
-                          autorise={droits.tissu}
-                          onSave={(v) => majLigneTissu(l.id, "metrageRecu", v)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5 text-center">
-                        {l.metragePrevu > 0 ? (
-                          <StatusBadge tone={manque ? "danger" : "success"}>
-                            {ecart >= 0 ? "+" : ""}
-                            {Number(ecart.toFixed(2))}
-                          </StatusBadge>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={l.controle}
-                          type="select"
-                          options={CONTROLES}
-                          autorise={droits.tissu}
-                          onSave={(v) => majLigneTissu(l.id, "controle", v)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5 text-center">
-                        {droits.tissu && (
-                          <BoutonAction
-                            variant="ghost"
-                            onRun={() => supprimerLigneTissu(l.id)}
-                            confirmer="Retirer cette matière ?"
-                            succes="Matière retirée"
-                          >
-                            ×
-                          </BoutonAction>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {detaille ? (
-        <details className="mb-2 text-[11px] text-muted-foreground">
-          <summary className="cursor-pointer select-none">Saisie mono-tissu (héritée) — dépliez si besoin</summary>
-          <div className="mt-2">
-            <FicheTissuMono row={row} droits={droits} />
-          </div>
-        </details>
-      ) : (
-        <FicheTissuMono row={row} droits={droits} />
-      )}
+      <FicheTissuMono row={row} droits={droits} />
     </div>
   );
 }
@@ -490,7 +346,53 @@ const STATUTS_GLOBAUX = [
   { value: "complet", label: "Complètes" },
 ];
 
-export function FicheFournitures({ row, droits }: { row: PreparationRow; droits: Droits }) {
+/* Sélecteur de fourniture récurrente depuis le catalogue (point 6). */
+function PickerCatalogue({ commandeId, catalogue }: { commandeId: number; catalogue: CatalogueFournitureRow[] }) {
+  const router = useRouter();
+  const [choix, setChoix] = useState("");
+  const [pending, start] = useTransition();
+  return (
+    <div className="flex items-center gap-1.5">
+      <select
+        value={choix}
+        onChange={(e) => setChoix(e.target.value)}
+        className="h-8 rounded-md border border-input bg-card px-1 text-xs"
+      >
+        <option value="">Fourniture récurrente…</option>
+        {catalogue.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.designation}
+            {c.qteDefaut ? ` (${nb.format(c.qteDefaut)} ${c.unite})` : ""}
+          </option>
+        ))}
+      </select>
+      <BoutonAction
+        disabled={!choix || pending}
+        onRun={async () => {
+          const r = await ajouterLigneDepuisCatalogue(commandeId, Number(choix));
+          if (r.ok) {
+            setChoix("");
+            start(() => router.refresh());
+          }
+          return r;
+        }}
+        succes="Fourniture ajoutée"
+      >
+        + Ajouter
+      </BoutonAction>
+    </div>
+  );
+}
+
+export function FicheFournitures({
+  row,
+  droits,
+  catalogue = [],
+}: {
+  row: PreparationRow;
+  droits: Droits;
+  catalogue?: CatalogueFournitureRow[];
+}) {
   const detaille = row.fournitures.length > 0;
   const manquantes = row.fournitures.filter((l) => l.qteRecue < l.qtePrevue);
   return (
@@ -533,6 +435,12 @@ export function FicheFournitures({ row, droits }: { row: PreparationRow; droits:
           <BoutonAction onRun={() => ajouterLigneFourniture(row.id)} succes="Ligne ajoutée">
             + Ligne de détail
           </BoutonAction>
+        )}
+        {/* Point 6 : choisir une fourniture récurrente (ticket, composition,
+            grosgrain de marque…) depuis le catalogue — pré-remplit désignation,
+            unité et quantité par défaut, pour ne pas ressaisir à chaque fois. */}
+        {droits.four && catalogue.length > 0 && (
+          <PickerCatalogue commandeId={row.id} catalogue={catalogue} />
         )}
         <span className="text-[11px] text-muted-foreground">
           {detaille

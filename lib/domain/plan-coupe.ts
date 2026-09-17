@@ -39,6 +39,8 @@ export type Contraintes = {
 export type Matiere = {
   rang: number;
   nom: string;
+  /** Lot du magasin tissu lié (nouveau modèle), pour déduire la conso réelle. */
+  lotId: number | null;
   laise: number | null;
   consoPrevue: number | null;
   perteBout: number | null;
@@ -77,6 +79,7 @@ export const traceVide = (sizes: string[], nom = ""): TracePlan => ({
 export const matiereVide = (sizes: string[], rang: number, nom = "Tissu principal"): Matiere => ({
   rang,
   nom,
+  lotId: null,
   laise: 150,
   consoPrevue: null,
   perteBout: null,

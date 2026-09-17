@@ -172,6 +172,20 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
 
       {ouvert && (
         <div className="space-y-3 border-t bg-muted/20 px-4 py-3">
+          {/* Champs descriptifs éditables — dont l'identifiant, pour renommer un
+              lot repris « MIGR-… » en un vrai code (point 4). */}
+          {peutSaisir && (
+            <div className="grid gap-2 sm:grid-cols-4">
+              <ChampLot label="Identifiant" valeur={l.identifiant} onSave={(v) => A.majLot(l.id, "identifiant", v)} />
+              <ChampLot label="Référence" valeur={l.reference} onSave={(v) => A.majLot(l.id, "reference", v)} />
+              <ChampLot label="Couleur" valeur={l.couleur} onSave={(v) => A.majLot(l.id, "couleur", v)} />
+              <ChampLot
+                label="Laize (cm)"
+                valeur={l.laize != null ? String(l.laize) : ""}
+                onSave={(v) => A.majLot(l.id, "laize", v)}
+              />
+            </div>
+          )}
           {/* résumé chiffré */}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 text-center text-xs">
             {[
@@ -341,6 +355,27 @@ function FormAjuster({ lotId, unite }: { lotId: number; unite: string }) {
         <span className="text-[10px] text-muted-foreground">+ ajoute, − retire</span>
       </div>
     </div>
+  );
+}
+
+/* Champ éditable d'un lot : sauvegarde à la validation (Entrée ou perte de
+ * focus), sans réécrire si rien n'a changé. */
+function ChampLot({ label, valeur, onSave }: { label: string; valeur: string; onSave: (v: string) => Promise<A.Result> }) {
+  const run = useRunner();
+  const [v, setV] = useState(valeur);
+  return (
+    <label className="flex flex-col gap-1 text-[11px] font-semibold text-muted-foreground">
+      {label}
+      <Input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => v !== valeur && run(() => onSave(v), `${label} enregistré`)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        className="h-8 bg-card font-normal"
+      />
+    </label>
   );
 }
 
