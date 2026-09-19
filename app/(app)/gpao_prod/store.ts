@@ -12,7 +12,7 @@ export type Ouvriere = {
   /** Rattachement au registre du personnel, quand il est connu. */
   personnelId?: number | null;
 };
-export type Chaine = { id: number; nom: string; chef: string; ouvrieres: Ouvriere[] };
+export type Chaine = { id: number; nom: string; chef: string; effectif: number; ouvrieres: Ouvriere[] };
 export type Modele = {
   id: number;
   nom: string;
@@ -137,7 +137,7 @@ export function defaults(): GpaoState {
     personnes: [],
     operations: [],
     reglages: REGLAGES_DEFAUT,
-    chaines: [{ id: 201, nom: "Chaîne 3", chef: "", ouvrieres }],
+    chaines: [{ id: 201, nom: "Chaîne 3", chef: "", effectif: 0, ouvrieres }],
     journees: [],
     nextOuvId: 23,
     tvDayId: null,

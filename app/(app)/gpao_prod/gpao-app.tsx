@@ -369,10 +369,10 @@ export default function GpaoApp({
     toast("Réinitialisé");
   };
 
-  const saveChaine = async (data: { nom: string; chef: string }) => {
+  const saveChaine = async (data: { nom: string; chef: string; effectif: number }) => {
     if (!data.nom) return toast("⚠ Nom requis");
     const editId = chaineModal.edit?.id;
-    const res = await gpao.saveChaine({ id: editId, nom: data.nom, chef: data.chef });
+    const res = await gpao.saveChaine({ id: editId, nom: data.nom, chef: data.chef, effectif: data.effectif });
     if (!res.ok) return toast("⚠ " + res.error);
     mutate((s) => {
       if (editId) {
@@ -380,9 +380,10 @@ export default function GpaoApp({
         if (c) {
           c.nom = data.nom;
           c.chef = data.chef;
+          c.effectif = data.effectif;
         }
       } else {
-        s.chaines.push({ id: res.id, nom: data.nom, chef: data.chef, ouvrieres: [] });
+        s.chaines.push({ id: res.id, nom: data.nom, chef: data.chef, effectif: data.effectif, ouvrieres: [] });
       }
     });
     if (!editId) setCurrentChaineId(res.id);
@@ -675,7 +676,11 @@ export default function GpaoApp({
         <ModeleModal
           edit={modeleModal.edit}
           clients={clients}
-          effectifDefaut={state.chaines[0]?.ouvrieres.length}
+          effectifDefaut={
+            (currentChaineId !== null ? findC(state, currentChaineId)?.effectif : 0) ||
+            state.chaines[0]?.effectif ||
+            undefined
+          }
           onClose={() => setModeleModal({ open: false, edit: null })}
           onSave={saveModele}
         />
@@ -1447,7 +1452,10 @@ function ChainesView({
                 <div className="gs">{ch.chef ? `Chef : ${ch.chef}` : "—"}</div>
                 <div className="grow">
                   <span>
-                    Ouvrières <b>{ch.ouvrieres.length}</b>
+                    Effectif chaîne <b>{ch.effectif ?? 0}</b>
+                  </span>
+                  <span>
+                    Ouvrières enreg. <b>{ch.ouvrieres.length}</b>
                   </span>
                   <span>
                     Journées <b>{nbJ}</b>

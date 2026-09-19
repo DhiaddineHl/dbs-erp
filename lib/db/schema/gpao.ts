@@ -76,6 +76,11 @@ export const chaine = pgTable("chaine", {
   id: serial().primaryKey(),
   nom: text().notNull(),
   chef: text().notNull().default(""),
+  /** Effectif de RÉFÉRENCE de la chaîne (nombre d'ouvriers prévus/affectés).
+   * Distinct du nombre de fiches ouvrières (ouvriere) et de l'effectif présent
+   * d'une journée (journee.effectif). Sert de valeur PROPOSÉE à la création
+   * d'une journée sur cette chaîne — jamais celui d'une autre chaîne. */
+  effectif: integer().notNull().default(0),
 });
 
 export const ouvriere = pgTable("ouvriere", {

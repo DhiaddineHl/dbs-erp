@@ -27,6 +27,7 @@ export default async function GpaoProdPage() {
       id: c.id,
       nom: c.nom,
       chef: c.chef,
+      effectif: c.effectif,
       ouvrieres: c.ouvrieres.map((o) => ({
         id: o.id,
         nom: o.nom,

@@ -84,21 +84,27 @@ export async function synchroniserModele(nom: string): Promise<"cree" | "maj" | 
 
 /* ─────────── chaîne writes ─────────── */
 export async function upsertChaineWithOuvrieres(
-  c: { nom: string; chef?: string },
+  c: { nom: string; chef?: string; effectif?: number },
   ouvrieres: { nom: string; poste: string; sam: number }[],
 ) {
   return db.transaction(async (tx) => {
-    const [row] = await tx.insert(chaine).values({ nom: c.nom, chef: c.chef ?? "" }).returning();
+    const [row] = await tx
+      .insert(chaine)
+      .values({ nom: c.nom, chef: c.chef ?? "", effectif: c.effectif ?? 0 })
+      .returning();
     if (ouvrieres.length)
       await tx.insert(ouvriere).values(ouvrieres.map((o) => ({ chaineId: row.id, ...o })));
     return row;
   });
 }
-export async function insertChaine(input: { nom: string; chef?: string }) {
-  const [row] = await db.insert(chaine).values({ nom: input.nom, chef: input.chef ?? "" }).returning();
+export async function insertChaine(input: { nom: string; chef?: string; effectif?: number }) {
+  const [row] = await db
+    .insert(chaine)
+    .values({ nom: input.nom, chef: input.chef ?? "", effectif: input.effectif ?? 0 })
+    .returning();
   return row;
 }
-export async function updateChaine(id: number, patch: { nom?: string; chef?: string }) {
+export async function updateChaine(id: number, patch: { nom?: string; chef?: string; effectif?: number }) {
   await db.update(chaine).set(patch).where(eq(chaine.id, id));
 }
 export async function deleteChaine(id: number) {

@@ -47,7 +47,11 @@ export async function importerGpao(src: Sauvegarde, r: Rapport) {
       await db.update(chaine).set({ chef: r.texte(c.chef) }).where(eq(chaine.id, existante.id));
       id = existante.id;
     } else {
-      const [ligne] = await db.insert(chaine).values({ nom, chef: r.texte(c.chef) }).returning({ id: chaine.id });
+      // Effectif de référence amorcé au nombre d'ouvrières importées (même règle que la migration 0030).
+      const [ligne] = await db
+        .insert(chaine)
+        .values({ nom, chef: r.texte(c.chef), effectif: ((c.ouvrieres ?? []) as OuvriereSrc[]).length })
+        .returning({ id: chaine.id });
       id = ligne.id;
     }
     idChaine.set(c.id, id);

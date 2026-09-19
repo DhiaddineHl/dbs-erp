@@ -207,7 +207,11 @@ async function seedGpao() {
     await db.insert(modele).values({ nom: m.nom, ref: m.ref, client: m.client, sam: m.sam, qte: m.qte });
   }
   for (const c of d.chaines) {
-    const [row] = await db.insert(chaine).values({ nom: c.nom, chef: c.chef }).returning({ id: chaine.id });
+    // Effectif de référence amorcé au nombre d'ouvrières (même règle que la migration 0030).
+    const [row] = await db
+      .insert(chaine)
+      .values({ nom: c.nom, chef: c.chef, effectif: c.ouvrieres.length })
+      .returning({ id: chaine.id });
     if (c.ouvrieres.length)
       await db.insert(ouvriere).values(c.ouvrieres.map((o) => ({ chaineId: row.id, nom: o.nom, poste: o.poste, sam: o.sam })));
   }
