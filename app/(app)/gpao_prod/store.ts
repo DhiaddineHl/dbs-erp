@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { cleNom } from "@/lib/domain/atelier";
+import { SEUILS_RENDEMENT } from "@/lib/domain/seuils";
 
 /* ═══════════════════ TYPES ═══════════════════ */
 export type Ouvriere = {
@@ -69,14 +70,15 @@ export type GpaoState = {
   tvDayId?: number | null;
 };
 
-export const SEUIL_H = 85;
-export const SEUIL_B = 60;
-export const SEUIL_RET = 5; // retouche alerte si > 5 %
+/* Seuils repris de la source unique `lib/domain/seuils.ts` (mêmes valeurs). */
+export const SEUIL_H = SEUILS_RENDEMENT.bon;
+export const SEUIL_B = SEUILS_RENDEMENT.critique;
+export const SEUIL_RET = SEUILS_RENDEMENT.retouche; // retouche alerte si > 5 %
 
 /* SEUIL_B ne fait que colorer une cellule ; l'alerte, elle, désigne des
  * personnes nommément et déclenche une conversation en atelier. Les deux
  * chiffres n'ont pas la même portée et n'ont donc pas à être le même. */
-export const SEUIL_ALERTE_DEFAUT = 65;
+export const SEUIL_ALERTE_DEFAUT = SEUILS_RENDEMENT.alerteAtelierDefaut;
 /** Secondes d'affichage par chaîne avant rotation sur l'écran d'atelier. */
 export const TV_ROTATION_DEFAUT = 12;
 
@@ -90,7 +92,14 @@ export function uid() {
   return Date.now() + Math.floor(Math.random() * 1000);
 }
 export function today() {
-  return new Date().toISOString().slice(0, 10);
+  /* Composantes LOCALES (fuseau du navigateur, à Nabeul = UTC+1), et non
+   * `toISOString()` qui force l'UTC : sinon, entre minuit et 1 h locale, la
+   * nouvelle journée serait datée de la veille. */
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 export function fmtDate(d: string) {
   try {

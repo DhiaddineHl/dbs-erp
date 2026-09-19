@@ -62,6 +62,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
       { id: "alertes", label: "Alertes", href: "/alertes", icon: AlertCircle, badge: 3 },
       { id: "stats", label: "Statistiques", href: "/stats", icon: TrendingUp },
       { id: "tracabilite", label: "Traçabilité", href: "/tracabilite", icon: SearchCheck },
+      { id: "references", label: "Références", href: "/references", icon: BookText },
     ],
   },
   {
@@ -71,6 +72,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
       { id: "clients", label: "Clients", href: "/clients", icon: Building2 },
       { id: "commandes", label: "Commandes", href: "/commandes", icon: Package, badge: 2 },
       { id: "facon", label: "Façonniers", href: "/facon", icon: Handshake },
+      { id: "histofacon", label: "Historique façonniers", href: "/histofacon", icon: ScrollText },
     ],
   },
   {
@@ -97,6 +99,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
       { id: "capacite", label: "Capacité & Costing", href: "/capacite", icon: BarChart3, masque: true },
       { id: "ordonnancement", label: "Ordonnancement", href: "/ordonnancement", icon: CalendarRange, masque: true },
       { id: "planfacon", label: "Plan façonnier", href: "/planfacon", icon: Handshake },
+      { id: "confiage", label: "Confiage façonnier", href: "/confiage", icon: PackageCheck },
     ],
   },
   {
@@ -104,6 +107,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
     stage: 4,
     items: [
       { id: "gpao_prod", label: "GPAO Production", href: "/gpao_prod", icon: Factory },
+      { id: "arrets", label: "Arrêts / temps", href: "/arrets", icon: AlertCircle },
       { id: "ofs", label: "Ordres fabrication", href: "/ofs", icon: ClipboardList, masque: true },
       { id: "personnel", label: "Personnel", href: "/personnel", icon: UsersRound },
       { id: "operations", label: "Opérations & SAM", href: "/operations", icon: ListChecks },

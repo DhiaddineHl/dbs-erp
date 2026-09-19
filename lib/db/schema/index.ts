@@ -3,6 +3,7 @@ export * from "./settings";
 export * from "./referentiel";
 export * from "./fichier";
 export * from "./commande";
+export * from "./reference";
 export * from "./preparation";
 export * from "./tissu";
 export * from "./qc";

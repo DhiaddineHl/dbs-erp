@@ -10,7 +10,7 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core";
 import { commande } from "./commande";
-import { client } from "./referentiel";
+import { client, faconnier } from "./referentiel";
 
 /* Flux aval : ce qui sort de production jusqu'à la facture.
  *
@@ -53,6 +53,10 @@ export const br = pgTable(
     date: date().notNull(),
     /** Recopié au moment de la réception : le rapport doit rester lisible. */
     faconnier: text().notNull().default(""),
+    /** Rattachement au référentiel façonnier, pour agréger l'historique
+     * proprement (cahier des charges §14) sans dépendre du texte recopié.
+     * Nullable, FK posée par la migration 0030. */
+    faconnierId: integer().references(() => faconnier.id, { onDelete: "set null" }),
     qteRecue: integer().notNull().default(0),
     qteOk: integer().notNull().default(0),
     qteNc: integer().notNull().default(0),
@@ -62,6 +66,36 @@ export const br = pgTable(
     createdAt: timestamp().notNull().defaultNow(),
   },
   (t) => [index("br_commande_idx").on(t.commandeId)],
+);
+
+/** CONFIAGE FAÇONNIER (cahier des charges §13) : ce qu'on confie à un
+ * façonnier pour un OF, en amont de la réception `br`. Complète la chaîne
+ * confié → expédié → reçu → conforme sans créer de seconde GPAO : c'est une
+ * ligne de suivi, pas un système de production. La réception reste `br`. */
+export const faconnierConfiage = pgTable(
+  "faconnier_confiage",
+  {
+    id: serial().primaryKey(),
+    commandeId: integer()
+      .notNull()
+      .references(() => commande.id, { onDelete: "cascade" }),
+    faconnierId: integer().references(() => faconnier.id, { onDelete: "set null" }),
+    /** Recopié, pour rester lisible si la fiche façonnier change. */
+    faconnier: text().notNull().default(""),
+    qteConfiee: integer().notNull().default(0),
+    qteExpediee: integer().notNull().default(0),
+    dateConfiee: date(),
+    /** Date de retour convenue — sert à mesurer les retards, sans jugement. */
+    dateRetourPrevue: date(),
+    /** Prix façon de ce confiage (€/pc) ; défaut = prix façon de la commande. */
+    prixFacon: doublePrecision(),
+    note: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [
+    index("confiage_commande_idx").on(t.commandeId),
+    index("confiage_faconnier_idx").on(t.faconnierId),
+  ],
 );
 
 /** Entrée de stock produits finis. Une réception ST en crée une
@@ -128,7 +162,12 @@ export const coupeRelations = relations(coupe, ({ one }) => ({
 }));
 export const brRelations = relations(br, ({ one, many }) => ({
   commande: one(commande, { fields: [br.commandeId], references: [commande.id] }),
+  faconnierRef: one(faconnier, { fields: [br.faconnierId], references: [faconnier.id] }),
   mouvements: many(magasinMouvement),
+}));
+export const faconnierConfiageRelations = relations(faconnierConfiage, ({ one }) => ({
+  commande: one(commande, { fields: [faconnierConfiage.commandeId], references: [commande.id] }),
+  faconnierRef: one(faconnier, { fields: [faconnierConfiage.faconnierId], references: [faconnier.id] }),
 }));
 export const magasinMouvementRelations = relations(magasinMouvement, ({ one }) => ({
   commande: one(commande, { fields: [magasinMouvement.commandeId], references: [commande.id] }),

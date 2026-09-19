@@ -19,6 +19,13 @@ export async function getJournees() {
   return db.select().from(journee).orderBy(journee.date);
 }
 
+/** Une journée par son id — utile pour vérifier son état (clôture) avant
+ * d'autoriser une écriture côté serveur. */
+export async function getJournee(id: number) {
+  const [row] = await db.select().from(journee).where(eq(journee.id, id)).limit(1);
+  return row ?? null;
+}
+
 /* ─────────── modèle writes ─────────── */
 export async function insertModele(input: typeof modele.$inferInsert) {
   const [row] = await db.insert(modele).values(input).returning();

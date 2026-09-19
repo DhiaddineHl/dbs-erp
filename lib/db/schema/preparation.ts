@@ -234,7 +234,44 @@ export const commandeLancement = pgTable("commande_lancement", {
   derogationDate: date(),
   /** Feux non satisfaits au moment de la dérogation, figés pour l'audit. */
   derogationManques: jsonb().$type<string[]>().notNull().default([]),
+
+  /* ── configuration technique FIGÉE au OK production (cahier des charges §11).
+   * Au lancement, on mémorise avec QUELLE version on a produit cette série, pour
+   * pouvoir le dire plus tard. Nullable : les lancements existants restent
+   * valides, ces champs se remplissent à partir des prochains lancements. */
+  versionPatronage: integer(),
+  versionTds: integer(),
+  versionPlan: integer(),
+  /** Consommation théorique (m/pc) et SAM en vigueur au lancement, figés. */
+  consoFige: doublePrecision(),
+  samFige: integer(),
+  /** Instantané libre de la config technique, pour la traçabilité complète. */
+  configSnapshot: jsonb().$type<Record<string, unknown>>(),
 });
+
+/** VERSIONS DU PLAN DE COUPE (cahier des charges §10) : à chaque modification
+ * significative du plan, l'état précédent est archivé ici plutôt qu'écrasé
+ * silencieusement. Permet de retrouver « le plan V1 » après passage en V2. */
+export const commandePlanVersion = pgTable(
+  "commande_plan_version",
+  {
+    id: serial().primaryKey(),
+    commandeId: integer()
+      .notNull()
+      .references(() => commande.id, { onDelete: "cascade" }),
+    version: integer().notNull().default(1),
+    /** Instantané complet du plan (sizes, ordre, matières, tracés) au moment de
+     * l'archivage — rangé en jsonb, indépendant des tables vivantes. */
+    snapshot: jsonb().$type<Record<string, unknown>>().notNull().default({}),
+    par: text().notNull().default(""),
+    motif: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [
+    unique("commande_plan_version_rang").on(t.commandeId, t.version),
+    index("commande_plan_version_cmd_idx").on(t.commandeId),
+  ],
+);
 
 /** Journal de traçabilité de la fiche : une ligne par modification, avec la
  * valeur avant et après. C'est la mémoire de la commande. */
@@ -279,4 +316,7 @@ export const commandeLancementRelations = relations(commandeLancement, ({ one })
 }));
 export const commandeJournalRelations = relations(commandeJournal, ({ one }) => ({
   commande: one(commande, { fields: [commandeJournal.commandeId], references: [commande.id] }),
+}));
+export const commandePlanVersionRelations = relations(commandePlanVersion, ({ one }) => ({
+  commande: one(commande, { fields: [commandePlanVersion.commandeId], references: [commande.id] }),
 }));

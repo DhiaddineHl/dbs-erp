@@ -5,10 +5,16 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { EditableTable } from "@/components/shared/editable-table";
 import { CAPACITE_EDIT, COSTING_EDIT } from "@/lib/modules/edit-columns";
 import { listCapaciteChaines, listCosting } from "@/lib/services/modules";
+import { bilanCapaciteAtelier } from "@/lib/services/capacite";
+
+const nb = new Intl.NumberFormat("fr-FR");
 
 export default async function CapacitePage() {
-  const CHAINES = await listCapaciteChaines();
-  const COSTING = await listCosting();
+  const [CHAINES, COSTING, cap] = await Promise.all([
+    listCapaciteChaines(),
+    listCosting(),
+    bilanCapaciteAtelier(),
+  ]);
   return (
     <>
       <PageHeader
@@ -17,10 +23,23 @@ export default async function CapacitePage() {
         description="Capacité de ligne, coût main d'œuvre et délais — calculés par le SAM"
       />
 
+      {/* KPI DÉRIVÉS des chaînes, effectifs, SAM et heures (plus aucune valeur
+          codée en dur — cf. audit §29). Le coût MO reste à 0 tant que le coût
+          horaire n'est pas renseigné dans les paramètres (mo.coutHoraire). */}
       <KpiGrid>
-        <KpiCard label="Capacité interne/j" value="121 pcs" icon={Factory} tone="brand" />
-        <KpiCard label="Coût MO/jour" value="1 259 €" icon={Wallet} tone="purple" />
-        <KpiCard label="Capacité théorique" value="2 904 pcs" icon={Gauge} tone="info" />
+        <KpiCard
+          label={`Capacité attendue/j (${cap.rendementReference}%)`}
+          value={`${nb.format(cap.capaciteAttendueJour)} pcs`}
+          icon={Factory}
+          tone="brand"
+        />
+        <KpiCard label="Coût MO/jour" value={`${nb.format(cap.coutMoJour)} €`} icon={Wallet} tone="purple" />
+        <KpiCard
+          label="Capacité théorique/j"
+          value={`${nb.format(cap.capaciteTheoriqueJour)} pcs`}
+          icon={Gauge}
+          tone="info"
+        />
       </KpiGrid>
 
       <SectionPanel title="Capacité par chaîne" flush>

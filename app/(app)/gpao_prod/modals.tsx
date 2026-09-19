@@ -13,20 +13,34 @@ function Overlay({ children, onClose }: { children: React.ReactNode; onClose: ()
 }
 
 /* ─────────── Nouvelle journée ─────────── */
+export type OFOption = { id: number; of: string; modele: string };
+
 export function NewDayModal({
   state,
+  commandes = [],
   onClose,
   onCreate,
 }: {
   state: GpaoState;
+  /** OF sélectionnables pour rattacher la journée à une commande précise
+   * (pivot OF↔production §5). Facultatif : sans OF, la journée reste valide. */
+  commandes?: OFOption[];
   onClose: () => void;
-  onCreate: (d: { date: string; chaineId: number; modeleId: number; effectif: number; nbHeures: number }) => void;
+  onCreate: (d: {
+    date: string;
+    chaineId: number;
+    modeleId: number;
+    effectif: number;
+    nbHeures: number;
+    commandeId?: number | null;
+  }) => void;
 }) {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [chaineId, setChaineId] = useState(state.chaines[0]?.id ?? 0);
   const [modeleId, setModeleId] = useState(
     () => (state.modeles.find((m) => !m.archive) ?? state.modeles[0])?.id ?? 0,
   );
+  const [commandeId, setCommandeId] = useState<number | "">("");
   const [effectif, setEffectif] = useState(state.chaines[0]?.ouvrieres.length ?? 22);
   const [nbHeures, setNbHeures] = useState("8");
 
@@ -69,6 +83,19 @@ export function NewDayModal({
           ))}
         </select>
       </div>
+      {commandes.length > 0 && (
+        <div className="fld">
+          <label>OF rattaché (facultatif)</label>
+          <select value={commandeId} onChange={(e) => setCommandeId(e.target.value === "" ? "" : +e.target.value)}>
+            <option value="">— Aucun (production par modèle) —</option>
+            {commandes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.of} — {c.modele}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="r2">
         <div className="fld">
           <label>Effectif présent</label>
@@ -108,6 +135,7 @@ export function NewDayModal({
               modeleId,
               effectif: effectif || findC(state, chaineId)?.ouvrieres.length || 0,
               nbHeures: heures > 0 ? heures : 8,
+              commandeId: commandeId === "" ? null : commandeId,
             })
           }
         >
@@ -174,7 +202,12 @@ export function ModeleModal({
   const [client, setClient] = useState(edit?.client ?? "");
   const [sam, setSam] = useState(edit?.sam ?? 1800);
   const [qte, setQte] = useState(edit?.qte ?? 5000);
-  const [estimEff, setEstimEff] = useState(edit?.estimEff || effectifDefaut || 22);
+  /* Source EXPLICITE de l'estimation, sans valeur magique : la valeur propre au
+   * modèle si elle existe, sinon l'effectif de la 1re chaîne (repli assumé et
+   * affiché), sinon 0 — « non renseigné », plutôt qu'un « 22 » sorti de nulle
+   * part qui se faisait passer pour une vraie donnée. */
+  const estimParDefaut = !edit?.estimEff && !!effectifDefaut;
+  const [estimEff, setEstimEff] = useState(edit?.estimEff || effectifDefaut || 0);
   return (
     <Overlay onClose={onClose}>
       <h2>{edit ? "✏ Modifier modèle" : "＋ Nouveau modèle"}</h2>
@@ -216,6 +249,7 @@ export function ModeleModal({
         <div className="fld">
           <label>Effectif chaîne (estimation p/h)</label>
           <input type="number" value={estimEff} onChange={(e) => setEstimEff(+e.target.value)} />
+          {estimParDefaut && <div className="cinfo">Repli : effectif de la 1re chaîne — ajustez-le pour ce modèle.</div>}
         </div>
       </div>
       <div className="macts">

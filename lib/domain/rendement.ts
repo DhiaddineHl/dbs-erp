@@ -8,8 +8,12 @@
  * l'écran GPAO affiche déjà — deux chiffres différents pour la même personne
  * seraient pires qu'un chiffre imparfait. */
 
-export const SEUIL_ALERTE = 75;
-export const SEUIL_BON = 85;
+import { SEUILS_RENDEMENT } from "./seuils";
+
+/* Seuils repris de la source unique `lib/domain/seuils.ts` (mêmes valeurs
+ * qu'avant). Les noms restent exportés pour ne rien casser côté appelants. */
+export const SEUIL_ALERTE = SEUILS_RENDEMENT.alertePortail;
+export const SEUIL_BON = SEUILS_RENDEMENT.bon;
 
 export type OpDetail = { poste: string; sam: number; qte: number };
 

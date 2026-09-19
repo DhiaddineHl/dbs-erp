@@ -78,6 +78,13 @@ export const commande = pgTable(
     clientId: integer().references(() => client.id, { onDelete: "set null" }),
     faconnierId: integer().references(() => faconnier.id, { onDelete: "set null" }),
     chaineId: integer().references(() => chaine.id, { onDelete: "set null" }),
+    /** Référence industrielle DBS à laquelle cette commande se rattache.
+     * Colonne simple (sans `.references()`) pour éviter un cycle d'import
+     * commande↔reference : la contrainte FK est posée par la migration 0030, et
+     * la résolution se fait à l'enregistrement (lib/services/reference.ts).
+     * Nullable : les commandes existantes restent valides, on les rattache au
+     * fil de l'eau sans jamais fusionner deux commandes d'une même référence. */
+    referenceId: integer(),
 
     /* ── quantities & prices ── */
     qte: integer().notNull().default(0),

@@ -9,6 +9,7 @@ import * as svc from "@/lib/services/preparation";
 import { resolveFaconnierId } from "@/lib/services/commandes";
 import { getRoleModules } from "@/lib/services/permissions";
 import { journaliser } from "@/lib/services/activite";
+import { figerConfigDepuisEtat } from "@/lib/services/industriel";
 
 export type Result = { ok: true } | { ok: false; error: string };
 
@@ -263,6 +264,8 @@ export async function lancer(
       if (!faconnierId) return { ok: false, error: "Choisissez un façonnier" };
     }
     await svc.lancer(commandeId, mode, auteur, { faconnierId });
+    // Fige la config technique utilisée pour ce lancement (§11), best-effort.
+    await figerConfigDepuisEtat(commandeId);
     await journaliser("validation", "Lancement", `commande ${commandeId} lancée en ${mode}`);
     revalider();
     return ok;
@@ -297,6 +300,7 @@ export async function lancerParDerogation(
       if (!faconnierId) return { ok: false, error: "Choisissez un façonnier" };
     }
     await svc.lancer(commandeId, mode, auteur, { faconnierId, derogation: { motif: propre, manques } });
+    await figerConfigDepuisEtat(commandeId);
     await journaliser(
       "validation",
       "Lancement",

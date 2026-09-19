@@ -5,6 +5,7 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { calculerDashboard, FAMILLES_DEFAUT, type InspectionBilan } from "@/lib/domain/qc";
 import type { InspectionRow } from "@/lib/services/qc";
+import { SEUILS_QUALITE } from "@/lib/domain/seuils";
 
 const nb = new Intl.NumberFormat("fr-FR");
 const moisFr = (p: string) => {
@@ -41,7 +42,7 @@ export function DashboardQualite({ inspections }: { inspections: InspectionRow[]
     <div className="space-y-4">
       {/* KPI principaux */}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
-        <Kpi label="Taux de conformité" valeur={d.tauxConformite === null ? "—" : `${d.tauxConformite} %`} tone={d.tauxConformite !== null && d.tauxConformite >= 90 ? "success" : d.tauxConformite !== null && d.tauxConformite >= 75 ? "warning" : "danger"} gros />
+        <Kpi label="Taux de conformité" valeur={d.tauxConformite === null ? "—" : `${d.tauxConformite} %`} tone={d.tauxConformite !== null && d.tauxConformite >= SEUILS_QUALITE.bon ? "success" : d.tauxConformite !== null && d.tauxConformite >= SEUILS_QUALITE.alerte ? "warning" : "danger"} gros />
         <Kpi label="Contrôles clôturés" valeur={nb.format(d.controles)} />
         <Kpi label="Pièces contrôlées" valeur={nb.format(d.piecesControlees)} />
         <Kpi label="Lots refusés" valeur={nb.format(d.refuses)} tone={d.refuses ? "danger" : "success"} />
@@ -136,7 +137,7 @@ export function DashboardQualite({ inspections }: { inspections: InspectionRow[]
                     {c.taux === null ? (
                       "—"
                     ) : (
-                      <StatusBadge tone={c.taux >= 90 ? "success" : c.taux >= 75 ? "warning" : "danger"}>
+                      <StatusBadge tone={c.taux >= SEUILS_QUALITE.bon ? "success" : c.taux >= SEUILS_QUALITE.alerte ? "warning" : "danger"}>
                         {c.taux}%
                       </StatusBadge>
                     )}
@@ -161,7 +162,7 @@ export function DashboardQualite({ inspections }: { inspections: InspectionRow[]
                 <div className="flex h-28 w-full items-end">
                   <div
                     className={`w-full rounded-t ${
-                      m.taux === null ? "bg-muted" : m.taux >= 90 ? "bg-green-500/70" : m.taux >= 75 ? "bg-amber-500/70" : "bg-red-500/70"
+                      m.taux === null ? "bg-muted" : m.taux >= SEUILS_QUALITE.bon ? "bg-green-500/70" : m.taux >= SEUILS_QUALITE.alerte ? "bg-amber-500/70" : "bg-red-500/70"
                     }`}
                     style={{ height: `${Math.max(4, m.taux ?? 0)}%` }}
                   />

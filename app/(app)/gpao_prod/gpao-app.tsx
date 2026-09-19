@@ -51,7 +51,7 @@ import {
 } from "./store";
 import { cleNom } from "@/lib/domain/atelier";
 import { assurerOperations } from "@/lib/actions/atelier";
-import { ChaineModal, ModeleModal, NewDayModal, OuvriereModal } from "./modals";
+import { ChaineModal, ModeleModal, NewDayModal, OuvriereModal, type OFOption } from "./modals";
 import { ImportOuvrieresModal } from "./import-ouvrieres";
 import { PostesHeureModal } from "./postes-heure";
 import { HistoView } from "./histo";
@@ -69,9 +69,12 @@ function normJournee(row: Record<string, unknown>): Journee {
 export default function GpaoApp({
   initialState,
   clients,
+  commandes = [],
 }: {
   initialState: GpaoState;
   clients: string[];
+  /** OF sélectionnables à la création d'une journée (pivot OF↔production). */
+  commandes?: OFOption[];
 }) {
   const router = useRouter();
   const { state, mutate } = useGpaoStore(initialState);
@@ -138,7 +141,14 @@ export default function GpaoApp({
   };
 
   /* ─────────── data ops ─────────── */
-  const createDay = async (d: { date: string; chaineId: number; modeleId: number; effectif: number; nbHeures: number }) => {
+  const createDay = async (d: {
+    date: string;
+    chaineId: number;
+    modeleId: number;
+    effectif: number;
+    nbHeures: number;
+    commandeId?: number | null;
+  }) => {
     const res = await gpao.createDay(d);
     if (!res.ok) return toast("⚠ " + res.error);
     const j = normJournee(res.row);
@@ -667,7 +677,7 @@ export default function GpaoApp({
       )}
 
       {/* modals */}
-      {newDay && <NewDayModal state={state} onClose={() => setNewDay(false)} onCreate={createDay} />}
+      {newDay && <NewDayModal state={state} commandes={commandes} onClose={() => setNewDay(false)} onCreate={createDay} />}
       {chaineModal.open && (
         <ChaineModal edit={chaineModal.edit} onClose={() => setChaineModal({ open: false, edit: null })} onSave={saveChaine} />
       )}

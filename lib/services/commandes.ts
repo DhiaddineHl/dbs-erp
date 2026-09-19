@@ -7,6 +7,7 @@ import type { Tone } from "@/components/shared/status-badge";
 import * as biz from "@/lib/domain/commande";
 import { getSetting } from "@/lib/services/permissions";
 import { couvertureTissuParCommande } from "@/lib/services/tissu";
+import { rattacherReference } from "@/lib/services/reference";
 
 /* Read models. Amounts and dates come out of the DB typed; every status-like
  * field is computed here from lib/domain/commande.ts rather than stored. */
@@ -481,12 +482,16 @@ export type CommandeInput = Omit<typeof commande.$inferInsert, "id" | "createdAt
 
 export async function insertCommande(values: CommandeInput) {
   const [row] = await db.insert(commande).values(values).returning({ id: commande.id });
+  // Rattachement à la référence industrielle (best-effort, ne bloque jamais).
+  await rattacherReference(row.id);
   return row.id;
 }
 
 export async function insertManyCommandes(values: CommandeInput[]) {
   if (!values.length) return [];
-  return db.insert(commande).values(values).returning({ id: commande.id });
+  const rows = await db.insert(commande).values(values).returning({ id: commande.id });
+  for (const r of rows) await rattacherReference(r.id);
+  return rows;
 }
 
 export const getCommande = async (id: number) => {
@@ -670,6 +675,12 @@ export async function updateCommande(
       }));
     if (mouvements.length) await tx.insert(commandePrixJournal).values(mouvements);
   });
+
+  /* Le modèle, la référence ou le client ont pu changer : on réaligne le
+   * rattachement à la référence industrielle (best-effort, hors transaction). */
+  if ("modele" in patch || "refArticle" in patch || "clientId" in patch) {
+    await rattacherReference(id);
+  }
 }
 
 /** Delete commandes and tombstone their OF numbers so a re-import can't

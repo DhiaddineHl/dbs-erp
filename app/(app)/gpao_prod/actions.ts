@@ -5,6 +5,8 @@ import { assertUser } from "@/lib/auth/server";
 import * as g from "@/lib/services/gpao";
 import * as at from "@/lib/services/atelier";
 import { setSetting } from "@/lib/services/permissions";
+import { journaliser } from "@/lib/services/activite";
+import { erreurJournee, modifieProduction } from "@/lib/domain/journee";
 import type { journee as journeeTable } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 
@@ -29,6 +31,9 @@ export async function createDay(input: {
   modeleId: number;
   effectif: number;
   nbHeures: number;
+  /** OF précis rattaché à la journée (pivot OF↔production §5). Facultatif :
+   * une journée sans OF reste valide, comme aujourd'hui. */
+  commandeId?: number | null;
 }) {
   try {
     await assertUser();
@@ -92,7 +97,74 @@ export async function duplicateDay(input: {
 export async function updateDay(id: number, patch: Record<string, unknown>) {
   try {
     await assertUser();
+
+    /* Protection serveur (§27) : une journée CLÔTURÉE ne se modifie plus par un
+     * appel générique. Seul un patch qui (dé)clôture est permis ; toute écriture
+     * de production est refusée ici, et non plus seulement grisée dans l'écran.
+     * Une correction exceptionnelle passe par `corrigerJourneeCloturee`. */
+    const actuelle = await g.getJournee(id);
+    if (!actuelle) return { ok: false as const, error: "Journée introuvable." };
+    if (actuelle.cloture && modifieProduction(patch)) {
+      return {
+        ok: false as const,
+        error: "Journée clôturée — rouvrez-la pour la corriger.",
+      };
+    }
+
+    /* Validations métier (§26/§32) : refus côté serveur, pas seulement dans l'UI. */
+    const err = erreurJournee(patch);
+    if (err) return { ok: false as const, error: err };
+
     await g.updateJournee(id, patch as Partial<JourneeInsert>);
+
+    /* Trace au journal quand la clôture change d'état. */
+    if ("cloture" in patch && patch.cloture !== actuelle.cloture) {
+      await journaliser(
+        "validation",
+        `GPAO journée #${id}`,
+        patch.cloture ? "Clôture de la journée" : "Réouverture de la journée",
+      );
+    }
+
+    revalidatePath(PATH);
+    return { ok: true as const };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Correction EXCEPTIONNELLE d'une journée clôturée, tracée (§27).
+ *
+ * Contrairement à `updateDay`, elle accepte de modifier une journée clôturée —
+ * mais elle exige un motif, valide les valeurs comme les autres, et journalise
+ * qui a corrigé, quand et pourquoi. La réservation aux administrateurs/
+ * responsables se fait au niveau de l'écran qui l'appellera (bloc 2). */
+export async function corrigerJourneeCloturee(
+  id: number,
+  patch: Record<string, unknown>,
+  raison: string,
+) {
+  try {
+    await assertUser();
+    const motif = raison.trim();
+    if (!motif) return { ok: false as const, error: "Un motif de correction est obligatoire." };
+
+    const actuelle = await g.getJournee(id);
+    if (!actuelle) return { ok: false as const, error: "Journée introuvable." };
+    if (!actuelle.cloture) {
+      return { ok: false as const, error: "Cette journée n'est pas clôturée : modifiez-la normalement." };
+    }
+
+    const err = erreurJournee(patch);
+    if (err) return { ok: false as const, error: err };
+
+    await g.updateJournee(id, patch as Partial<JourneeInsert>);
+    await journaliser(
+      "modification",
+      `GPAO journée #${id}`,
+      `Correction de journée clôturée — ${motif} (champs : ${Object.keys(patch).join(", ")})`,
+    );
+
     revalidatePath(PATH);
     return { ok: true as const };
   } catch (e) {

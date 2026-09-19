@@ -9,6 +9,7 @@ import {
   pgTable,
   serial,
   text,
+  timestamp,
 } from "drizzle-orm/pg-core";
 
 /** Registre du personnel de l'atelier.
@@ -121,6 +122,12 @@ export const journee = pgTable("journee", {
   modeleId: integer()
     .notNull()
     .references(() => modele.id),
+  /** OF précis rattaché à cette journée, quand il est connu (pivot OF↔production
+   * du cahier des charges §5). Colonne simple pour éviter un cycle d'import
+   * journee↔commande — la FK est posée par la migration 0030. Nullable : le
+   * rattachement historique par nom de modèle (`modeleId`) reste en place ;
+   * ceci le complète, il ne le remplace pas, pour ne rien casser de l'existant. */
+  commandeId: integer(),
   effectif: integer().notNull().default(0),
   /** Heures travaillées dans la journée. En décimal : une demi-journée ou une
    * journée écourtée valent 8,5 ou 8,25 h, et le rendement (dont c'est le
@@ -146,6 +153,35 @@ export const journee = pgTable("journee", {
   opsDetail: jsonb().$type<Record<number, Record<string, OpDetail[]>>>().notNull().default({}),
 });
 
+/** Arrêt / temps non productif d'une journée (cahier des charges §19).
+ *
+ * Sert à NE PAS confondre une mauvaise performance opératrice avec une perte
+ * industrielle : panne machine, attente matière/coupe/qualité, changement de
+ * modèle… Ces minutes sont déduites du temps disponible dans le calcul du SAM
+ * constaté (lib/domain/sam.ts). Léger, rattaché à la journée. */
+export const journeeArret = pgTable(
+  "journee_arret",
+  {
+    id: serial().primaryKey(),
+    journeeId: integer()
+      .notNull()
+      .references(() => journee.id, { onDelete: "cascade" }),
+    /** Poste / machine concerné, quand c'est pertinent (libre). */
+    poste: text().notNull().default(""),
+    /** Heures de début / fin, en texte "HH:MM" (facultatives si durée saisie). */
+    debut: text().notNull().default(""),
+    fin: text().notNull().default(""),
+    /** Durée de l'arrêt en minutes — ce qui compte pour le calcul. */
+    dureeMin: doublePrecision().notNull().default(0),
+    /** Cause : panne | tissu | fournitures | attente_coupe | attente_qualite |
+     * changement_modele | reglage | absence | reunion | autre. */
+    cause: text().notNull().default("autre"),
+    commentaire: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [index("journee_arret_journee_idx").on(t.journeeId)],
+);
+
 /* ─────────── Relations ─────────── */
 export const chaineRelations = relations(chaine, ({ many }) => ({
   ouvrieres: many(ouvriere),
@@ -161,7 +197,11 @@ export const personnelRelations = relations(personnel, ({ many }) => ({
 export const modeleRelations = relations(modele, ({ many }) => ({
   journees: many(journee),
 }));
-export const journeeRelations = relations(journee, ({ one }) => ({
+export const journeeRelations = relations(journee, ({ one, many }) => ({
   chaine: one(chaine, { fields: [journee.chaineId], references: [chaine.id] }),
   modele: one(modele, { fields: [journee.modeleId], references: [modele.id] }),
+  arrets: many(journeeArret),
+}));
+export const journeeArretRelations = relations(journeeArret, ({ one }) => ({
+  journee: one(journee, { fields: [journeeArret.journeeId], references: [journee.id] }),
 }));
