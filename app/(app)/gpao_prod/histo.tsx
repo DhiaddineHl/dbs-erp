@@ -76,6 +76,47 @@ function computeHisto(state: GpaoState, cle: string, from: string, to: string) {
   return { ouv: info, from, to, rows };
 }
 
+/* Recherche transversale (point 2) : toutes les ouvrières dont le rendement
+ * MOYEN sur la période tombe dans [min, max]. Moyenne pondérée par les heures
+ * travaillées (une journée d'une heure ne pèse pas comme une journée pleine). */
+function computeSeuil(state: GpaoState, from: string, to: string, min: number, max: number) {
+  const cleDe = makeOuvKey(state);
+  const connues = ouvrieresConnues(state);
+  const parCle = new Map<string, { nom: string; matricule: string; poste: string; earned: number; worked: number; jours: number; prod: number }>();
+
+  const jours = state.journees.filter((j) => j.date >= from && j.date <= to);
+  for (const j of jours) {
+    for (const o of dayOuvrieres(state, j)) {
+      const worked = ouvWorked(j, o.id);
+      const r = ouvRend(j, o);
+      if (worked <= 0 || r === null) continue;
+      const cle = cleDe(o);
+      const info = connues.find((x) => x.cle === cle);
+      const e = parCle.get(cle) ?? {
+        nom: info?.nom ?? o.nom,
+        matricule: info?.matricule ?? "",
+        poste: info?.poste ?? o.poste,
+        earned: 0,
+        worked: 0,
+        jours: 0,
+        prod: 0,
+      };
+      // rendement pondéré : on cumule (rend × heures) puis on divise par les heures.
+      e.earned += r * worked;
+      e.worked += worked;
+      e.jours += 1;
+      e.prod += ouvProd(j, o.id);
+      parCle.set(cle, e);
+    }
+  }
+
+  const rows = [...parCle.values()]
+    .map((e) => ({ ...e, rendMoyen: e.worked > 0 ? Math.round(e.earned / e.worked) : 0 }))
+    .filter((e) => e.rendMoyen >= min && e.rendMoyen <= max)
+    .sort((a, b) => b.rendMoyen - a.rendMoyen);
+  return { from, to, min, max, rows };
+}
+
 export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (id: number) => void }) {
   const connues = useMemo(() => ouvrieresConnues(state), [state]);
   const [cle, setCle] = useState<string>(() => connues[0]?.cle ?? "");
@@ -87,6 +128,12 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(today());
   const [query, setQuery] = useState<{ cle: string; from: string; to: string } | null>(null);
+
+  // Recherche par seuil de rendement (point 2).
+  const [seuilMin, setSeuilMin] = useState("80");
+  const [seuilMax, setSeuilMax] = useState("200");
+  const [seuilQuery, setSeuilQuery] = useState<{ from: string; to: string; min: number; max: number } | null>(null);
+  const seuilData = seuilQuery ? computeSeuil(state, seuilQuery.from, seuilQuery.to, seuilQuery.min, seuilQuery.max) : null;
 
   const data = query ? computeHisto(state, query.cle, query.from, query.to) : null;
 
@@ -147,8 +194,119 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
       ) : (
         <HistoContent data={data} onOpenDay={onOpenDay} />
       )}
+
+      {/* ─── Recherche par seuil de rendement (point 2) ─── */}
+      <h2 className="sec" style={{ marginTop: 24 }}>
+        🏆 Ouvrières par seuil de rendement
+      </h2>
+      <div className="daybar" style={{ background: "#fff", color: "var(--txt)", border: "1px solid var(--border)" }}>
+        <div className="fld" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>Rendement min %</label>
+          <br />
+          <input type="number" value={seuilMin} onChange={(e) => setSeuilMin(e.target.value)} style={{ padding: 7, border: "1px solid var(--border)", borderRadius: 8, width: 110 }} />
+        </div>
+        <div className="fld" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>Rendement max %</label>
+          <br />
+          <input type="number" value={seuilMax} onChange={(e) => setSeuilMax(e.target.value)} style={{ padding: 7, border: "1px solid var(--border)", borderRadius: 8, width: 110 }} />
+        </div>
+        <div className="fld" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>Du</label>
+          <br />
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ padding: 7, border: "1px solid var(--border)", borderRadius: 8 }} />
+        </div>
+        <div className="fld" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>Au</label>
+          <br />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ padding: 7, border: "1px solid var(--border)", borderRadius: 8 }} />
+        </div>
+        <div className="dright">
+          <button
+            className="btn primary sm"
+            onClick={() =>
+              setSeuilQuery({ from, to, min: Number(seuilMin) || 0, max: Number(seuilMax) || 9999 })
+            }
+          >
+            Rechercher
+          </button>
+          <button
+            className="btn amber sm"
+            disabled={!seuilData || !seuilData.rows.length}
+            onClick={() => seuilData && printSeuil(seuilData)}
+          >
+            🖨 Imprimer la liste
+          </button>
+        </div>
+      </div>
+
+      {!seuilQuery ? (
+        <div className="empty">Choisissez un intervalle de rendement (ex. entre 80 et 200) et une période, puis Rechercher.</div>
+      ) : !seuilData || !seuilData.rows.length ? (
+        <div className="empty">Aucune ouvrière dans cet intervalle sur la période.</div>
+      ) : (
+        <table className="tbl" style={{ marginTop: 10 }}>
+          <thead>
+            <tr>
+              <th style={{ width: 30 }}>#</th>
+              <th style={{ textAlign: "left" }}>Ouvrière</th>
+              <th style={{ textAlign: "left" }}>Poste</th>
+              <th>Jours</th>
+              <th>Heures</th>
+              <th>Pièces</th>
+              <th>Rend. moyen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {seuilData.rows.map((r, i) => (
+              <tr key={i}>
+                <td>{i + 1}</td>
+                <td style={{ textAlign: "left" }}>
+                  {r.nom}
+                  {r.matricule ? ` [${r.matricule}]` : ""}
+                </td>
+                <td style={{ textAlign: "left" }}>{r.poste}</td>
+                <td>{r.jours}</td>
+                <td>{r.worked.toFixed(1)}</td>
+                <td>{r.prod}</td>
+                <td style={{ fontWeight: 800, color: rcol(r.rendMoyen) }}>{r.rendMoyen}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
+}
+
+function printSeuil(data: NonNullable<ReturnType<typeof computeSeuil>>) {
+  const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const rows = data.rows
+    .map(
+      (r, i) =>
+        `<tr><td>${i + 1}</td><td style="text-align:left">${esc(r.nom)}${
+          r.matricule ? ` [${esc(r.matricule)}]` : ""
+        }</td><td style="text-align:left">${esc(r.poste)}</td><td>${r.jours}</td><td>${r.worked.toFixed(
+          1,
+        )}</td><td>${r.prod}</td><td><b>${r.rendMoyen}%</b></td></tr>`,
+    )
+    .join("");
+  const h = `<h1>OUVRIÈRES PAR SEUIL DE RENDEMENT</h1>
+    <div class="psub">Rendement moyen entre ${data.min}% et ${data.max}% · du ${data.from} au ${data.to} · ${data.rows.length} ouvrière(s)</div>
+    <table><thead><tr><th>#</th><th style="text-align:left">Ouvrière</th><th style="text-align:left">Poste</th><th>Jours</th><th>Heures</th><th>Pièces</th><th>Rend. moyen</th></tr></thead><tbody>${rows}</tbody></table>
+    <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")} — GPAO DBS Fashion</div>`;
+  const w = window.open("", "_blank", "width=1000,height=800");
+  if (!w) return;
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ouvrières par seuil</title><style>
+    body{font-family:'Segoe UI',Arial,sans-serif;padding:10mm;font-size:12px;color:#000}
+    h1{font-size:17px;text-align:center;margin:0 0 4px}
+    .psub{text-align:center;font-size:11px;color:#444;margin-bottom:12px}
+    table{width:100%;border-collapse:collapse;font-size:11px}
+    th,td{border:1px solid #555;padding:4px 6px;text-align:center}th{background:#e6e6e6}
+    @page{size:A4 portrait;margin:10mm}
+  </style></head><body>${h}</body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 250);
 }
 
 function HistoContent({ data, onOpenDay }: { data: NonNullable<ReturnType<typeof computeHisto>>; onOpenDay: (id: number) => void }) {

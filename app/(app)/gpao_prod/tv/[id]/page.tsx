@@ -33,6 +33,7 @@ export default async function TvJourPage({ params }: { params: Promise<{ id: str
       id: c.id,
       nom: c.nom,
       chef: c.chef,
+      effectif: c.effectif,
       ouvrieres: c.ouvrieres.map((o) => ({ id: o.id, nom: o.nom, poste: o.poste, sam: o.sam, personnelId: o.personnelId })),
     })),
     journees: journees.map((j): Journee => ({ ...j, objManuel: j.objManuel ?? undefined })),

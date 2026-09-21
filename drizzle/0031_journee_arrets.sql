@@ -1,0 +1,1 @@
+ALTER TABLE "journee" ADD COLUMN "arrets" jsonb DEFAULT '{}'::jsonb NOT NULL;

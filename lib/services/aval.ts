@@ -657,6 +657,10 @@ export async function getPlanFaconnier(): Promise<PlanFaconnierData> {
     qte: c.qtePropre,
     produit: c.produit,
     ca: caLigne(c.qtePropre, c.prixVente),
+    of: c.of,
+    modele: c.modele,
+    ref: c.refArticle,
+    client: c.client,
   }));
 
   const plans = av.planFaconnier(lignes);

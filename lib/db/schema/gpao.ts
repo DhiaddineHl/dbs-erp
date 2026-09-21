@@ -76,6 +76,11 @@ export const chaine = pgTable("chaine", {
   id: serial().primaryKey(),
   nom: text().notNull(),
   chef: text().notNull().default(""),
+  /** Effectif de RÉFÉRENCE de la chaîne (nombre d'ouvriers prévus/affectés).
+   * Distinct du nombre de fiches ouvrières (ouvriere) et de l'effectif présent
+   * d'une journée (journee.effectif). Sert de valeur PROPOSÉE à la création
+   * d'une journée sur cette chaîne — jamais celui d'une autre chaîne. */
+  effectif: integer().notNull().default(0),
 });
 
 export const ouvriere = pgTable("ouvriere", {
@@ -94,6 +99,7 @@ export const ouvriere = pgTable("ouvriere", {
 /** One production day. The sparse per-hour matrices are stored as jsonb keyed
  * by hour column (sortie) or by ouvriere id then hour (ops/opsSam/...). */
 type OpDetail = { poste: string; sam: number; qte: number };
+type Arret = { motif: string; secondes: number };
 
 /** Une ligne de l'effectif figé d'une journée.
  *
@@ -144,6 +150,7 @@ export const journee = pgTable("journee", {
   opsSam: jsonb().$type<Record<number, Record<string, number>>>().notNull().default({}),
   opsPoste: jsonb().$type<Record<number, Record<string, string>>>().notNull().default({}),
   opsDetail: jsonb().$type<Record<number, Record<string, OpDetail[]>>>().notNull().default({}),
+  arrets: jsonb().$type<Record<number, Arret[]>>().notNull().default({}),
 });
 
 /* ─────────── Relations ─────────── */

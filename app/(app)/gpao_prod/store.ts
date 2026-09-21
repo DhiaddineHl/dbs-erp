@@ -12,7 +12,7 @@ export type Ouvriere = {
   /** Rattachement au registre du personnel, quand il est connu. */
   personnelId?: number | null;
 };
-export type Chaine = { id: number; nom: string; chef: string; ouvrieres: Ouvriere[] };
+export type Chaine = { id: number; nom: string; chef: string; effectif: number; ouvrieres: Ouvriere[] };
 export type Modele = {
   id: number;
   nom: string;
@@ -27,6 +27,9 @@ export type Modele = {
 export type Cell = number | "RI" | "ABS";
 /** one operation done within an hour (multi-poste support) */
 export type OpDetail = { poste: string; sam: number; qte: number };
+/** Arrêt / temps non productif d'une ouvrière : motif choisi + durée en
+ * secondes. Sert à justifier une baisse de production au fil du relevé. */
+export type Arret = { motif: string; secondes: number };
 export type Journee = {
   id: number;
   date: string;
@@ -49,6 +52,8 @@ export type Journee = {
   opsPoste?: Record<number, Record<string, string>>;
   /** per-worker, per-hour list of operations when ≥2 in the same hour */
   opsDetail?: Record<number, Record<string, OpDetail[]>>;
+  /** Arrêts / temps non productifs par ouvrière (motif + durée en secondes). */
+  arrets?: Record<number, Arret[]>;
   /** manual chain hourly objective override (0/undefined = automatic) */
   objManuel?: number;
 };
@@ -57,6 +62,8 @@ export type Journee = {
 export type Personne = { id: number; matricule: string; nom: string; fonction: string };
 /** Opération du catalogue : sert à proposer un libellé et son temps standard. */
 export type OperationRef = { id: number; nom: string; sam: number };
+/** Commande attribuée à DBS (interne), pour pré-remplir un modèle GPAO. */
+export type CommandeInterne = { of: string; modele: string; ref: string; couleur: string; client: string; qte: number };
 
 export type GpaoState = {
   modeles: Modele[];
@@ -137,7 +144,7 @@ export function defaults(): GpaoState {
     personnes: [],
     operations: [],
     reglages: REGLAGES_DEFAUT,
-    chaines: [{ id: 201, nom: "Chaîne 3", chef: "", ouvrieres }],
+    chaines: [{ id: 201, nom: "Chaîne 3", chef: "", effectif: 0, ouvrieres }],
     journees: [],
     nextOuvId: 23,
     tvDayId: null,
@@ -249,12 +256,16 @@ export function chSortieTotal(j: Journee) {
   }
   return t;
 }
+/* Rendement chaîne = production réelle ÷ objectif du jour × 100.
+ *
+ * Formulé directement sur l'objectif du jour (chObjJour) plutôt que sur le
+ * temps disponible : les deux coïncident quand l'objectif est automatique, mais
+ * cette forme respecte AUSSI un objectif saisi à la main (objManuel) — c'est le
+ * rendement « réel vs objectif » attendu au tableau de bord. */
 export function chRend(s: GpaoState, j: Journee) {
-  const m = findM(s, j.modeleId);
-  if (!m) return 0;
-  const dispo = j.effectif * j.nbHeures * 3600;
-  if (dispo <= 0) return 0;
-  return Math.round(((chSortieTotal(j) * m.sam) / dispo) * 100);
+  const objJour = chObjJour(s, j);
+  if (objJour <= 0) return 0;
+  return Math.round((chSortieTotal(j) / objJour) * 100);
 }
 export function chRetTotal(j: Journee) {
   if (!j.ret) return 0;
@@ -423,4 +434,51 @@ export function bilanSam(s: GpaoState, j: Journee) {
   }
 
   return { sommeSam, nbOperations, minutesJour, minutesCumul, piecesCumul };
+}
+
+/* Garde-robe / SAM réel par modèle (point 3) : sur toutes les journées d'un
+ * modèle, minutes réellement produites = Σ(pièces ouvrière × SAM ouvrière) et
+ * pièces sorties cumulées. Le SAM réel par pièce = minutes ÷ pièces — ce que le
+ * modèle « coûte » réellement, à comparer au SAM théorique de la fiche modèle. */
+export type SamReel = {
+  modeleId: number;
+  nom: string;
+  ref: string;
+  client: string;
+  samTheo: number; // secondes (fiche modèle)
+  minutesCumul: number;
+  piecesCumul: number;
+  jours: number;
+  samReelMin: number | null; // minutes/pièce
+  samReelSec: number | null; // secondes/pièce (comparable au SAM théorique)
+};
+
+export function gardeRobe(s: GpaoState): SamReel[] {
+  const out: SamReel[] = [];
+  for (const m of s.modeles) {
+    let minutesCumul = 0;
+    let piecesCumul = 0;
+    let jours = 0;
+    for (const jj of s.journees) {
+      if (jj.modeleId !== m.id) continue;
+      jours += 1;
+      for (const o of dayOuvrieres(s, jj)) minutesCumul += (ouvProd(jj, o.id) * (+o.sam || 0)) / 60;
+      piecesCumul += chSortieTotal(jj);
+    }
+    if (jours === 0 && piecesCumul === 0) continue; // pas encore produit → hors garde-robe
+    const samReelMin = piecesCumul > 0 ? minutesCumul / piecesCumul : null;
+    out.push({
+      modeleId: m.id,
+      nom: m.nom,
+      ref: m.ref,
+      client: m.client,
+      samTheo: m.sam,
+      minutesCumul,
+      piecesCumul,
+      jours,
+      samReelMin,
+      samReelSec: samReelMin === null ? null : samReelMin * 60,
+    });
+  }
+  return out.sort((a, b) => b.piecesCumul - a.piecesCumul);
 }

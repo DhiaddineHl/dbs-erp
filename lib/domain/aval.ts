@@ -278,10 +278,24 @@ export type ChargeMois = {
   ca: number;
 };
 
+export type CommandeConfiee = {
+  of: string;
+  modele: string;
+  ref: string;
+  client: string;
+  mois: string;
+  qte: number;
+  produit: number;
+  restant: number;
+  ca: number;
+};
+
 export type PlanFaconnier = {
   faconnier: string;
   total: { nbCommandes: number; qte: number; restant: number; ca: number };
   parMois: Record<string, ChargeMois>;
+  /** Détail : la liste des commandes confiées à ce façonnier. */
+  commandes: CommandeConfiee[];
 };
 
 export type LigneCharge = {
@@ -290,6 +304,11 @@ export type LigneCharge = {
   qte: number;
   produit: number;
   ca: number;
+  /** Détail commande (pour la liste des confiées). */
+  of?: string;
+  modele?: string;
+  ref?: string;
+  client?: string;
 };
 
 /** Charge mensuelle par façonnier. Le « restant » est ce qui n'est pas encore
@@ -302,6 +321,7 @@ export function planFaconnier(lignes: LigneCharge[]): PlanFaconnier[] {
       faconnier: l.faconnier,
       total: { nbCommandes: 0, qte: 0, restant: 0, ca: 0 },
       parMois: {} as Record<string, ChargeMois>,
+      commandes: [] as CommandeConfiee[],
     };
     const restant = Math.max(0, l.qte - l.produit);
     const m = (f.parMois[l.mois] ??= { mois: l.mois, nbCommandes: 0, qte: 0, restant: 0, ca: 0 });
@@ -313,7 +333,25 @@ export function planFaconnier(lignes: LigneCharge[]): PlanFaconnier[] {
     f.total.qte += l.qte;
     f.total.restant += restant;
     f.total.ca += l.ca;
+    f.commandes.push({
+      of: l.of ?? "",
+      modele: l.modele ?? "",
+      ref: l.ref ?? "",
+      client: l.client ?? "",
+      mois: l.mois,
+      qte: l.qte,
+      produit: l.produit,
+      restant,
+      ca: l.ca,
+    });
     parFaconnier.set(l.faconnier, f);
+  }
+
+  // Détail trié par mois puis par reste décroissant (le plus urgent d'abord).
+  for (const f of parFaconnier.values()) {
+    f.commandes.sort(
+      (a, b) => (a.mois || "9999").localeCompare(b.mois || "9999") || b.restant - a.restant,
+    );
   }
 
   return [...parFaconnier.values()].sort((a, b) => b.total.restant - a.total.restant);

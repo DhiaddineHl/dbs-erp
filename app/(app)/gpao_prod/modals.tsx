@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { type Chaine, type GpaoState, type Modele, type OperationRef, findC, findM } from "./store";
+import { type Chaine, type GpaoState, type Modele, type OperationRef, type CommandeInterne, findC, findM } from "./store";
 import { cleOperation } from "@/lib/domain/atelier";
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
@@ -27,14 +27,32 @@ export function NewDayModal({
   const [modeleId, setModeleId] = useState(
     () => (state.modeles.find((m) => !m.archive) ?? state.modeles[0])?.id ?? 0,
   );
-  const [effectif, setEffectif] = useState(state.chaines[0]?.ouvrieres.length ?? 22);
+  /* Effectif PRÉSENT du jour, proposé depuis l'effectif de RÉFÉRENCE de la
+   * chaîne sélectionnée (chaine.effectif) — jamais celui d'une autre chaîne ni
+   * le nombre de fiches ouvrières. `touche` retient une saisie manuelle pour ne
+   * pas l'écraser quand on rouvre la liste ; changer de chaîne repropose son
+   * effectif propre. */
+  const effectifChaine = (id: number) => {
+    const c = findC(state, id);
+    return c?.effectif ?? 0;
+  };
+  const [effectif, setEffectif] = useState(effectifChaine(state.chaines[0]?.id ?? 0));
+  const [touche, setTouche] = useState(false);
   const [nbHeures, setNbHeures] = useState("8");
+
+  const choisirChaine = (id: number) => {
+    setChaineId(id);
+    // Tant que l'utilisateur n'a pas saisi un effectif à la main, on suit la
+    // chaîne choisie ; sinon on respecte sa valeur.
+    if (!touche) setEffectif(effectifChaine(id));
+  };
 
   /* Les modèles archivés (finis) ne sont plus proposés : on les réactive
    * depuis Cumul si l'on doit vraiment relancer une série. */
   const modelesProposes = state.modeles.filter((mm) => !mm.archive);
   const choix = modelesProposes.length ? modelesProposes : state.modeles;
 
+  const chaineSel = findC(state, chaineId);
   const m = findM(state, modeleId);
   const objH = m && m.sam > 0 ? (effectif * 3600) / m.sam : 0;
   /* Heures saisies : on accepte la virgule comme le point (8,5 ou 8.5), et une
@@ -51,10 +69,11 @@ export function NewDayModal({
       </div>
       <div className="fld">
         <label>Chaîne</label>
-        <select value={chaineId} onChange={(e) => setChaineId(+e.target.value)}>
+        <select value={chaineId} onChange={(e) => choisirChaine(+e.target.value)}>
           {state.chaines.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.nom} ({c.ouvrieres.length} ouvrières)
+              {c.nom} — effectif {c.effectif ?? 0}
+              {c.ouvrieres.length !== (c.effectif ?? 0) ? ` (${c.ouvrieres.length} fiches)` : ""}
             </option>
           ))}
         </select>
@@ -72,7 +91,21 @@ export function NewDayModal({
       <div className="r2">
         <div className="fld">
           <label>Effectif présent</label>
-          <input type="number" value={effectif} onChange={(e) => setEffectif(+e.target.value)} />
+          <input
+            type="number"
+            min={0}
+            value={effectif}
+            onChange={(e) => {
+              setTouche(true);
+              setEffectif(Math.max(0, +e.target.value));
+            }}
+          />
+          {chaineSel && (
+            <div style={{ fontSize: 11, color: "#8fa3c8", marginTop: 4 }}>
+              Effectif de la chaîne : {chaineSel.effectif ?? 0}
+              {effectif !== (chaineSel.effectif ?? 0) ? ` · présent saisi : ${effectif}` : ""}
+            </div>
+          )}
         </div>
         <div className="fld">
           <label>Heures de travail</label>
@@ -88,7 +121,7 @@ export function NewDayModal({
       <div className="note">
         {m && m.sam > 0 ? (
           <>
-            🎯 <b>Objectif général chaîne</b> = (effectif {effectif} × 3600) / SAM {m.sam}s ={" "}
+            🎯 <b>Objectif jour</b> = (effectif présent {effectif} × 3600) / SAM {m.sam}s ={" "}
             <b>{objH.toFixed(1)} p/h</b> → <b>{Math.round(objH * heures)} pièces / jour</b> ({heures || 8}h)
           </>
         ) : (
@@ -106,7 +139,9 @@ export function NewDayModal({
               date: date || new Date().toISOString().slice(0, 10),
               chaineId,
               modeleId,
-              effectif: effectif || findC(state, chaineId)?.ouvrieres.length || 0,
+              // À défaut de saisie, l'effectif de la chaîne sélectionnée (jamais
+              // celui de la 1re chaîne ni le nombre d'ouvrières).
+              effectif: effectif || effectifChaine(chaineId),
               nbHeures: heures > 0 ? heures : 8,
             })
           }
@@ -126,10 +161,11 @@ export function ChaineModal({
 }: {
   edit: Chaine | null;
   onClose: () => void;
-  onSave: (data: { nom: string; chef: string }) => void;
+  onSave: (data: { nom: string; chef: string; effectif: number }) => void;
 }) {
   const [nom, setNom] = useState(edit?.nom ?? "");
   const [chef, setChef] = useState(edit?.chef ?? "");
+  const [effectif, setEffectif] = useState(String(edit?.effectif ?? ""));
   return (
     <Overlay onClose={onClose}>
       <h2>{edit ? "✏ Modifier chaîne" : "＋ Nouvelle chaîne"}</h2>
@@ -141,11 +177,30 @@ export function ChaineModal({
         <label>Responsable / Chef de chaîne</label>
         <input value={chef} onChange={(e) => setChef(e.target.value)} placeholder="ex: Mme Salha" />
       </div>
+      <div className="fld">
+        <label>Effectif de la chaîne (nombre d&apos;ouvriers)</label>
+        <input
+          type="number"
+          min={0}
+          value={effectif}
+          onChange={(e) => setEffectif(e.target.value)}
+          placeholder="ex: 20"
+        />
+        <div style={{ fontSize: 11, color: "#8fa3c8", marginTop: 4 }}>
+          Effectif de référence, propre à cette chaîne. Proposé à la création d&apos;une journée sur cette chaîne
+          (modifiable ce jour-là). Distinct du nombre de fiches ouvrières.
+        </div>
+      </div>
       <div className="macts">
         <button className="btn" onClick={onClose}>
           Annuler
         </button>
-        <button className="btn primary" onClick={() => onSave({ nom: nom.trim(), chef: chef.trim() })}>
+        <button
+          className="btn primary"
+          onClick={() =>
+            onSave({ nom: nom.trim(), chef: chef.trim(), effectif: Math.max(0, Math.trunc(Number(effectif) || 0)) })
+          }
+        >
           Enregistrer
         </button>
       </div>
@@ -157,6 +212,7 @@ export function ChaineModal({
 export function ModeleModal({
   edit,
   clients,
+  commandesInternes = [],
   effectifDefaut,
   onClose,
   onSave,
@@ -164,6 +220,8 @@ export function ModeleModal({
   edit: Modele | null;
   /** Client names from the shared Clients module (kept in sync). */
   clients: string[];
+  /** Commandes attribuées à DBS (interne) : source de nom/référence. */
+  commandesInternes?: CommandeInterne[];
   onClose: () => void;
   onSave: (data: { nom: string; ref: string; client: string; sam: number; qte: number; estimEff: number }) => void;
   /** Effectif proposé par défaut pour l'estimation (celui de la 1re chaîne). */
@@ -175,9 +233,38 @@ export function ModeleModal({
   const [sam, setSam] = useState(edit?.sam ?? 1800);
   const [qte, setQte] = useState(edit?.qte ?? 5000);
   const [estimEff, setEstimEff] = useState(edit?.estimEff || effectifDefaut || 22);
+
+  /* Choisir une commande interne (DBS) pré-remplit nom, référence, client et
+   * quantité — plus besoin de retaper ce qui existe déjà côté Commandes. */
+  const choisirCommande = (idx: string) => {
+    const c = commandesInternes[Number(idx)];
+    if (!c) return;
+    setNom(c.modele);
+    setRef(c.ref);
+    if (c.client) setClient(c.client);
+    if (c.qte) setQte(c.qte);
+  };
+
   return (
     <Overlay onClose={onClose}>
       <h2>{edit ? "✏ Modifier modèle" : "＋ Nouveau modèle"}</h2>
+      {!edit && commandesInternes.length > 0 && (
+        <div className="fld">
+          <label>Depuis une commande DBS (interne)</label>
+          <select defaultValue="" onChange={(e) => choisirCommande(e.target.value)}>
+            <option value="">— Choisir un modèle/référence de commande —</option>
+            {commandesInternes.map((c, i) => (
+              <option key={`${c.of}-${i}`} value={i}>
+                {c.modele}
+                {c.ref ? ` — ${c.ref}` : ""}
+                {c.client ? ` · ${c.client}` : ""}
+                {c.of ? ` (${c.of})` : ""}
+              </option>
+            ))}
+          </select>
+          <div className="cinfo">Remplit automatiquement nom, référence, client et quantité — modifiables ensuite.</div>
+        </div>
+      )}
       <div className="fld">
         <label>Nom du modèle</label>
         <input value={nom} onChange={(e) => setNom(e.target.value)} placeholder="ex: Chemise FEMME" />

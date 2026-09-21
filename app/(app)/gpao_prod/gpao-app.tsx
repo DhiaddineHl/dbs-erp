@@ -51,14 +51,17 @@ import {
 } from "./store";
 import { cleNom } from "@/lib/domain/atelier";
 import { assurerOperations } from "@/lib/actions/atelier";
+import type { CommandeInterne } from "./store";
 import { ChaineModal, ModeleModal, NewDayModal, OuvriereModal } from "./modals";
 import { ImportOuvrieresModal } from "./import-ouvrieres";
 import { PostesHeureModal } from "./postes-heure";
+import { ArretsModal } from "./arrets";
 import { HistoView } from "./histo";
+import { GardeRobeView } from "./garde-robe";
 import { TvMode } from "./tv-mode";
 import { imprimerFicheModele, imprimerResumeProduction } from "./impressions";
 
-type View = "jours" | "jour" | "chaines" | "modeles" | "cumul" | "histo";
+type View = "jours" | "jour" | "chaines" | "modeles" | "cumul" | "histo" | "garderobe";
 
 /** Map a DB journée row (objManuel is nullable) to the client Journee shape. */
 function normJournee(row: Record<string, unknown>): Journee {
@@ -66,12 +69,22 @@ function normJournee(row: Record<string, unknown>): Journee {
   return { ...r, objManuel: r.objManuel ?? undefined };
 }
 
+/** Durée lisible : « 90s » → « 1 min 30 s ». */
+function fmtDuree(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s ? `${m}min${s}` : `${m}min`;
+}
+
 export default function GpaoApp({
   initialState,
   clients,
+  commandesInternes = [],
 }: {
   initialState: GpaoState;
   clients: string[];
+  commandesInternes?: CommandeInterne[];
 }) {
   const router = useRouter();
   const { state, mutate } = useGpaoStore(initialState);
@@ -97,6 +110,17 @@ export default function GpaoApp({
     ouv: null,
   });
   const [posteHeureOuv, setPosteHeureOuv] = useState<number | null>(null);
+  const [arretsOuv, setArretsOuv] = useState<number | null>(null);
+
+  /* Enregistre la liste d'arrêts d'une ouvrière pour la journée courante. */
+  const saveArrets = (ouvId: number, liste: { motif: string; secondes: number }[]) => {
+    const j = currentDayId != null ? findJ(state, currentDayId) : null;
+    if (!j || j.cloture) return;
+    const arrets = { ...(j.arrets || {}) };
+    if (liste.length) arrets[ouvId] = liste;
+    else delete arrets[ouvId];
+    patchDay(j.id, { arrets });
+  };
   const [importOuv, setImportOuv] = useState<number | null>(null);
 
   // toast
@@ -369,10 +393,10 @@ export default function GpaoApp({
     toast("Réinitialisé");
   };
 
-  const saveChaine = async (data: { nom: string; chef: string }) => {
+  const saveChaine = async (data: { nom: string; chef: string; effectif: number }) => {
     if (!data.nom) return toast("⚠ Nom requis");
     const editId = chaineModal.edit?.id;
-    const res = await gpao.saveChaine({ id: editId, nom: data.nom, chef: data.chef });
+    const res = await gpao.saveChaine({ id: editId, nom: data.nom, chef: data.chef, effectif: data.effectif });
     if (!res.ok) return toast("⚠ " + res.error);
     mutate((s) => {
       if (editId) {
@@ -380,9 +404,10 @@ export default function GpaoApp({
         if (c) {
           c.nom = data.nom;
           c.chef = data.chef;
+          c.effectif = data.effectif;
         }
       } else {
-        s.chaines.push({ id: res.id, nom: data.nom, chef: data.chef, ouvrieres: [] });
+        s.chaines.push({ id: res.id, nom: data.nom, chef: data.chef, effectif: data.effectif, ouvrieres: [] });
       }
     });
     if (!editId) setCurrentChaineId(res.id);
@@ -551,6 +576,7 @@ export default function GpaoApp({
     { id: "modeles", label: "👔 Modèles" },
     { id: "cumul", label: "📊 Cumul production" },
     { id: "histo", label: "🕓 Historique ouvrière" },
+    { id: "garderobe", label: "👗 Garde-robe" },
   ];
 
   const journee = currentDayId !== null ? findJ(state, currentDayId) : null;
@@ -609,6 +635,7 @@ export default function GpaoApp({
           onRet={setRet}
           onObjManuel={setObjManuel}
           onPostesHeure={setPosteHeureOuv}
+          onArrets={setArretsOuv}
           onDup={dupDay}
           onToggleCloture={toggleCloture}
           onPrint={printReport}
@@ -666,6 +693,8 @@ export default function GpaoApp({
         />
       )}
 
+      {view === "garderobe" && <GardeRobeView state={state} />}
+
       {/* modals */}
       {newDay && <NewDayModal state={state} onClose={() => setNewDay(false)} onCreate={createDay} />}
       {chaineModal.open && (
@@ -675,7 +704,12 @@ export default function GpaoApp({
         <ModeleModal
           edit={modeleModal.edit}
           clients={clients}
-          effectifDefaut={state.chaines[0]?.ouvrieres.length}
+          commandesInternes={commandesInternes}
+          effectifDefaut={
+            (currentChaineId !== null ? findC(state, currentChaineId)?.effectif : 0) ||
+            state.chaines[0]?.effectif ||
+            undefined
+          }
           onClose={() => setModeleModal({ open: false, edit: null })}
           onSave={saveModele}
         />
@@ -720,6 +754,19 @@ export default function GpaoApp({
           onClose={() => setPosteHeureOuv(null)}
           onSave={savePosteHeure}
           onReset={resetPosteHeure}
+        />
+      )}
+
+      {arretsOuv !== null && journee && (
+        <ArretsModal
+          journee={journee}
+          roster={dayOuvrieres(state, journee)}
+          ouvId={arretsOuv}
+          onClose={() => setArretsOuv(null)}
+          onSave={(liste) => {
+            saveArrets(arretsOuv, liste);
+            setArretsOuv(null);
+          }}
         />
       )}
 
@@ -894,6 +941,7 @@ function JourDetail({
   onRet,
   onObjManuel,
   onPostesHeure,
+  onArrets,
   onDup,
   onToggleCloture,
   onPrint,
@@ -912,6 +960,7 @@ function JourDetail({
   onRet: (ouvId: number, val: string) => void;
   onObjManuel: (val: string) => void;
   onPostesHeure: (ouvId: number) => void;
+  onArrets: (ouvId: number) => void;
   onDup: (id: number) => void;
   onToggleCloture: () => void;
   onPrint: () => void;
@@ -1141,6 +1190,9 @@ function JourDetail({
               <th>
                 % Ret.<small>/prod</small>
               </th>
+              <th>
+                Arrêts<small>motif·s</small>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1326,6 +1378,34 @@ function JourDetail({
                     />
                   </td>
                   <td style={{ fontWeight: 800, color: retcol(retP) }}>{retP === null ? "—" : `${retP}%`}</td>
+                  <td>
+                    {(() => {
+                      const arr = j.arrets?.[o.id] ?? [];
+                      const totSec = arr.reduce((s, a) => s + (a.secondes || 0), 0);
+                      return (
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={dis}
+                          title={
+                            arr.length
+                              ? arr.map((a) => `${a.motif} : ${a.secondes}s`).join("\n")
+                              : "Aucun arrêt — cliquer pour ajouter"
+                          }
+                          style={{
+                            padding: "2px 8px",
+                            fontSize: 12,
+                            background: totSec > 0 ? "#fde8e8" : undefined,
+                            color: totSec > 0 ? "#b42318" : undefined,
+                            fontWeight: totSec > 0 ? 700 : 500,
+                          }}
+                          onClick={() => onArrets(o.id)}
+                        >
+                          {totSec > 0 ? `⏱ ${fmtDuree(totSec)}` : "⏱ +"}
+                        </button>
+                      );
+                    })()}
+                  </td>
                 </tr>
               );
             })}
@@ -1447,7 +1527,10 @@ function ChainesView({
                 <div className="gs">{ch.chef ? `Chef : ${ch.chef}` : "—"}</div>
                 <div className="grow">
                   <span>
-                    Ouvrières <b>{ch.ouvrieres.length}</b>
+                    Effectif chaîne <b>{ch.effectif ?? 0}</b>
+                  </span>
+                  <span>
+                    Ouvrières enreg. <b>{ch.ouvrieres.length}</b>
                   </span>
                   <span>
                     Journées <b>{nbJ}</b>
@@ -1863,13 +1946,16 @@ function printJournee(state: GpaoState, dayId: number) {
     .join("")}<td><b>${sortie}</b></td></tr></tbody></table>`;
   h += `<table><thead><tr><th>N°</th><th style="text-align:left">Ouvrière</th><th style="text-align:left">Poste</th><th>SAM</th><th>Obj/H</th>${j.cols
     .map((x) => `<th>${esc(x)}</th>`)
-    .join("")}<th>Total</th><th>Obj.aj.</th><th>Rend.%</th><th>Ret.</th><th>%Ret.</th></tr></thead><tbody>`;
+    .join("")}<th>Total</th><th>Obj.aj.</th><th>Rend.%</th><th>Ret.</th><th>%Ret.</th><th>Arrêts</th></tr></thead><tbody>`;
   /* Les ouvrières viennent de LA JOURNÉE, comme à l'écran — sinon le rapport
    * sort vide, ou faux, dès que l'effectif de la chaîne a changé depuis. */
   dayOuvrieres(state, j).forEach((o, k) => {
     const d = j.ops[o.id] || {};
     const ro = ouvRend(j, o);
     const retP = ouvRetPct(j, o.id);
+    const arr = j.arrets?.[o.id] ?? [];
+    const arrSec = arr.reduce((s, a) => s + (a.secondes || 0), 0);
+    const arrTxt = arr.length ? `${fmtDuree(arrSec)} — ${arr.map((a) => esc(a.motif)).join(", ")}` : "—";
     h += `<tr><td>${k + 1}</td><td style="text-align:left">${esc(o.nom)}${
       ouvHasMulti(j, o) ? " *" : ""
     }</td><td style="text-align:left">${esc(o.poste)}</td><td>${o.sam}</td><td>${ouvObjH(o).toFixed(1)}</td>${j.cols
@@ -1880,7 +1966,7 @@ function printJournee(state: GpaoState, dayId: number) {
       })
       .join("")}<td><b>${ouvProd(j, o.id)}</b></td><td>${Math.round(ouvObjAjuste(j, o))}</td><td><b>${
       ro === null ? "—" : ro + "%"
-    }</b></td><td>${ouvRet(j, o.id) || "—"}</td><td>${retP === null ? "—" : retP + "%"}</td></tr>`;
+    }</b></td><td>${ouvRet(j, o.id) || "—"}</td><td>${retP === null ? "—" : retP + "%"}</td><td style="text-align:left;font-size:9px">${arrTxt}</td></tr>`;
   });
   h += `</tbody></table>`;
   h += `<div class="psig"><div>Agent de méthode</div><div>Chef de chaîne</div><div>Direction production</div></div>`;

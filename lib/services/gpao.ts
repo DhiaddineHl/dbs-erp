@@ -1,11 +1,58 @@
 import "server-only";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { chaine, client, commande, journee, modele, ouvriere } from "@/lib/db/schema";
+import { chaine, client, commande, faconnier, journee, modele, ouvriere } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
+import * as biz from "@/lib/domain/commande";
 
 /* Reads return shapes aligned with app/(app)/gpao_prod/store.ts so the future
  * UI wiring is a near drop-in for the localStorage store. */
+
+/** Commandes attribuées à DBS (production INTERNE) — pour proposer nom/référence
+ * à la création d'un modèle GPAO. « Interne » = pas de vrai façonnier
+ * sous-traitant (chaîne interne, façonnier vide ou nommé DBS/interne), voir
+ * estSousTraitee. On ne remonte que les commandes actives, mères (pas les parts
+ * découpées), triées récentes d'abord, dédupliquées par modèle+référence. */
+export type CommandeInterne = { of: string; modele: string; ref: string; couleur: string; client: string; qte: number };
+
+export async function listCommandesInternes(): Promise<CommandeInterne[]> {
+  const rows = await db
+    .select({
+      of: commande.ofNumber,
+      modele: commande.modele,
+      ref: commande.refArticle,
+      couleur: commande.couleur,
+      qte: commande.qte,
+      faconnierNom: faconnier.nom,
+      chaineId: commande.chaineId,
+      clientNom: client.nom,
+    })
+    .from(commande)
+    .leftJoin(faconnier, eq(commande.faconnierId, faconnier.id))
+    .leftJoin(client, eq(commande.clientId, client.id))
+    .where(and(eq(commande.archived, false), isNull(commande.parentId)))
+    .orderBy(sql`${commande.id} desc`);
+
+  const internes = rows.filter((r) => !biz.estSousTraitee({ faconnier: r.faconnierNom, chaineId: r.chaineId }));
+
+  // Dédup par modèle + référence normalisés (une même réf peut avoir plusieurs OF).
+  const vu = new Set<string>();
+  const out: CommandeInterne[] = [];
+  for (const r of internes) {
+    const cle = `${biz.normaliserNom(r.modele)}|${biz.normaliserNom(r.ref)}`;
+    if (vu.has(cle)) continue;
+    vu.add(cle);
+    out.push({
+      of: r.of,
+      modele: r.modele,
+      ref: r.ref,
+      couleur: r.couleur,
+      client: r.clientNom ?? "",
+      qte: r.qte,
+    });
+  }
+  return out;
+}
 
 export async function getModeles() {
   return db.select().from(modele).orderBy(modele.id);
@@ -84,21 +131,27 @@ export async function synchroniserModele(nom: string): Promise<"cree" | "maj" | 
 
 /* ─────────── chaîne writes ─────────── */
 export async function upsertChaineWithOuvrieres(
-  c: { nom: string; chef?: string },
+  c: { nom: string; chef?: string; effectif?: number },
   ouvrieres: { nom: string; poste: string; sam: number }[],
 ) {
   return db.transaction(async (tx) => {
-    const [row] = await tx.insert(chaine).values({ nom: c.nom, chef: c.chef ?? "" }).returning();
+    const [row] = await tx
+      .insert(chaine)
+      .values({ nom: c.nom, chef: c.chef ?? "", effectif: c.effectif ?? 0 })
+      .returning();
     if (ouvrieres.length)
       await tx.insert(ouvriere).values(ouvrieres.map((o) => ({ chaineId: row.id, ...o })));
     return row;
   });
 }
-export async function insertChaine(input: { nom: string; chef?: string }) {
-  const [row] = await db.insert(chaine).values({ nom: input.nom, chef: input.chef ?? "" }).returning();
+export async function insertChaine(input: { nom: string; chef?: string; effectif?: number }) {
+  const [row] = await db
+    .insert(chaine)
+    .values({ nom: input.nom, chef: input.chef ?? "", effectif: input.effectif ?? 0 })
+    .returning();
   return row;
 }
-export async function updateChaine(id: number, patch: { nom?: string; chef?: string }) {
+export async function updateChaine(id: number, patch: { nom?: string; chef?: string; effectif?: number }) {
   await db.update(chaine).set(patch).where(eq(chaine.id, id));
 }
 export async function deleteChaine(id: number) {

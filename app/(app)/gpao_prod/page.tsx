@@ -1,6 +1,6 @@
 import GpaoApp from "./gpao-app";
 import type { GpaoState, Journee } from "./store";
-import { getChaines, getJournees, getModeles } from "@/lib/services/gpao";
+import { getChaines, getJournees, getModeles, listCommandesInternes } from "@/lib/services/gpao";
 import { listClients } from "@/lib/services/commandes";
 import { listOperations, listPersonnel } from "@/lib/services/atelier";
 import { getSetting } from "@/lib/services/permissions";
@@ -10,16 +10,18 @@ import { SEUIL_ALERTE_DEFAUT, TV_ROTATION_DEFAUT } from "./store";
 /* Shared GPAO state lives in Postgres now — load it server-side so every user
  * sees the same journées, chaînes and modèles. */
 export default async function GpaoProdPage() {
-  const [modeles, chaines, journees, clients, personnes, operations, seuilAlerte, tvRotSec] = await Promise.all([
-    getModeles(),
-    getChaines(),
-    getJournees(),
-    listClients(),
-    listPersonnel(),
-    listOperations(),
-    getSetting<number>("gpao.seuilAlerte", SEUIL_ALERTE_DEFAUT),
-    getSetting<number>("gpao.tvRotSec", TV_ROTATION_DEFAUT),
-  ]);
+  const [modeles, chaines, journees, clients, personnes, operations, seuilAlerte, tvRotSec, commandesInternes] =
+    await Promise.all([
+      getModeles(),
+      getChaines(),
+      getJournees(),
+      listClients(),
+      listPersonnel(),
+      listOperations(),
+      getSetting<number>("gpao.seuilAlerte", SEUIL_ALERTE_DEFAUT),
+      getSetting<number>("gpao.tvRotSec", TV_ROTATION_DEFAUT),
+      listCommandesInternes(),
+    ]);
 
   const state: GpaoState = {
     modeles,
@@ -27,6 +29,7 @@ export default async function GpaoProdPage() {
       id: c.id,
       nom: c.nom,
       chef: c.chef,
+      effectif: c.effectif,
       ouvrieres: c.ouvrieres.map((o) => ({
         id: o.id,
         nom: o.nom,
@@ -51,5 +54,5 @@ export default async function GpaoProdPage() {
     tvDayId: null,
   };
 
-  return <GpaoApp initialState={state} clients={clients.map((c) => c.nom)} />;
+  return <GpaoApp initialState={state} clients={clients.map((c) => c.nom)} commandesInternes={commandesInternes} />;
 }

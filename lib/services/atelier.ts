@@ -1,7 +1,7 @@
 import "server-only";
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { chaine, journee, operation, ouvriere, personnel } from "@/lib/db/schema";
+import { chaine, journee, modele, operation, ouvriere, personnel } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 import { cleAleatoire } from "@/lib/atelier/cle";
 import * as at from "@/lib/domain/atelier";
@@ -240,35 +240,48 @@ export async function assurerPersonne(nom: string, fonction = ""): Promise<Resol
  * chaîne, effectifs figés des journées, postes tenus heure par heure, et le
  * détail des heures multi-postes. */
 export async function synchroniserOperations(): Promise<number> {
-  const [ouvrieres, journees] = await Promise.all([
+  const [ouvrieres, journees, modeles] = await Promise.all([
     db.select({ poste: ouvriere.poste, sam: ouvriere.sam }).from(ouvriere),
     db
       .select({
+        modeleId: journee.modeleId,
         ouvrieres: journee.ouvrieres,
         opsSam: journee.opsSam,
         opsPoste: journee.opsPoste,
         opsDetail: journee.opsDetail,
       })
       .from(journee),
+    db.select({ id: modele.id, nom: modele.nom }).from(modele),
   ]);
+
+  const nomModele = new Map(modeles.map((m) => [m.id, m.nom]));
+  /* Point 3 : pour un catalogue de temps réels lisible, chaque poste relevé sur
+   * une journée est préfixé du nom du modèle entre guillemets — « "Lilith"
+   * Montage col ». Deux modèles au même poste = deux temps réels distincts, ce
+   * qu'on veut voir. Un poste déjà préfixé n'est pas repréfixé. */
+  const prefixer = (poste: string, modeleId: number): string => {
+    const nom = (nomModele.get(modeleId) ?? "").trim();
+    if (!nom || !poste.trim() || poste.trimStart().startsWith('"')) return poste;
+    return `"${nom}" ${poste}`;
+  };
 
   const trouvees: { nom: string; sam: number }[] = [];
   for (const o of ouvrieres) trouvees.push({ nom: o.poste, sam: o.sam });
 
   for (const j of journees) {
-    for (const o of (j.ouvrieres ?? []) as JourneeOuvriere[]) trouvees.push({ nom: o.poste, sam: o.sam });
+    for (const o of (j.ouvrieres ?? []) as JourneeOuvriere[]) trouvees.push({ nom: prefixer(o.poste, j.modeleId), sam: o.sam });
 
     // Poste tenu à une heure donnée, avec le SAM de cette heure-là s'il diffère.
     for (const [oid, parHeure] of Object.entries(j.opsPoste ?? {})) {
       const sams = (j.opsSam ?? {})[oid as unknown as number] ?? {};
       for (const [heure, poste] of Object.entries(parHeure ?? {})) {
-        trouvees.push({ nom: poste, sam: sams[heure] ?? 0 });
+        trouvees.push({ nom: prefixer(poste, j.modeleId), sam: sams[heure] ?? 0 });
       }
     }
     // Heures partagées entre deux opérations.
     for (const parHeure of Object.values(j.opsDetail ?? {})) {
       for (const details of Object.values(parHeure ?? {})) {
-        for (const d of details ?? []) trouvees.push({ nom: d.poste, sam: d.sam });
+        for (const d of details ?? []) trouvees.push({ nom: prefixer(d.poste, j.modeleId), sam: d.sam });
       }
     }
   }

@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth/server";
 import { libelleMoisExport } from "@/lib/domain/aval";
 import { getPlanFaconnier } from "@/lib/services/aval";
 import { Kpi, Tuiles } from "../aval/ui";
+import { LigneFaconnier } from "./ligne-faconnier";
 
 const nb = new Intl.NumberFormat("fr-FR");
 const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
@@ -70,41 +71,7 @@ export default async function PlanFaconPage() {
                   </td>
                 </tr>
               ) : (
-                plans.map((p) => (
-                  <tr key={p.faconnier} className="border-b last:border-0">
-                    <td className="sticky left-0 z-10 bg-card px-3 py-2">
-                      <b>{p.faconnier}</b>
-                      <div className="text-[10px] text-muted-foreground">
-                        {p.total.nbCommandes} commande(s) · {eur.format(p.total.ca)} €
-                      </div>
-                    </td>
-                    {mois.map((m) => {
-                      const c = p.parMois[m];
-                      return (
-                        <td key={m || "sansdate"} className="px-3 py-2 text-right">
-                          {!c ? (
-                            <span className="text-muted-foreground">—</span>
-                          ) : (
-                            <>
-                              <div className="font-semibold tabular-nums">{nb.format(c.qte)}</div>
-                              <div
-                                className={`text-[10px] tabular-nums ${c.restant > 0 ? "text-[var(--danger-d)]" : "text-success-foreground"}`}
-                              >
-                                {c.restant > 0 ? `reste ${nb.format(c.restant)}` : "à jour"}
-                              </div>
-                            </>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="px-3 py-2 text-right">
-                      <div className="font-bold tabular-nums">{nb.format(p.total.qte)}</div>
-                      <div className="text-[10px] tabular-nums text-muted-foreground">
-                        reste {nb.format(p.total.restant)}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                plans.map((p) => <LigneFaconnier key={p.faconnier} plan={p} mois={mois} />)
               )}
             </tbody>
             {plans.length > 0 && (

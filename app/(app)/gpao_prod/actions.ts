@@ -111,15 +111,16 @@ export async function deleteDay(id: number) {
   }
 }
 
-export async function saveChaine(input: { id?: number; nom: string; chef: string }) {
+export async function saveChaine(input: { id?: number; nom: string; chef: string; effectif?: number }) {
   try {
     await assertUser();
+    const effectif = Math.max(0, Math.trunc(input.effectif ?? 0));
     if (input.id) {
-      await g.updateChaine(input.id, { nom: input.nom, chef: input.chef });
+      await g.updateChaine(input.id, { nom: input.nom, chef: input.chef, effectif });
       revalidatePath(PATH);
       return { ok: true as const, id: input.id };
     }
-    const row = await g.insertChaine({ nom: input.nom, chef: input.chef });
+    const row = await g.insertChaine({ nom: input.nom, chef: input.chef, effectif });
     revalidatePath(PATH);
     return { ok: true as const, id: row.id };
   } catch (e) {
