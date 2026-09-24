@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { COULEUR_RENDEMENT, SEUIL_ALERTE, niveau } from "@/lib/domain/rendement";
 import { Kpi, Tuiles } from "../aval/ui";
-import { majBasePortail, regenererJetonDirection, supprimerJetonDirection } from "./actions";
+import { majBasePortail, rattacherOuvrieresManquantes, regenererJetonDirection, supprimerJetonDirection } from "./actions";
 
 export type CarteAffichee = {
   personnelId: number;
@@ -164,9 +164,22 @@ export function QrOuvClient({
         </SectionPanel>
 
         {nonRattachees > 0 && (
-          <div className="mb-4 rounded-lg border border-[var(--warning-d)]/40 bg-[var(--warning-l)] px-4 py-2.5 text-xs">
-            <b>{nonRattachees} ouvrière(s) de chaîne ne sont reliées à personne dans le registre.</b> Leur QR ne peut
-            pas être généré — le lien se fait depuis l&apos;écran Personnel, onglet « Rattachement chaînes ».
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--warning-d)]/40 bg-[var(--warning-l)] px-4 py-2.5 text-xs">
+            <div className="flex-1">
+              <b>{nonRattachees} ouvrière(s) de chaîne ne sont reliées à personne dans le registre.</b> Leur QR ne peut
+              pas être généré tant qu&apos;elles ne sont pas rattachées.
+            </div>
+            {peutSaisir && (
+              <Button
+                size="sm"
+                disabled={pending}
+                onClick={() =>
+                  run(rattacherOuvrieresManquantes(), "Ouvrières rattachées — les QR manquants apparaissent")
+                }
+              >
+                🔗 Rattacher & générer les QR manquants
+              </Button>
+            )}
           </div>
         )}
       </div>

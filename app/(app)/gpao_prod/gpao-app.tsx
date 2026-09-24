@@ -58,10 +58,13 @@ import { PostesHeureModal } from "./postes-heure";
 import { ArretsModal } from "./arrets";
 import { HistoView } from "./histo";
 import { GardeRobeView } from "./garde-robe";
+import { SimulationView } from "./simulation";
+import { EquilibragePanel } from "./equilibrage-panel";
+import { ArretsRetouchesView } from "./arrets-retouches";
 import { TvMode } from "./tv-mode";
 import { imprimerFicheModele, imprimerResumeProduction } from "./impressions";
 
-type View = "jours" | "jour" | "chaines" | "modeles" | "cumul" | "histo" | "garderobe";
+type View = "jours" | "jour" | "chaines" | "modeles" | "cumul" | "histo" | "garderobe" | "simulation" | "arrets";
 
 /** Map a DB journée row (objManuel is nullable) to the client Journee shape. */
 function normJournee(row: Record<string, unknown>): Journee {
@@ -503,6 +506,7 @@ export default function GpaoApp({
     sam: number;
     qte: number;
     estimEff: number;
+    commandeId: number | null;
   }) => {
     if (!data.nom) return toast("⚠ Nom requis");
     const editId = modeleModal.edit?.id;
@@ -577,6 +581,8 @@ export default function GpaoApp({
     { id: "cumul", label: "📊 Cumul production" },
     { id: "histo", label: "🕓 Historique ouvrière" },
     { id: "garderobe", label: "👗 Garde-robe" },
+    { id: "arrets", label: "🛠 Arrêts & retouches" },
+    { id: "simulation", label: "🧮 Simulation" },
   ];
 
   const journee = currentDayId !== null ? findJ(state, currentDayId) : null;
@@ -694,6 +700,10 @@ export default function GpaoApp({
       )}
 
       {view === "garderobe" && <GardeRobeView state={state} />}
+
+      {view === "arrets" && <ArretsRetouchesView state={state} />}
+
+      {view === "simulation" && <SimulationView />}
 
       {/* modals */}
       {newDay && <NewDayModal state={state} onClose={() => setNewDay(false)} onCreate={createDay} />}
@@ -1434,6 +1444,8 @@ function JourDetail({
           <b>{sam.piecesCumul}</b> pièces
         </div>
       </div>
+
+      <EquilibragePanel state={state} journee={j} />
 
       <div className="note" style={{ marginTop: 10 }}>
         💡 <b>RI</b>/<b>ABS</b> dans une cellule = heure exclue de l&apos;objectif ajusté. Le bouton <b>⚙</b> d&apos;une

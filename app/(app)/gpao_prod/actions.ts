@@ -93,6 +93,8 @@ export async function updateDay(id: number, patch: Record<string, unknown>) {
   try {
     await assertUser();
     await g.updateJournee(id, patch as Partial<JourneeInsert>);
+    // Si la production a bougé, remonter l'avancement de la commande liée.
+    if ("sortie" in patch) await g.synchroniserAvancementJournee(id);
     revalidatePath(PATH);
     return { ok: true as const };
   } catch (e) {
@@ -231,6 +233,7 @@ export async function saveModele(input: {
   sam: number;
   qte: number;
   estimEff: number;
+  commandeId?: number | null;
 }) {
   try {
     await assertUser();
@@ -241,13 +244,16 @@ export async function saveModele(input: {
       sam: input.sam,
       qte: input.qte,
       estimEff: input.estimEff,
+      commandeId: input.commandeId ?? null,
     };
     if (input.id) {
       await g.updateModele(input.id, champs);
+      await g.synchroniserAvancementModele(input.id);
       revalidatePath(PATH);
       return { ok: true as const, id: input.id };
     }
     const row = await g.insertModele(champs);
+    await g.synchroniserAvancementModele(row.id);
     revalidatePath(PATH);
     return { ok: true as const, id: row.id };
   } catch (e) {
@@ -335,6 +341,30 @@ export async function importerOuvrieres(chaineId: number, lignes: LigneImportOuv
     }
     revalider();
     return { ok: true as const, creees, fiches };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Simulation : pièces produites & CA depuis les journées GPAO, sur une période. */
+export async function simuler(from: string, to: string) {
+  try {
+    await assertUser();
+    const data = await g.simulationGpao(from, to);
+    return { ok: true as const, data };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Rapprochement automatique modèle↔commande par référence/nom (valorisation
+ * de l'historique GPAO en une fois). */
+export async function rapprocherModelesCommandes() {
+  try {
+    await assertUser();
+    const bilan = await g.rapprocherModelesCommandes();
+    revalidatePath(PATH);
+    return { ok: true as const, ...bilan };
   } catch (e) {
     return fail(e);
   }

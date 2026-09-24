@@ -312,19 +312,21 @@ function printSeuil(data: NonNullable<ReturnType<typeof computeSeuil>>) {
 function HistoContent({ data, onOpenDay }: { data: NonNullable<ReturnType<typeof computeHisto>>; onOpenDay: (id: number) => void }) {
   let tProd = 0;
   let tRet = 0;
-  let sumR = 0;
-  let nR = 0;
+  let earnedW = 0;
+  let workedW = 0;
   let tH = 0;
   for (const row of data.rows) {
     tProd += row.prod;
     tRet += row.ret;
     tH += row.heures;
-    if (row.rend !== null) {
-      sumR += row.rend;
-      nR++;
+    // Moyenne PONDÉRÉE par les heures (même définition que le QR et la recherche
+    // par seuil) : Σ(rendement × heures) ÷ Σ(heures).
+    if (row.rend !== null && row.heures > 0) {
+      earnedW += row.rend * row.heures;
+      workedW += row.heures;
     }
   }
-  const avgR = nR ? Math.round(sumR / nR) : 0;
+  const avgR = workedW > 0 ? Math.round(earnedW / workedW) : 0;
   const retPctG = tProd > 0 ? Math.round((tRet / tProd) * 1000) / 10 : 0;
 
   return (

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { assertUser, userRole } from "@/lib/auth/server";
 import { cleAleatoire } from "@/lib/atelier/cle";
+import { rattacherOuvrieresManquantes as rattacher } from "@/lib/services/atelier";
 import { getSetting, setSetting } from "@/lib/services/permissions";
 import { journaliser } from "@/lib/services/activite";
 
@@ -68,4 +69,24 @@ export async function supprimerJetonDirection(): Promise<Result> {
 
 export async function lireBasePortail() {
   return getSetting<string>("basePortail", "");
+}
+
+/** Rattache toutes les ouvrières non liées à une fiche personnel → chacune
+ * obtient son QR. Renvoie le compte pour le retour à l'écran. */
+export async function rattacherOuvrieresManquantes(): Promise<
+  Result<{ rattachees: number; creees: number; ambigus: number }>
+> {
+  try {
+    await exiger();
+    const r = await rattacher();
+    await journaliser(
+      "modification",
+      "QR rendement",
+      `rattachement ouvrières : ${r.rattachees} liée(s), ${r.creees} fiche(s) créée(s), ${r.ambigus} homonyme(s) à trancher`,
+    );
+    revalidatePath("/qrouv");
+    return { ok: true, data: r };
+  } catch (e) {
+    return fail(e);
+  }
 }

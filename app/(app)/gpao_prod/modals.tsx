@@ -223,7 +223,7 @@ export function ModeleModal({
   /** Commandes attribuées à DBS (interne) : source de nom/référence. */
   commandesInternes?: CommandeInterne[];
   onClose: () => void;
-  onSave: (data: { nom: string; ref: string; client: string; sam: number; qte: number; estimEff: number }) => void;
+  onSave: (data: { nom: string; ref: string; client: string; sam: number; qte: number; estimEff: number; commandeId: number | null }) => void;
   /** Effectif proposé par défaut pour l'estimation (celui de la 1re chaîne). */
   effectifDefaut?: number;
 }) {
@@ -233,9 +233,11 @@ export function ModeleModal({
   const [sam, setSam] = useState(edit?.sam ?? 1800);
   const [qte, setQte] = useState(edit?.qte ?? 5000);
   const [estimEff, setEstimEff] = useState(edit?.estimEff || effectifDefaut || 22);
+  const [commandeId, setCommandeId] = useState<number | null>(edit?.commandeId ?? null);
 
-  /* Choisir une commande interne (DBS) pré-remplit nom, référence, client et
-   * quantité — plus besoin de retaper ce qui existe déjà côté Commandes. */
+  /* Choisir une commande interne (DBS) pré-remplit nom, référence, client,
+   * quantité, ET lie la commande (pour remonter la prod GPAO dans son
+   * avancement). Plus besoin de retaper ce qui existe déjà côté Commandes. */
   const choisirCommande = (idx: string) => {
     const c = commandesInternes[Number(idx)];
     if (!c) return;
@@ -243,6 +245,7 @@ export function ModeleModal({
     setRef(c.ref);
     if (c.client) setClient(c.client);
     if (c.qte) setQte(c.qte);
+    setCommandeId(c.id);
   };
 
   return (
@@ -263,6 +266,11 @@ export function ModeleModal({
             ))}
           </select>
           <div className="cinfo">Remplit automatiquement nom, référence, client et quantité — modifiables ensuite.</div>
+        </div>
+      )}
+      {commandeId != null && (
+        <div className="cinfo" style={{ color: "#067647", marginTop: -4, marginBottom: 8 }}>
+          🔗 Lié à une commande PilotPro — la production GPAO de ce modèle remontera dans son avancement.
         </div>
       )}
       <div className="fld">
@@ -319,6 +327,7 @@ export function ModeleModal({
               sam: sam || 1800,
               qte: qte || 0,
               estimEff: estimEff || 0,
+              commandeId,
             })
           }
         >

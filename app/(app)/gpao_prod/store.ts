@@ -22,6 +22,7 @@ export type Modele = {
   qte: number;
   archive: boolean;
   estimEff: number;
+  commandeId?: number | null;
 };
 /** cell value: number, or marker strings RI / ABS */
 export type Cell = number | "RI" | "ABS";
@@ -63,7 +64,7 @@ export type Personne = { id: number; matricule: string; nom: string; fonction: s
 /** Opération du catalogue : sert à proposer un libellé et son temps standard. */
 export type OperationRef = { id: number; nom: string; sam: number };
 /** Commande attribuée à DBS (interne), pour pré-remplir un modèle GPAO. */
-export type CommandeInterne = { of: string; modele: string; ref: string; couleur: string; client: string; qte: number };
+export type CommandeInterne = { id: number; of: string; modele: string; ref: string; couleur: string; client: string; qte: number };
 
 export type GpaoState = {
   modeles: Modele[];

@@ -1,0 +1,1 @@
+ALTER TABLE "modele" ADD COLUMN "commande_id" integer;

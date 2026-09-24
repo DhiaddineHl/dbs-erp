@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { chaine, journee, modele, operation, ouvriere, personnel } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
@@ -232,6 +232,33 @@ export async function assurerPersonne(nom: string, fonction = ""): Promise<Resol
     })
     .returning({ id: personnel.id });
   return { personnelId: row.id, creee: true, matricule };
+}
+
+/** Rattache en masse les ouvrières sans fiche registre (personnelId nul) : pour
+ * chaque nom, on retrouve la fiche existante ou on en crée une (matricule
+ * provisoire + clé QR). Une fois liée, l'ouvrière obtient son QR. Les homonymes
+ * (deux fiches de même nom) restent non rattachés — à trancher à la main pour
+ * ne pas attribuer une production à la mauvaise personne. */
+export async function rattacherOuvrieresManquantes(): Promise<{ rattachees: number; creees: number; ambigus: number }> {
+  const orphelines = await db
+    .select({ id: ouvriere.id, nom: ouvriere.nom, poste: ouvriere.poste })
+    .from(ouvriere)
+    .where(isNull(ouvriere.personnelId));
+
+  let rattachees = 0;
+  let creees = 0;
+  let ambigus = 0;
+  for (const o of orphelines) {
+    const res = await assurerPersonne(o.nom, o.poste);
+    if (res.personnelId == null) {
+      ambigus += 1;
+      continue;
+    }
+    await db.update(ouvriere).set({ personnelId: res.personnelId }).where(eq(ouvriere.id, o.id));
+    rattachees += 1;
+    if (res.creee) creees += 1;
+  }
+  return { rattachees, creees, ambigus };
 }
 
 /** Rattrapage : balaie tout ce qui a déjà été saisi et complète le catalogue.

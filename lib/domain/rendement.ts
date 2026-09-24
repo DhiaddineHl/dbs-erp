@@ -1,12 +1,9 @@
 /* Rendement d'une ouvrière, tel que le portail QR le présente.
  *
- * Port de `ouvriereRendement` de l'application d'origine, avec sa règle la
- * moins évidente conservée telle quelle : le rendement général est la moyenne
- * SIMPLE des rendements journaliers, pas une moyenne pondérée par les heures.
- * Une journée d'une heure pèse donc autant qu'une journée de huit. C'est
- * discutable, mais c'est le chiffre que les ouvrières connaissent et que
- * l'écran GPAO affiche déjà — deux chiffres différents pour la même personne
- * seraient pires qu'un chiffre imparfait. */
+ * Le rendement général est la moyenne PONDÉRÉE par les heures travaillées :
+ * Σ(gagné) ÷ Σ(heures × 3600). Une journée pleine pèse plus qu'une demi-journée.
+ * C'est la même définition que l'écran GPAO (journées et historique) et que la
+ * recherche par seuil — un seul et même chiffre pour une personne, partout. */
 
 export const SEUIL_ALERTE = 75;
 export const SEUIL_BON = 85;
@@ -122,8 +119,19 @@ export function rendementOuvriere(
     return { ...identite, trouve: false, general: null, jours: [], dernier: null, piecesTotal: 0, retouchesTotal: 0 };
   }
 
-  const notes = jours.map((j) => j.rendement).filter((r): r is number => r !== null);
-  const general = notes.length ? Math.round(notes.reduce((s, r) => s + r, 0) / notes.length) : null;
+  /* Moyenne PONDÉRÉE par les heures travaillées : une journée pleine pèse plus
+   * qu'une demi-journée. On recompose Σ(gagné) ÷ Σ(heures×3600) — équivalent à
+   * pondérer chaque rendement journalier par ses heures — pour que le « général »
+   * du QR coïncide avec l'historique et la recherche par seuil. */
+  let gagneTotal = 0;
+  let heuresTotal = 0;
+  for (const { journee: j, ouvriere: o } of triees) {
+    for (const col of j.cols ?? []) {
+      if (heureTravaillee(j, o.id, col)) heuresTotal += 1;
+      gagneTotal += gagneHeure(j, o, col);
+    }
+  }
+  const general = heuresTotal > 0 ? Math.round((gagneTotal / (heuresTotal * 3600)) * 100) : null;
 
   return {
     ...identite,

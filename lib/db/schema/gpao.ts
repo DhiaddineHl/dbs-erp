@@ -63,6 +63,9 @@ export const modele = pgTable("modele", {
   client: text().notNull().default(""),
   sam: integer().notNull().default(1800),
   qte: integer().notNull().default(0),
+  /** Commande PilotPro liée (nouveau) : permet de remonter la production GPAO
+   * cumulée dans l'avancement de la commande. Null = modèle non relié. */
+  commandeId: integer(),
   /** Modèle terminé, rangé : il disparaît des listes et du choix d'une
    * nouvelle journée, sans que rien ne soit supprimé. Un modèle produit une
    * fois par an sinon encombre l'écran onze mois sur douze. */

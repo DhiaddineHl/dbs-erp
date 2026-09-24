@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { chaine, client, commande, faconnier, journee, modele, ouvriere } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
@@ -13,11 +13,12 @@ import * as biz from "@/lib/domain/commande";
  * sous-traitant (chaîne interne, façonnier vide ou nommé DBS/interne), voir
  * estSousTraitee. On ne remonte que les commandes actives, mères (pas les parts
  * découpées), triées récentes d'abord, dédupliquées par modèle+référence. */
-export type CommandeInterne = { of: string; modele: string; ref: string; couleur: string; client: string; qte: number };
+export type CommandeInterne = { id: number; of: string; modele: string; ref: string; couleur: string; client: string; qte: number };
 
 export async function listCommandesInternes(): Promise<CommandeInterne[]> {
   const rows = await db
     .select({
+      id: commande.id,
       of: commande.ofNumber,
       modele: commande.modele,
       ref: commande.refArticle,
@@ -43,6 +44,7 @@ export async function listCommandesInternes(): Promise<CommandeInterne[]> {
     if (vu.has(cle)) continue;
     vu.add(cle);
     out.push({
+      id: r.id,
       of: r.of,
       modele: r.modele,
       ref: r.ref,
@@ -66,6 +68,96 @@ export async function getJournees() {
   return db.select().from(journee).orderBy(journee.date);
 }
 
+/* ─────────── Simulation : pièces produites & CA depuis les journées GPAO ───
+ *
+ * Pour chaque journée (filtrée sur une période), on lit les pièces sorties de
+ * chaîne et, via le lien modèle→commande, le prix de vente de la commande. Le
+ * CA produit = pièces × prix de vente. Un modèle non relié à une commande (ou
+ * une commande sans prix) compte les pièces mais pas de CA — signalé à part. */
+export type LigneSimulation = {
+  date: string;
+  modeleId: number;
+  modele: string;
+  ref: string;
+  client: string;
+  pieces: number;
+  prixVente: number | null;
+  ca: number;
+  lie: boolean;
+};
+
+export type SimulationData = {
+  from: string;
+  to: string;
+  lignes: LigneSimulation[];
+  totalPieces: number;
+  totalCa: number;
+  piecesSansPrix: number;
+};
+
+const sommeSortie = (sortie: Record<string, number> | null | undefined): number => {
+  let t = 0;
+  for (const v of Object.values(sortie ?? {})) if (typeof v === "number") t += v;
+  return t;
+};
+
+export async function simulationGpao(from: string, to: string): Promise<SimulationData> {
+  const [journees, modeles] = await Promise.all([
+    db.select().from(journee).orderBy(journee.date),
+    db.select().from(modele),
+  ]);
+  const parModele = new Map(modeles.map((m) => [m.id, m]));
+
+  // Prix de vente des commandes liées, en une requête.
+  const commandeIds = [...new Set(modeles.map((m) => m.commandeId).filter((x): x is number => x != null))];
+  const prixParCommande = new Map<number, number | null>();
+  const clientParCommande = new Map<number, string>();
+  if (commandeIds.length) {
+    const cmds = await db
+      .select({ id: commande.id, prixVente: commande.prixVente, clientNom: client.nom })
+      .from(commande)
+      .leftJoin(client, eq(commande.clientId, client.id))
+      .where(inArray(commande.id, commandeIds));
+    for (const c of cmds) {
+      prixParCommande.set(c.id, c.prixVente ?? null);
+      clientParCommande.set(c.id, c.clientNom ?? "");
+    }
+  }
+
+  const lignes: LigneSimulation[] = [];
+  let totalPieces = 0;
+  let totalCa = 0;
+  let piecesSansPrix = 0;
+
+  for (const j of journees) {
+    const d = j.date;
+    if ((from && d < from) || (to && d > to)) continue;
+    const pieces = sommeSortie(j.sortie);
+    if (pieces <= 0) continue;
+    const m = parModele.get(j.modeleId);
+    const prix = m?.commandeId != null ? (prixParCommande.get(m.commandeId) ?? null) : null;
+    const clientNom = m?.commandeId != null ? (clientParCommande.get(m.commandeId) ?? m?.client ?? "") : (m?.client ?? "");
+    const ca = prix != null ? Math.round(pieces * prix * 100) / 100 : 0;
+    lignes.push({
+      date: d,
+      modeleId: j.modeleId,
+      modele: m?.nom ?? "—",
+      ref: m?.ref ?? "",
+      client: clientNom,
+      pieces,
+      prixVente: prix,
+      ca,
+      lie: m?.commandeId != null,
+    });
+    totalPieces += pieces;
+    totalCa += ca;
+    if (prix == null) piecesSansPrix += pieces;
+  }
+
+  lignes.sort((a, b) => a.date.localeCompare(b.date) || a.modele.localeCompare(b.modele));
+  return { from, to, lignes, totalPieces, totalCa: Math.round(totalCa * 100) / 100, piecesSansPrix };
+}
+
 /* ─────────── modèle writes ─────────── */
 export async function insertModele(input: typeof modele.$inferInsert) {
   const [row] = await db.insert(modele).values(input).returning();
@@ -74,6 +166,89 @@ export async function insertModele(input: typeof modele.$inferInsert) {
 export async function updateModele(id: number, patch: Partial<typeof modele.$inferInsert>) {
   await db.update(modele).set(patch).where(eq(modele.id, id));
 }
+
+/** Pont GPAO → avancement commande.
+ *
+ * Additionne la production GPAO cumulée du modèle (somme des sorties de chaîne
+ * de toutes ses journées) et l'écrit dans `commande.produit` de la commande
+ * liée, plafonnée à la quantité commandée (pas de dépassement de 100 %).
+ * Ne fait rien si le modèle n'est relié à aucune commande. La production
+ * sous-traitance (BR) reste inchangée : on ne prend le MAX que si l'on veut les
+ * combiner — ici la commande étant produite en interne (DBS), la prod GPAO EST
+ * sa production, donc on écrit directement. */
+export async function synchroniserAvancementModele(modeleId: number): Promise<void> {
+  const [m] = await db.select().from(modele).where(eq(modele.id, modeleId));
+  if (!m || m.commandeId == null) return;
+
+  const journees = await db.select({ sortie: journee.sortie }).from(journee).where(eq(journee.modeleId, modeleId));
+  let prodGpao = 0;
+  for (const j of journees) {
+    for (const v of Object.values(j.sortie ?? {})) if (typeof v === "number") prodGpao += v;
+  }
+
+  const [c] = await db.select().from(commande).where(eq(commande.id, m.commandeId));
+  if (!c) return;
+  const produit = Math.min(prodGpao, c.qte);
+  if (produit === c.produit) return; // rien à écrire
+  await db.update(commande).set({ produit, updatedAt: new Date() }).where(eq(commande.id, m.commandeId));
+}
+
+/** Comme synchroniserAvancementModele, mais à partir d'une journée : retrouve
+ * son modèle et resynchronise. Appelé après chaque saisie de production. */
+export async function synchroniserAvancementJournee(journeeId: number): Promise<void> {
+  const [j] = await db.select({ modeleId: journee.modeleId }).from(journee).where(eq(journee.id, journeeId));
+  if (j) await synchroniserAvancementModele(j.modeleId);
+}
+
+/** Rapprochement automatique modèle GPAO ↔ commande, pour valoriser d'un coup
+ * l'historique : pour chaque modèle NON encore lié, on cherche la commande
+ * interne (DBS) correspondante — par RÉFÉRENCE d'abord (la plus fiable), puis
+ * par NOM de modèle. On ne lie que si la correspondance est UNIQUE (pas
+ * d'ambiguïté), puis on resynchronise l'avancement. Ne touche pas les modèles
+ * déjà liés. Renvoie le bilan pour l'écran. */
+export async function rapprocherModelesCommandes(): Promise<{ lies: number; ambigus: number; sansMatch: number }> {
+  const internes = await listCommandesInternes(); // {id, of, modele, ref, ...} dédupliquées
+  const modeles = await db.select().from(modele);
+
+  // Index par référence et par nom normalisés → liste d'ids de commande.
+  const parRef = new Map<string, number[]>();
+  const parNom = new Map<string, number[]>();
+  const pousser = (map: Map<string, number[]>, cle: string, id: number) => {
+    if (!cle) return;
+    const g = map.get(cle);
+    if (g) {
+      if (!g.includes(id)) g.push(id);
+    } else map.set(cle, [id]);
+  };
+  for (const c of internes) {
+    pousser(parRef, biz.normaliserNom(c.ref), c.id);
+    pousser(parNom, biz.normaliserNom(c.modele), c.id);
+  }
+
+  let lies = 0;
+  let ambigus = 0;
+  let sansMatch = 0;
+  for (const m of modeles) {
+    if (m.commandeId != null) continue; // déjà lié
+    const parRefIds = parRef.get(biz.normaliserNom(m.ref)) ?? [];
+    const parNomIds = parNom.get(biz.normaliserNom(m.nom)) ?? [];
+    // La référence prime ; le nom ne sert que si la réf ne donne rien.
+    const candidats = parRefIds.length ? parRefIds : parNomIds;
+    if (candidats.length === 0) {
+      sansMatch += 1;
+      continue;
+    }
+    if (candidats.length > 1) {
+      ambigus += 1; // plusieurs commandes possibles → on laisse trancher à la main
+      continue;
+    }
+    await db.update(modele).set({ commandeId: candidats[0] }).where(eq(modele.id, m.id));
+    await synchroniserAvancementModele(m.id);
+    lies += 1;
+  }
+  return { lies, ambigus, sansMatch };
+}
+
 export async function deleteModele(id: number) {
   await db.delete(modele).where(eq(modele.id, id));
 }
