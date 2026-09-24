@@ -1,0 +1,1 @@
+ALTER TABLE "modele" ADD COLUMN "prix_manuel" double precision;

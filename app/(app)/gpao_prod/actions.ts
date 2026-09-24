@@ -369,3 +369,37 @@ export async function rapprocherModelesCommandes() {
     return fail(e);
   }
 }
+
+/** Lie manuellement un modèle à une commande (archivée acceptée) ou détache. */
+export async function lierModele(modeleId: number, commandeId: number | null) {
+  try {
+    await assertUser();
+    await g.lierModeleCommande(modeleId, commandeId);
+    revalidatePath(PATH);
+    return { ok: true as const };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Fixe/efface le prix de vente manuel d'un modèle (€/pièce). */
+export async function majPrixManuel(modeleId: number, prix: number | null) {
+  try {
+    await assertUser();
+    await g.majPrixManuelModele(modeleId, prix);
+    revalidatePath(PATH);
+    return { ok: true as const };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Commandes internes, archivées incluses — pour le rattachement manuel. */
+export async function commandesPourLien() {
+  try {
+    await assertUser();
+    return { ok: true as const, data: await g.listCommandesInternes(true) };
+  } catch (e) {
+    return fail(e);
+  }
+}

@@ -232,6 +232,13 @@
       "when": 1790196660031,
       "tag": "0032_modele_commande_lien",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790248395325,
+      "tag": "0033_modele_prix_manuel",
+      "breakpoints": true
     }
   ]
 }

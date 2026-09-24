@@ -13,9 +13,9 @@ import * as biz from "@/lib/domain/commande";
  * sous-traitant (chaîne interne, façonnier vide ou nommé DBS/interne), voir
  * estSousTraitee. On ne remonte que les commandes actives, mères (pas les parts
  * découpées), triées récentes d'abord, dédupliquées par modèle+référence. */
-export type CommandeInterne = { id: number; of: string; modele: string; ref: string; couleur: string; client: string; qte: number };
+export type CommandeInterne = { id: number; of: string; modele: string; ref: string; couleur: string; client: string; qte: number; archived?: boolean };
 
-export async function listCommandesInternes(): Promise<CommandeInterne[]> {
+export async function listCommandesInternes(inclureArchivees = false): Promise<CommandeInterne[]> {
   const rows = await db
     .select({
       id: commande.id,
@@ -24,6 +24,7 @@ export async function listCommandesInternes(): Promise<CommandeInterne[]> {
       ref: commande.refArticle,
       couleur: commande.couleur,
       qte: commande.qte,
+      archived: commande.archived,
       faconnierNom: faconnier.nom,
       chaineId: commande.chaineId,
       clientNom: client.nom,
@@ -31,7 +32,7 @@ export async function listCommandesInternes(): Promise<CommandeInterne[]> {
     .from(commande)
     .leftJoin(faconnier, eq(commande.faconnierId, faconnier.id))
     .leftJoin(client, eq(commande.clientId, client.id))
-    .where(and(eq(commande.archived, false), isNull(commande.parentId)))
+    .where(inclureArchivees ? isNull(commande.parentId) : and(eq(commande.archived, false), isNull(commande.parentId)))
     .orderBy(sql`${commande.id} desc`);
 
   const internes = rows.filter((r) => !biz.estSousTraitee({ faconnier: r.faconnierNom, chaineId: r.chaineId }));
@@ -51,9 +52,22 @@ export async function listCommandesInternes(): Promise<CommandeInterne[]> {
       couleur: r.couleur,
       client: r.clientNom ?? "",
       qte: r.qte,
+      archived: r.archived,
     });
   }
   return out;
+}
+
+/** Lie manuellement un modèle GPAO à une commande (archivée acceptée), ou
+ * détache (commandeId null), puis resynchronise l'avancement. */
+export async function lierModeleCommande(modeleId: number, commandeId: number | null): Promise<void> {
+  await db.update(modele).set({ commandeId }).where(eq(modele.id, modeleId));
+  await synchroniserAvancementModele(modeleId);
+}
+
+/** Fixe (ou efface) le prix de vente manuel d'un modèle (€/pièce). */
+export async function majPrixManuelModele(modeleId: number, prix: number | null): Promise<void> {
+  await db.update(modele).set({ prixManuel: prix != null && prix > 0 ? prix : null }).where(eq(modele.id, modeleId));
 }
 
 export async function getModeles() {
@@ -93,12 +107,35 @@ export type SimulationData = {
   totalPieces: number;
   totalCa: number;
   piecesSansPrix: number;
+  /** Heures réellement travaillées sur la période (cellules horaires saisies,
+   * hors RI/ABS), pour le bilan coût. */
+  heuresTravaillees: number;
 };
 
 const sommeSortie = (sortie: Record<string, number> | null | undefined): number => {
   let t = 0;
   for (const v of Object.values(sortie ?? {})) if (typeof v === "number") t += v;
   return t;
+};
+
+/** Heures travaillées d'une journée = nombre de cellules horaires réellement
+ * saisies (une valeur numérique = 1 heure ; RI/ABS ne comptent pas), sommées
+ * sur toutes les ouvrières. Reflète le temps de main d'œuvre engagé. */
+const heuresJournee = (j: typeof journee.$inferSelect): number => {
+  let h = 0;
+  const ops = (j.ops ?? {}) as Record<number, Record<string, unknown>>;
+  const detail = (j.opsDetail ?? {}) as Record<number, Record<string, unknown[]>>;
+  for (const parHeure of Object.values(ops)) {
+    for (const v of Object.values(parHeure)) if (typeof v === "number") h += 1;
+  }
+  // Heures multi-postes (détail) : comptées si non déjà comptées comme numérique.
+  for (const [oid, parHeure] of Object.entries(detail)) {
+    for (const [col, liste] of Object.entries(parHeure)) {
+      const dejaNum = typeof ops[Number(oid)]?.[col] === "number";
+      if (!dejaNum && Array.isArray(liste) && liste.length) h += 1;
+    }
+  }
+  return h;
 };
 
 export async function simulationGpao(from: string, to: string): Promise<SimulationData> {
@@ -128,14 +165,18 @@ export async function simulationGpao(from: string, to: string): Promise<Simulati
   let totalPieces = 0;
   let totalCa = 0;
   let piecesSansPrix = 0;
+  let heuresTravaillees = 0;
 
   for (const j of journees) {
     const d = j.date;
     if ((from && d < from) || (to && d > to)) continue;
     const pieces = sommeSortie(j.sortie);
+    heuresTravaillees += heuresJournee(j);
     if (pieces <= 0) continue;
     const m = parModele.get(j.modeleId);
-    const prix = m?.commandeId != null ? (prixParCommande.get(m.commandeId) ?? null) : null;
+    const prixCommande = m?.commandeId != null ? (prixParCommande.get(m.commandeId) ?? null) : null;
+    // Repli sur le prix saisi à la main du modèle si pas de prix de commande.
+    const prix = prixCommande ?? m?.prixManuel ?? null;
     const clientNom = m?.commandeId != null ? (clientParCommande.get(m.commandeId) ?? m?.client ?? "") : (m?.client ?? "");
     const ca = prix != null ? Math.round(pieces * prix * 100) / 100 : 0;
     lignes.push({
@@ -155,7 +196,15 @@ export async function simulationGpao(from: string, to: string): Promise<Simulati
   }
 
   lignes.sort((a, b) => a.date.localeCompare(b.date) || a.modele.localeCompare(b.modele));
-  return { from, to, lignes, totalPieces, totalCa: Math.round(totalCa * 100) / 100, piecesSansPrix };
+  return {
+    from,
+    to,
+    lignes,
+    totalPieces,
+    totalCa: Math.round(totalCa * 100) / 100,
+    piecesSansPrix,
+    heuresTravaillees: Math.round(heuresTravaillees * 10) / 10,
+  };
 }
 
 /* ─────────── modèle writes ─────────── */

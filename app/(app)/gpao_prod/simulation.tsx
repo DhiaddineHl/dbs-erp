@@ -3,7 +3,9 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import type { SimulationData } from "@/lib/services/gpao";
-import { rapprocherModelesCommandes, simuler } from "./actions";
+import { commandesPourLien, lierModele, majPrixManuel, rapprocherModelesCommandes, simuler } from "./actions";
+
+type CmdLien = { id: number; of: string; modele: string; ref: string; client: string; archived?: boolean };
 
 const nb = new Intl.NumberFormat("fr-FR");
 const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
@@ -22,6 +24,21 @@ export function SimulationView() {
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
   const [data, setData] = useState<SimulationData | null>(null);
   const [groupe, setGroupe] = useState<"jour" | "modele">("jour");
+  const [coutHoraire, setCoutHoraire] = useState("");
+  const [cmds, setCmds] = useState<CmdLien[] | null>(null);
+
+  const rafraichir = () =>
+    start(async () => {
+      const s = await simuler(from, to);
+      if (s.ok) setData(s.data);
+    });
+
+  const chargerCmds = () =>
+    start(async () => {
+      if (cmds) return;
+      const r = await commandesPourLien();
+      if (r.ok) setCmds(r.data);
+    });
 
   const lancer = () =>
     start(async () => {
@@ -52,6 +69,19 @@ export function SimulationView() {
 
   // Regroupement par jour ou par modèle/référence.
   const groupes = data ? regrouper(data, groupe) : [];
+
+  // Modèles sans prix (à valoriser) : distincts, avec pièces cumulées.
+  const modelesSansPrix = (() => {
+    if (!data) return [];
+    const m = new Map<number, { modeleId: number; modele: string; ref: string; pieces: number }>();
+    for (const l of data.lignes) {
+      if (l.prixVente != null) continue;
+      const e = m.get(l.modeleId) ?? { modeleId: l.modeleId, modele: l.modele, ref: l.ref, pieces: 0 };
+      e.pieces += l.pieces;
+      m.set(l.modeleId, e);
+    }
+    return [...m.values()].sort((a, b) => b.pieces - a.pieces);
+  })();
 
   return (
     <div className="page">
@@ -109,6 +139,45 @@ export function SimulationView() {
             )}
           </div>
 
+          {/* Bilan coût : coût horaire usine saisi à la main × heures travaillées. */}
+          <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "#fff", marginTop: 12 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
+              <b style={{ fontSize: 14 }}>💶 Bilan coût de la période</b>
+              <label style={{ fontSize: 12, color: "var(--muted)" }}>
+                Coût d&apos;1 heure à l&apos;usine (€) :{" "}
+                <input
+                  type="number"
+                  step="0.01"
+                  value={coutHoraire}
+                  onChange={(e) => setCoutHoraire(e.target.value)}
+                  placeholder="ex: 4,50"
+                  style={{ width: 90, padding: 6, border: "1px solid var(--border)", borderRadius: 8 }}
+                />
+              </label>
+            </div>
+            {(() => {
+              const cout = Number(String(coutHoraire).replace(",", ".")) || 0;
+              const coutTotal = Math.round(data.heuresTravaillees * cout);
+              const marge = data.totalCa - coutTotal;
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 10 }}>
+                  <Kpi label="Heures travaillées" val={`${nb.format(data.heuresTravaillees)} h`} />
+                  <Kpi label="Pièces produites" val={nb.format(data.totalPieces)} />
+                  <Kpi label="CA produit" val={`${eur.format(data.totalCa)} €`} accent />
+                  {cout > 0 && <Kpi label="Coût main d'œuvre" val={`${eur.format(coutTotal)} €`} warn />}
+                  {cout > 0 && <Kpi label="Marge (CA − coût)" val={`${eur.format(marge)} €`} accent={marge >= 0} warn={marge < 0} />}
+                  {cout > 0 && data.totalPieces > 0 && (
+                    <Kpi label="Coût / pièce" val={`${eur2.format(coutTotal / data.totalPieces)} €`} />
+                  )}
+                </div>
+              );
+            })()}
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
+              Heures = cellules horaires réellement saisies (hors RI/ABS). Le coût horaire est celui que tu saisis
+              (salaire chargé + charges usine ÷ heures) — l&apos;app ne le connaît pas.
+            </div>
+          </div>
+
           <table className="tbl" style={{ marginTop: 12 }}>
             <thead>
               <tr>
@@ -143,11 +212,68 @@ export function SimulationView() {
           </table>
 
           {data.piecesSansPrix > 0 && (
-            <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
-              ⚠ {nb.format(data.piecesSansPrix)} pièce(s) proviennent de modèles non reliés à une commande (ou sans prix
-              de vente) : elles comptent dans les pièces mais pas dans le CA. Utilisez « 🔗 Relier modèles ↔ commandes »
-              pour les valoriser automatiquement, ou reliez le modèle à sa commande DBS à la main.
-            </p>
+            <div style={{ border: "1px solid var(--gold, #C9A227)", borderRadius: 12, padding: 12, background: "#FBF7EA", marginTop: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+                ⚠ Modèles à valoriser ({modelesSansPrix.length}) — pièces comptées mais hors CA
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
+                Pour chacun : relie-le à sa commande (archivées incluses), ou saisis un prix à la main.
+              </div>
+              {modelesSansPrix.map((m) => (
+                <div key={m.modeleId} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "6px 0", borderTop: "1px solid #eadfbf" }}>
+                  <div style={{ flex: 1, minWidth: 180, fontWeight: 600 }}>
+                    {m.modele}
+                    {m.ref ? <span style={{ color: "var(--muted)", fontWeight: 400 }}> · {m.ref}</span> : null}
+                    <span style={{ color: "var(--muted)", fontWeight: 400 }}> · {nb.format(m.pieces)} pcs</span>
+                  </div>
+                  {/* Prix manuel */}
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="prix €/pc"
+                    defaultValue=""
+                    style={{ width: 100, padding: 6, border: "1px solid var(--border)", borderRadius: 8 }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      const v = Number((e.target as HTMLInputElement).value.replace(",", ".")) || 0;
+                      start(async () => {
+                        const r = await majPrixManuel(m.modeleId, v > 0 ? v : null);
+                        if (!r.ok) return void toast.error(r.error);
+                        toast.success("Prix enregistré");
+                        rafraichir();
+                      });
+                    }}
+                  />
+                  <span style={{ fontSize: 11, color: "var(--muted)" }}>Entrée pour valider</span>
+                  {/* Rattachement commande (archivées incluses) */}
+                  <select
+                    defaultValue=""
+                    onFocus={chargerCmds}
+                    onChange={(e) => {
+                      const id = e.target.value ? Number(e.target.value) : null;
+                      if (id == null) return;
+                      start(async () => {
+                        const r = await lierModele(m.modeleId, id);
+                        if (!r.ok) return void toast.error(r.error);
+                        toast.success("Modèle relié");
+                        rafraichir();
+                      });
+                    }}
+                    style={{ padding: 6, border: "1px solid var(--border)", borderRadius: 8, maxWidth: 260 }}
+                  >
+                    <option value="">— relier à une commande —</option>
+                    {(cmds ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.modele}
+                        {c.ref ? ` — ${c.ref}` : ""}
+                        {c.client ? ` · ${c.client}` : ""}
+                        {c.archived ? " (archivée)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
           )}
         </>
       )}
