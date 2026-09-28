@@ -6,6 +6,11 @@
 -- été ajoutées depuis — puis supprime la table pour de bon. Zéro perte
 -- garantie : rien n'est droppé avant d'avoir été reconfirmé migré.
 
+-- Une ligne est déjà reprise si son lot MIGR-<id> OU sa réception MIGR-<id>
+-- existe : le lot a pu être renommé ou supprimé à l'écran depuis la 0027 (la
+-- réception, elle, reste). Sans ce second repère, on recréait une réception
+-- MIGR-<id> en double, puis deux lots MIGR-<id> → violation d'unicité.
+
 -- 1) réceptions ---------------------------------------------------------------
 INSERT INTO "tissu_reception" ("numero", "date", "fournisseur", "client", "observations", "created_by", "created_at")
 SELECT
@@ -20,10 +25,15 @@ FROM "commande_tissu_ligne" l
 JOIN "commande" c ON c."id" = l."commande_id"
 WHERE NOT EXISTS (
   SELECT 1 FROM "tissu_lot" x WHERE x."identifiant" = 'MIGR-' || l."id"
+)
+AND NOT EXISTS (
+  SELECT 1 FROM "tissu_reception" x WHERE x."numero" = 'MIGR-' || l."id"
 );
 --> statement-breakpoint
 
 -- 2) lots ---------------------------------------------------------------------
+-- Uniquement pour les réceptions créées juste au-dessus (now() = début de la
+-- transaction de migration) : un lot renommé ou supprimé n'est pas recréé.
 INSERT INTO "tissu_lot"
   ("reception_id", "identifiant", "reference", "couleur", "laize", "quantite_recue", "unite", "controle", "note", "created_at")
 SELECT
@@ -38,7 +48,7 @@ SELECT
   NULLIF(TRIM(COALESCE(l."nom", '') || CASE WHEN COALESCE(l."note", '') <> '' THEN ' — ' || l."note" ELSE '' END), ''),
   now()
 FROM "commande_tissu_ligne" l
-JOIN "tissu_reception" r ON r."numero" = 'MIGR-' || l."id"
+JOIN "tissu_reception" r ON r."numero" = 'MIGR-' || l."id" AND r."created_at" = now()
 WHERE NOT EXISTS (
   SELECT 1 FROM "tissu_lot" x WHERE x."identifiant" = 'MIGR-' || l."id"
 );
