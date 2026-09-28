@@ -642,6 +642,12 @@ export async function propagerModele(parentId: number, modeleNom: string) {
     );
 }
 
+/** Commande porteuse d'une ligne rattachée (null si autonome). */
+export async function parentDe(id: number): Promise<number | null> {
+  const [c] = await db.select({ parentId: commande.parentId }).from(commande).where(eq(commande.id, id));
+  return c?.parentId ?? null;
+}
+
 /** Update a commande and journal any price movement in the same transaction. */
 export async function updateCommande(
   id: number,

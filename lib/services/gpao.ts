@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { chaine, client, commande, faconnier, journee, modele, ouvriere } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 import * as biz from "@/lib/domain/commande";
+import { recalculerProduit } from "@/lib/services/avancement";
 
 /* Reads return shapes aligned with app/(app)/gpao_prod/store.ts so the future
  * UI wiring is a near drop-in for the localStorage store. */
@@ -61,8 +62,11 @@ export async function listCommandesInternes(inclureArchivees = false): Promise<C
 /** Lie manuellement un modèle GPAO à une commande (archivée acceptée), ou
  * détache (commandeId null), puis resynchronise l'avancement. */
 export async function lierModeleCommande(modeleId: number, commandeId: number | null): Promise<void> {
+  const [avant] = await db.select({ commandeId: modele.commandeId }).from(modele).where(eq(modele.id, modeleId));
   await db.update(modele).set({ commandeId }).where(eq(modele.id, modeleId));
   await synchroniserAvancementModele(modeleId);
+  // La commande quittée perd la production de ce modèle.
+  if (avant?.commandeId != null && avant.commandeId !== commandeId) await recalculerProduit(db, avant.commandeId);
 }
 
 /** Fixe (ou efface) le prix de vente manuel d'un modèle (€/pièce). */
@@ -112,7 +116,7 @@ export type SimulationData = {
   heuresTravaillees: number;
 };
 
-const sommeSortie = (sortie: Record<string, number> | null | undefined): number => {
+export const sommeSortie = (sortie: Record<string, number> | null | undefined): number => {
   let t = 0;
   for (const v of Object.values(sortie ?? {})) if (typeof v === "number") t += v;
   return t;
@@ -121,7 +125,7 @@ const sommeSortie = (sortie: Record<string, number> | null | undefined): number 
 /** Heures travaillées d'une journée = nombre de cellules horaires réellement
  * saisies (une valeur numérique = 1 heure ; RI/ABS ne comptent pas), sommées
  * sur toutes les ouvrières. Reflète le temps de main d'œuvre engagé. */
-const heuresJournee = (j: typeof journee.$inferSelect): number => {
+export const heuresJournee = (j: typeof journee.$inferSelect): number => {
   let h = 0;
   const ops = (j.ops ?? {}) as Record<number, Record<string, unknown>>;
   const detail = (j.opsDetail ?? {}) as Record<number, Record<string, unknown[]>>;
@@ -218,28 +222,15 @@ export async function updateModele(id: number, patch: Partial<typeof modele.$inf
 
 /** Pont GPAO → avancement commande.
  *
- * Additionne la production GPAO cumulée du modèle (somme des sorties de chaîne
- * de toutes ses journées) et l'écrit dans `commande.produit` de la commande
- * liée, plafonnée à la quantité commandée (pas de dépassement de 100 %).
- * Ne fait rien si le modèle n'est relié à aucune commande. La production
- * sous-traitance (BR) reste inchangée : on ne prend le MAX que si l'on veut les
- * combiner — ici la commande étant produite en interne (DBS), la prod GPAO EST
- * sa production, donc on écrit directement. */
+ * Délègue à lib/services/avancement (recalculerProduit) : `produit` = production
+ * GPAO des modèles liés + pièces conformes reçues des façonniers + retouches,
+ * plafonné à la quantité commandée. Même formule que le magasin — la GPAO ne
+ * peut plus effacer une réception façonnier, ni l'inverse. */
 export async function synchroniserAvancementModele(modeleId: number): Promise<void> {
-  const [m] = await db.select().from(modele).where(eq(modele.id, modeleId));
+  const [m] = await db.select({ commandeId: modele.commandeId }).from(modele).where(eq(modele.id, modeleId));
   if (!m || m.commandeId == null) return;
-
-  const journees = await db.select({ sortie: journee.sortie }).from(journee).where(eq(journee.modeleId, modeleId));
-  let prodGpao = 0;
-  for (const j of journees) {
-    for (const v of Object.values(j.sortie ?? {})) if (typeof v === "number") prodGpao += v;
-  }
-
-  const [c] = await db.select().from(commande).where(eq(commande.id, m.commandeId));
-  if (!c) return;
-  const produit = Math.min(prodGpao, c.qte);
-  if (produit === c.produit) return; // rien à écrire
-  await db.update(commande).set({ produit, updatedAt: new Date() }).where(eq(commande.id, m.commandeId));
+  // Même calcul que le magasin : GPAO + réceptions façonniers + retouches.
+  await recalculerProduit(db, m.commandeId);
 }
 
 /** Comme synchroniserAvancementModele, mais à partir d'une journée : retrouve
@@ -386,6 +377,10 @@ export async function deleteChaine(id: number) {
 export async function insertOuvriere(input: typeof ouvriere.$inferInsert) {
   const [row] = await db.insert(ouvriere).values(input).returning();
   return row;
+}
+export async function getOuvriere(id: number) {
+  const [row] = await db.select().from(ouvriere).where(eq(ouvriere.id, id));
+  return row ?? null;
 }
 export async function updateOuvriere(id: number, patch: Partial<typeof ouvriere.$inferInsert>) {
   await db.update(ouvriere).set(patch).where(eq(ouvriere.id, id));

@@ -2,8 +2,9 @@ import { desc, eq } from "drizzle-orm";
 import { db, schema } from "./db";
 import { Rapport, type Sauvegarde, dateOuNull, entier, nombre, nombreOuNull } from "./source";
 import type { IndexCommandes } from "./commandes";
+import { cause5mDepuisTexte, statutDepuisQrqc } from "@/lib/domain/actions-qualite";
 
-const { commande, qcInspection, qcDefaut, qcMesure, mQrqc } = schema;
+const { commande, qcInspection, qcDefaut, qcMesure, qcActionCorrective } = schema;
 
 /* Magasin tissu, contrôle qualité et QRQC. */
 
@@ -148,24 +149,31 @@ export async function importerQualite(src: Sauvegarde, idx: IndexCommandes, r: R
     src.qcInspections.reduce((n, i) => n + (i.defects ?? []).reduce((m, d) => m + (d.photos?.length ?? 0), 0), 0);
   if (photos) r.alerte(`${photos} photo(s) de contrôle non reprises — les blobs de la sauvegarde ne sont pas importés`);
 
-  /* ── QRQC ── */
+  /* ── QRQC ──
+   * Les fiches QRQC vont dans le registre unique des actions qualité, avec
+   * l'origine « qrqc » : même suivi (statut, responsable, échéance) que les
+   * actions nées d'un contrôle. */
   let qrqcs = 0;
   for (const q of src.qrqcs) {
-    const of = q.cmdId ? idx.parIdSource.get(q.cmdId) : null;
+    const commandeId = q.cmdId ? (idx.parIdSource.get(q.cmdId) ?? null) : null;
     let refCommande = "";
-    if (of) {
-      const [c] = await db.select({ of: commande.ofNumber }).from(commande).where(eq(commande.id, of));
+    if (commandeId) {
+      const [c] = await db.select({ of: commande.ofNumber }).from(commande).where(eq(commande.id, commandeId));
       refCommande = c?.of ?? "";
     }
-    const resolu = r.texte(q.statut) === "resolu";
-    await db.insert(mQrqc).values({
-      date: dateOuNull(q.date) ?? "",
-      pb: r.texte(q.probleme),
-      cause: r.texte(q.cause),
-      cmd: refCommande,
+    const cause = r.texte(q.cause);
+    const cause5m = cause5mDepuisTexte(cause);
+    const date = dateOuNull(q.date);
+    await db.insert(qcActionCorrective).values({
+      origine: "qrqc",
+      defaut: r.texte(q.probleme),
+      cause5m,
+      cause: cause5m ? "" : cause,
       action: r.texte(q.action),
-      statutTone: resolu ? "success" : "warning",
-      statutLabel: resolu ? "Résolu" : "En cours",
+      statut: statutDepuisQrqc(r.texte(q.statut) === "resolu" ? "Résolu" : "En cours"),
+      commandeId,
+      of: refCommande,
+      ...(date ? { dateOuverture: date } : {}),
     });
     qrqcs++;
   }

@@ -18,7 +18,14 @@ const moisFr = (p: string) => {
  *
  * Volontairement sans dépendance graphique : le Pareto et la courbe sont des
  * barres CSS. C'est lisible, imprimable, et ça n'ajoute aucune bibliothèque. */
-export function DashboardQualite({ inspections }: { inspections: InspectionRow[] }) {
+export function DashboardQualite({
+  inspections,
+  actionsOuvertes,
+}: {
+  inspections: InspectionRow[];
+  /** Toutes les actions ouvertes du registre (y compris QRQC et plans hors contrôle). */
+  actionsOuvertes?: number;
+}) {
   const d = useMemo(
     () => calculerDashboard(inspections as unknown as InspectionBilan[], FAMILLES_DEFAUT),
     [inspections],
@@ -53,9 +60,9 @@ export function DashboardQualite({ inspections }: { inspections: InspectionRow[]
         <Kpi label="FAIL (refusés)" valeur={nb.format(d.refuses)} tone={d.refuses ? "danger" : "neutral"} />
         <Kpi label="Défauts (total)" valeur={nb.format(d.defautsTotal)} />
         <Kpi
-          label="Actions correctives ouvertes"
-          valeur={nb.format(d.actionsOuvertes)}
-          tone={d.actionsOuvertes ? "warning" : "success"}
+          label="Actions qualité ouvertes"
+          valeur={nb.format(actionsOuvertes ?? d.actionsOuvertes)}
+          tone={(actionsOuvertes ?? d.actionsOuvertes) ? "warning" : "success"}
         />
       </div>
 

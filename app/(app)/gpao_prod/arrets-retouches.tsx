@@ -6,6 +6,8 @@ import {
   dayOuvrieres,
   findC,
   findM,
+  makeOuvKey,
+  ouvrieresConnues,
   ouvProd,
   ouvRet,
   ouvRetPct,
@@ -37,6 +39,17 @@ export function ArretsRetouchesView({ state }: { state: GpaoState }) {
     [state.journees, from, to],
   );
 
+  /* Une personne = une ligne, avec la même règle d'identité que l'historique
+   * et le QR (fiche du registre, sinon nom) — et son nom de fiche. */
+  const identite = useMemo(() => {
+    const cleDe = makeOuvKey(state);
+    const noms = new Map(ouvrieresConnues(state).map((o) => [o.cle, o.nom]));
+    return (o: { id: number; nom: string; personnelId?: number | null }) => {
+      const cle = cleDe(o);
+      return { cle, nom: noms.get(cle) ?? o.nom };
+    };
+  }, [state]);
+
   // ── Arrêts ──
   const arrets = useMemo(() => {
     const parMotif = new Map<string, { motif: string; secondes: number; occurrences: number }>();
@@ -48,7 +61,8 @@ export function ArretsRetouchesView({ state }: { state: GpaoState }) {
       const roster = dayOuvrieres(state, j);
       for (const [ouvId, liste] of Object.entries(j.arrets ?? {})) {
         const o = roster.find((x) => x.id === Number(ouvId));
-        const nom = o?.nom ?? `#${ouvId}`;
+        const id = o ? identite(o) : { cle: `#${ouvId}`, nom: `#${ouvId}` };
+        const nom = id.nom;
         for (const a of liste ?? []) {
           totalSec += a.secondes;
           lignes.push({ date: j.date, ouvriere: nom, chaine: c?.nom ?? "?", motif: a.motif, secondes: a.secondes });
@@ -56,10 +70,10 @@ export function ArretsRetouchesView({ state }: { state: GpaoState }) {
           pm.secondes += a.secondes;
           pm.occurrences += 1;
           parMotif.set(a.motif, pm);
-          const po = parOuv.get(nom) ?? { nom, secondes: 0, occurrences: 0 };
+          const po = parOuv.get(id.cle) ?? { nom, secondes: 0, occurrences: 0 };
           po.secondes += a.secondes;
           po.occurrences += 1;
-          parOuv.set(nom, po);
+          parOuv.set(id.cle, po);
         }
       }
     }
@@ -69,7 +83,7 @@ export function ArretsRetouchesView({ state }: { state: GpaoState }) {
       parMotif: [...parMotif.values()].sort((a, b) => b.secondes - a.secondes),
       parOuv: [...parOuv.values()].sort((a, b) => b.secondes - a.secondes),
     };
-  }, [jours, state]);
+  }, [jours, state, identite]);
 
   // ── Retouches ──
   const retouches = useMemo(() => {
@@ -87,11 +101,12 @@ export function ArretsRetouchesView({ state }: { state: GpaoState }) {
         if (ret <= 0 && prod <= 0) continue;
         totalRet += ret;
         totalProd += prod;
-        if (ret > 0) lignes.push({ date: j.date, ouvriere: o.nom, modele: mNom, ret, pct: ouvRetPct(j, o.id) });
-        const po = parOuv.get(o.nom) ?? { nom: o.nom, ret: 0, prod: 0 };
+        const id = identite(o);
+        if (ret > 0) lignes.push({ date: j.date, ouvriere: id.nom, modele: mNom, ret, pct: ouvRetPct(j, o.id) });
+        const po = parOuv.get(id.cle) ?? { nom: id.nom, ret: 0, prod: 0 };
         po.ret += ret;
         po.prod += prod;
-        parOuv.set(o.nom, po);
+        parOuv.set(id.cle, po);
         const pm = parModele.get(mNom) ?? { modele: mNom, ret: 0, prod: 0 };
         pm.ret += ret;
         pm.prod += prod;
@@ -106,7 +121,7 @@ export function ArretsRetouchesView({ state }: { state: GpaoState }) {
       parOuv: [...parOuv.values()].filter((x) => x.ret > 0).sort((a, b) => b.ret - a.ret),
       parModele: [...parModele.values()].filter((x) => x.ret > 0).sort((a, b) => b.ret - a.ret),
     };
-  }, [jours, state]);
+  }, [jours, state, identite]);
 
   const imprimer = () => printRapport(onglet, from, to, arrets, retouches);
 

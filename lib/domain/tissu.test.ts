@@ -6,6 +6,11 @@ import {
   couvertureCommande,
   comparerBesoinReception,
   prochainIdentifiant,
+  ecartsReception,
+  reliquats,
+  proposerLots,
+  etatMatiereCommande,
+  bilanMatiere,
 } from "./tissu";
 
 describe("bilanLot — reçu / affecté / consommé / disponible", () => {
@@ -105,5 +110,65 @@ describe("prochainIdentifiant", () => {
   it("gère les accents et les couleurs vides", () => {
     assert.equal(prochainIdentifiant("Écru", []), "ECRU-01");
     assert.equal(prochainIdentifiant("", []), "LOT-01");
+  });
+});
+
+describe("contrôle à réception contre le BL client", () => {
+  it("manque, laize et défauts deviennent des motifs de réclamation", () => {
+    const e = ecartsReception({
+      quantiteRecue: 480, quantiteAnnoncee: 500, laize: 142, laizeAnnoncee: 145, defauts: "",
+      rouleaux: [{ n: "3", annonce: 100, mesure: 96, laize: 145, defauts: "trou à 12 m" }],
+    });
+    assert.equal(e.manque, 20);
+    assert.equal(e.laizeNonConforme, true);
+    assert.ok(e.motifs.some((m) => m.startsWith("Manque 20 m")));
+    assert.ok(e.motifs.some((m) => m.includes("Rouleau 3 : trou")));
+    assert.equal(e.aReclamer, true);
+  });
+  it("écart sous la tolérance : rien à réclamer", () => {
+    const e = ecartsReception({ quantiteRecue: 499.8, quantiteAnnoncee: 500, laize: 145.5, laizeAnnoncee: 145, defauts: "" });
+    assert.equal(e.aReclamer, false);
+  });
+});
+
+describe("rendu au client et reliquats", () => {
+  it("un rendu sort du stock sans être une consommation", () => {
+    const b = bilanLot(100, [{ quantite: 60 }], [{ sens: "sortie", quantite: 55 }, { sens: "rendu", quantite: 20 }]);
+    assert.equal(b.consomme, 55);
+    assert.equal(b.rendu, 20);
+    assert.equal(b.disponible, 25);
+    assert.equal(b.libre, 20);
+  });
+  it("reliquats groupés par client et saison, sans les lots encore en cours", () => {
+    const g = reliquats([
+      { id: 1, identifiant: "A-01", client: "Kiabi", saison: "PE26", reference: "", couleur: "Bleu", unite: "m", disponible: 12, enCours: false },
+      { id: 2, identifiant: "A-02", client: "Kiabi", saison: "PE26", reference: "", couleur: "Bleu", unite: "m", disponible: 8, enCours: false },
+      { id: 3, identifiant: "B-01", client: "Kiabi", saison: "PE26", reference: "", couleur: "Noir", unite: "m", disponible: 50, enCours: true },
+    ]);
+    assert.equal(g.length, 1);
+    assert.equal(g[0].totalParUnite.m, 20);
+  });
+});
+
+describe("lots proposés et besoin", () => {
+  const lots = [
+    { id: 1, identifiant: "BLEU-01", client: "Kiabi", reference: "R1", couleur: "Bleu", libre: 100, controle: "conforme" },
+    { id: 2, identifiant: "BLEU-02", client: "Jules", reference: "R1", couleur: "Bleu", libre: 300, controle: "" },
+    { id: 3, identifiant: "NOIR-01", client: "Kiabi", reference: "R1", couleur: "Noir", libre: 80, controle: "" },
+  ];
+  it("jamais le tissu d'un autre client, ni une autre couleur", () => {
+    const p = proposerLots({ client: "KIABI", reference: "r1", couleur: "bleu" }, lots);
+    assert.deepEqual(p.map((x) => x.identifiant), ["BLEU-01"]);
+  });
+  it("manque couvert par le stock ou à demander au client", () => {
+    assert.equal(etatMatiereCommande(500, 300, 0, 100).aDemander, 100);
+    assert.equal(etatMatiereCommande(500, 300, 0, 250).niveau, "stock");
+  });
+  it("bilan matière : conso réelle contre conso client", () => {
+    const b = bilanMatiere({ recu: 1000, consomme: 930, rendu: 50, pieces: 600, consoClient: 1.5 });
+    assert.equal(b.reste, 20);
+    assert.equal(b.theorique, 900);
+    assert.equal(b.chute, 30);
+    assert.equal(b.ecartConsoPct, 3.3);
   });
 });

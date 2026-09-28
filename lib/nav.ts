@@ -12,12 +12,8 @@ import {
   PencilRuler,
   Landmark,
   ClipboardList as ClipboardListIcon,
-  FlaskConical,
-  BarChart3,
-  CalendarRange,
   CalendarDays,
   Factory,
-  ClipboardList,
   PackageCheck,
   Warehouse,
   FileText,
@@ -40,12 +36,17 @@ export type NavItem = {
   label: string;
   href: string;
   icon: LucideIcon;
-  /** Static demo badge count (UI only — wired to data later) */
-  badge?: number;
   /** Retiré du menu, mais la route, les permissions et le titre de page
    * restent en place : la page se rejoint encore par son URL. */
   masque?: boolean;
+  /** Modules fusionnés dans celui-ci : l'entrée reste visible pour un rôle qui
+   * avait accès à l'un d'eux (ex. « Réception ST » → Magasin produits finis). */
+  aussi?: string[];
 };
+
+/** Un rôle voit une entrée s'il a son module, ou l'un des modules fusionnés dedans. */
+export const entreeAutorisee = (it: Pick<NavItem, "id" | "aussi">, modules: Record<string, boolean>) =>
+  modules[it.id] !== false || (it.aussi ?? []).some((a) => modules[a] === true);
 
 export type NavGroup = {
   label: string;
@@ -59,7 +60,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
     label: "Pilotage",
     items: [
       { id: "cockpit", label: "Cockpit", href: "/cockpit", icon: Target },
-      { id: "alertes", label: "Alertes", href: "/alertes", icon: AlertCircle, badge: 3 },
+      { id: "alertes", label: "Alertes", href: "/alertes", icon: AlertCircle },
       { id: "stats", label: "Statistiques", href: "/stats", icon: TrendingUp },
       { id: "tracabilite", label: "Traçabilité", href: "/tracabilite", icon: SearchCheck },
     ],
@@ -69,7 +70,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
     stage: 1,
     items: [
       { id: "clients", label: "Clients", href: "/clients", icon: Building2 },
-      { id: "commandes", label: "Commandes", href: "/commandes", icon: Package, badge: 2 },
+      { id: "commandes", label: "Commandes", href: "/commandes", icon: Package },
       { id: "facon", label: "Façonniers", href: "/facon", icon: Handshake },
     ],
   },
@@ -93,9 +94,6 @@ export const NAV_STRUCTURE: NavGroup[] = [
     label: "Méthodes",
     items: [
       { id: "planning", label: "Planning général", href: "/planning", icon: CalendarDays },
-      { id: "gammes", label: "Gammes & SAM", href: "/gammes", icon: FlaskConical, masque: true },
-      { id: "capacite", label: "Capacité & Costing", href: "/capacite", icon: BarChart3, masque: true },
-      { id: "ordonnancement", label: "Ordonnancement", href: "/ordonnancement", icon: CalendarRange, masque: true },
       { id: "planfacon", label: "Plan façonnier", href: "/planfacon", icon: Handshake },
     ],
   },
@@ -104,21 +102,22 @@ export const NAV_STRUCTURE: NavGroup[] = [
     stage: 4,
     items: [
       { id: "gpao_prod", label: "GPAO Production", href: "/gpao_prod", icon: Factory },
-      { id: "ofs", label: "Ordres fabrication", href: "/ofs", icon: ClipboardList, masque: true },
       { id: "personnel", label: "Personnel", href: "/personnel", icon: UsersRound },
       { id: "operations", label: "Opérations & SAM", href: "/operations", icon: ListChecks },
       { id: "qrouv", label: "QR rendement", href: "/qrouv", icon: QrCode },
-      { id: "br", label: "Réception ST", href: "/br", icon: PackageCheck },
+      /* Fusionné dans « Magasin produits finis » (onglet Réceptions façonniers) :
+       * l'adresse /br y redirige, le droit « br » donne toujours accès. */
+      { id: "br", label: "Réception ST", href: "/magasin?onglet=receptions", icon: PackageCheck, masque: true },
     ],
   },
   {
     label: "5 · Magasin & Export",
     stage: 5,
     items: [
-      { id: "magasin", label: "Produits finis", href: "/magasin", icon: Warehouse },
+      { id: "magasin", label: "Magasin produits finis", href: "/magasin", icon: Warehouse, aussi: ["br"] },
       { id: "prevexport", label: "Prévision export", href: "/prevexport", icon: CalendarClock },
       { id: "bl", label: "Bons livraison", href: "/bl", icon: FileText },
-      { id: "factures", label: "Factures HT", href: "/factures", icon: Banknote, badge: 1 },
+      { id: "factures", label: "Factures HT", href: "/factures", icon: Banknote },
       { id: "grand_livre", label: "Grand Livre Fourn.", href: "/grand_livre", icon: BookText },
       { id: "archives", label: "Archives", href: "/archives", icon: Archive },
     ],
@@ -126,9 +125,9 @@ export const NAV_STRUCTURE: NavGroup[] = [
   {
     label: "Qualité & Outils",
     items: [
-      { id: "qc", label: "Contrôle Qualité PF", href: "/qc", icon: ShieldCheck },
-      { id: "qrqc", label: "QRQC / 5M", href: "/qrqc", icon: SearchCheck },
-      { id: "actions", label: "Plans d'actions", href: "/actions", icon: ListChecks, badge: 2 },
+      /* « QRQC / 5M » et « Plans d'actions » sont l'onglet « Actions & QRQC »
+       * du contrôle qualité : un rôle qui avait l'un des deux y garde accès. */
+      { id: "qc", label: "Qualité & actions", href: "/qc", icon: ShieldCheck, aussi: ["qrqc", "actions"] },
       { id: "journal", label: "Journal d'activité", href: "/journal", icon: ScrollText },
       { id: "parametres", label: "Paramètres", href: "/parametres", icon: Settings },
     ],
@@ -160,13 +159,9 @@ const SUBTITLES: Record<string, string> = {
   magfour: "Réception des fournitures par référence",
   coupe: "Planning coupe — commandes au tissu libéré",
   planning: "Carnet de commandes côté planning — affectation, tissu, export",
-  gammes: "Décomposition opératoire + temps standards",
-  capacite: "Capacité ligne, coût MO, délais",
-  ordonnancement: "Ordre de lancement & équilibrage de charge",
   gpao_prod: "Suivi journalier, chaînes, modèles, rendement",
-  ofs: "Suivi production par OF et chaîne",
   br: "Bons de réception façonniers, contrôle qualité",
-  magasin: "Réception PF → préparation → expédition",
+  magasin: "Entrées (interne, façonniers, retouches) → stock → expéditions",
   bl: "BL export — imprimables, liés aux commandes",
   factures: "Registre, encaissements, relances, marges",
   grand_livre: "Comptabilité fournisseurs — comptes, mouvements, échéancier",
@@ -178,9 +173,7 @@ const SUBTITLES: Record<string, string> = {
   operations: "Catalogue des opérations et temps standards",
   qrouv: "QR de rendement par ouvrière, imprimables",
   journal: "Qui a fait quoi, et quand",
-  qc: "Inspection produit fini, échantillonnage AQL, barèmes clients",
-  qrqc: "Résolution rapide de problèmes qualité",
-  actions: "Suivi des actions correctives",
+  qc: "Inspections AQL, barèmes clients, actions correctives, QRQC 5M et plans d'actions",
   parametres: "Configuration · données · comptes",
 };
 

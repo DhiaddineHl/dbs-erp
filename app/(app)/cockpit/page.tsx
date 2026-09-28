@@ -15,6 +15,7 @@ import {
   TriangleAlert,
   Bot,
   TrendingUp,
+  Scale,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
@@ -26,11 +27,12 @@ import { BarresProduction } from "@/components/charts/barres-production";
 import { FacturationMensuelle } from "@/components/charts/facturation-mensuelle";
 import { MargesFaconniersChart } from "@/components/charts/marges-faconniers";
 import { getCockpitData, getGraphiquesFinance } from "@/lib/services/dashboard";
+import { pointMortMoisCourant } from "@/lib/services/rentabilite";
 
 const STAGE_META = [
   { key: "commandes", n: "1 · Commandes", icon: Package, lbl: "en cours", href: "/commandes", color: "var(--s1)" },
-  { key: "matieres", n: "2 · Matières", icon: Layers, lbl: "à contrôler", href: "/tissus", color: "var(--s2)" },
-  { key: "prepa", n: "3 · Préparation", icon: PencilRuler, lbl: "sans OK PRO", href: "/be", color: "var(--s3)" },
+  { key: "matieres", n: "2 · Matières", icon: Layers, lbl: "à contrôler", href: "/magtissu", color: "var(--s2)" },
+  { key: "prepa", n: "3 · Préparation", icon: PencilRuler, lbl: "sans OK PRO", href: "/dt", color: "var(--s3)" },
   { key: "production", n: "4 · Production", icon: Factory, lbl: "en fabrication", href: "/gpao_prod", color: "var(--s4)" },
   { key: "magasin", n: "5 · Magasin", icon: Warehouse, lbl: "à expédier", href: "/magasin", color: "var(--s5)" },
 ] as const;
@@ -46,7 +48,7 @@ const TONE_TEXT: Record<string, string> = {
 const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
 
 export default async function CockpitPage() {
-  const [data, finance] = await Promise.all([getCockpitData(), getGraphiquesFinance()]);
+  const [data, finance, pm] = await Promise.all([getCockpitData(), getGraphiquesFinance(), pointMortMoisCourant()]);
   const totalFacture = finance.facturation.at(-1)?.cumul ?? 0;
 
   return (
@@ -135,6 +137,60 @@ export default async function CockpitPage() {
         <KpiCard label="Facturé (net)" value={eur(data.kpis.facture)} icon={Wallet} tone="success" sub={`${data.kpis.nbFactures} factures`} />
         <KpiCard label="En retard" value={String(data.kpis.enRetard)} icon={TriangleAlert} tone="danger" sub="commandes à surveiller" />
       </KpiGrid>
+
+      {/* Rentabilité atelier du mois : CA produit (GPAO) face aux charges de l'usine */}
+      <SectionPanel
+        title="Rentabilité atelier — mois en cours"
+        icon={<Scale className="size-4 text-brand" />}
+        actions={
+          <Link href="/gpao_prod" className={buttonVariants({ variant: "ghost", size: "sm", className: "h-7 text-xs" })}>
+            Détail GPAO → Rentabilité
+          </Link>
+        }
+      >
+        {!pm.configure ? (
+          <div className="py-2 text-xs text-muted-foreground">
+            Coût de l&apos;usine non réglé : renseigne charges mensuelles, ouvrières directes et heures/mois dans GPAO →
+            Simulation.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              {[
+                { l: "CA produit", v: eur(pm.ca), c: "" },
+                { l: "Charges à date", v: eur(pm.charges), c: "" },
+                { l: "Marge", v: eur(pm.marge), c: pm.marge >= 0 ? "text-[var(--ok)]" : "text-[var(--danger)]" },
+                {
+                  l: "Couverture",
+                  v: pm.couverture == null ? "—" : `${Math.round(pm.couverture * 100)} %`,
+                  c: (pm.couverture ?? 0) >= 1 ? "text-[var(--ok)]" : "text-[var(--danger)]",
+                },
+                { l: "Point mort / jour", v: eur(pm.caJour), c: "", s: `${pm.joursAtteints}/${pm.joursProduits} jours atteints` },
+                {
+                  l: "Rendement",
+                  v: pm.rendement == null ? "—" : `${Math.round(pm.rendement * 100)} %`,
+                  c: "",
+                  s: pm.modelesPerdants ? `${pm.modelesPerdants} modèle(s) à perte` : "aucun modèle à perte",
+                },
+              ].map((k) => (
+                <div key={k.l} className="rounded-lg border p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{k.l}</div>
+                  <div className={`mt-1 text-lg font-extrabold tabular-nums ${k.c}`}>{k.v}</div>
+                  {"s" in k && k.s && <div className="text-[10.5px] text-muted-foreground">{k.s}</div>}
+                </div>
+              ))}
+            </div>
+            {pm.couverture != null && (
+              <div className="mt-3">
+                <Progress value={Math.min(100, Math.round(pm.couverture * 100))} className="h-2" />
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  CA produit / charges de l&apos;usine à date (prorata calendrier). 100 % = point mort atteint.
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </SectionPanel>
 
       {/* Bottom grid */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">

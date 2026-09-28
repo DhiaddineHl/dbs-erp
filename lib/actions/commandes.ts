@@ -7,6 +7,7 @@ import { assertUser, userRole } from "@/lib/auth/server";
 import * as biz from "@/lib/domain/commande";
 import * as svc from "@/lib/services/commandes";
 import * as gpao from "@/lib/services/gpao";
+import * as fournitures from "@/lib/services/fournitures";
 import { COMMANDE_COLUMNS, CLIENT_COLUMNS, FACONNIER_COLUMNS, mapRow } from "@/lib/modules/columns";
 import { journaliser } from "@/lib/services/activite";
 import { enregistrerFichier } from "@/lib/services/fichiers";
@@ -458,6 +459,15 @@ export async function updateCommandeRow(id: number, patch: Data): Promise<Result
       for (const n of new Set([nomAvant, out.modele ?? nomAvant].filter(Boolean))) {
         await synchroniserVersGpao(n);
       }
+    }
+    /* Quantité ou modèle changés : le « prévu » des fournitures calculé par
+     * la nomenclature du modèle suit (lignes 📋 de la fiche). Le porteur d'un
+     * groupe couvre ses membres : on recalcule aussi le porteur. */
+    if ("qte" in out || "modele" in out || "refArticle" in out) {
+      const a = { id: user.id, name: user.name, role: userRole(user) };
+      await fournitures.synchroniserCommande(id, a);
+      const parent = await svc.parentDe(id);
+      if (parent) await fournitures.synchroniserCommande(parent, a);
     }
     revaliderCarnet();
     return ok;

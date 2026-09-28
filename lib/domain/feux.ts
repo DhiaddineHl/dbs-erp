@@ -41,7 +41,18 @@ const etat = (kind: KindFeu, label: string): EtatFeu => ({ kind, label, tone: TO
 export type VerdictTds = "attente" | "ok" | "refus";
 export type Tds = { id: number; n: number; envoi: string | null; retour: string | null; verdict: string; commentaire: string; par: string };
 export type Etape = { etape: string; fait: boolean; date: string | null; par: string };
-export type LigneFourniture = { id: number; designation: string; qtePrevue: number; qteRecue: number; unite: string };
+export type LigneFourniture = {
+  id: number;
+  designation: string;
+  qtePrevue: number;
+  qteRecue: number;
+  unite: string;
+  /** client (fourni par le client) | dbs (acheté par DBS, CMT). */
+  origine?: string;
+  fournisseur?: string;
+  /** Ligne calculée par la nomenclature du modèle. */
+  nomenclatureId?: number | null;
+};
 /** Une matière reçue d'une commande : nom, référence, laize (cm), métrages et contrôle. */
 export type LigneTissu = {
   id: number;
@@ -53,6 +64,8 @@ export type LigneTissu = {
   metrageRecu: number;
   controle: string;
   note: string;
+  /** Date de réception du lot (magasin par lots), pour la date réelle. */
+  dateReception?: string;
 };
 export type Lancement = {
   date: string;
@@ -129,6 +142,25 @@ export function etatTissu(c: ContextePrepa["commande"], lignes?: LigneTissu[]): 
   if (recu) return etat("warn", "Reçu, à contrôler");
   if (c.receptTissu) return etat("wait", `Attendu ${c.receptTissu}`);
   return etat("wait", "Non reçu");
+}
+
+/** Ce que les LOTS affectés disent de la commande, ramené aux trois champs
+ * historiques (reçu, date, contrôle). Sans ça, le besoin/écart de la
+ * nomenclature, le bon imprimé et l'écran d'un OF rattaché lisaient encore
+ * les anciens champs de la commande — vides dès qu'on travaille par lots — et
+ * annonçaient « rien reçu » à côté d'un feu qui disait le contraire. */
+export function syntheseLots(lignes: LigneTissu[]): { recu: number; dateReelle: string; controle: string } | null {
+  if (!lignes.length) return null;
+  const recu = Math.round(lignes.reduce((s, l) => s + (l.metrageRecu || 0), 0) * 100) / 100;
+  const dates = lignes.map((l) => l.dateReception ?? "").filter(Boolean).sort();
+  const controle = lignes.some((l) => l.controle === "refuse")
+    ? "refuse"
+    : lignes.every((l) => l.controle === "conforme")
+      ? "conforme"
+      : lignes.every((l) => l.controle === "conforme" || l.controle === "reserve")
+        ? "reserve"
+        : "";
+  return { recu, dateReelle: dates.at(-1) ?? "", controle };
 }
 
 /** Le tissu libère la coupe quand il est accepté. En mode détail : toutes les

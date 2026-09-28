@@ -6,6 +6,7 @@ import { cleAleatoire } from "@/lib/atelier/cle";
 import { rattacherOuvrieresManquantes as rattacher } from "@/lib/services/atelier";
 import { getSetting, setSetting } from "@/lib/services/permissions";
 import { journaliser } from "@/lib/services/activite";
+import { resynchroniserIdentites } from "@/lib/services/identite-ouvrieres";
 
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -79,6 +80,8 @@ export async function rattacherOuvrieresManquantes(): Promise<
   try {
     await exiger();
     const r = await rattacher();
+    // Le rattachement touche aussi les journées déjà saisies (sinon le QR les ignorait).
+    await resynchroniserIdentites();
     await journaliser(
       "modification",
       "QR rendement",

@@ -168,3 +168,32 @@ export function BoutonAction({
     </Button>
   );
 }
+
+/** Compression avant envoi — 560 px de côté maximum, JPEG qualité 0,62, comme
+ * PilotPro : les rapports restent lisibles et les photos d'atelier ne saturent
+ * pas le stockage. */
+export async function compresser(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap) return file;
+  const max = 560;
+  let { width: w, height: h } = bitmap;
+  if (w > h) {
+    if (w > max) {
+      h = Math.round((h * max) / w);
+      w = max;
+    }
+  } else if (h > max) {
+    w = Math.round((w * max) / h);
+    h = max;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return file;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.62));
+  return blob ?? file;
+}

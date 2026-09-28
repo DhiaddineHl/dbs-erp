@@ -9,12 +9,16 @@ import {
   type RepartitionProduction,
 } from "@/lib/domain/graphiques";
 import { getCostLines } from "@/lib/services/facturation";
-import { listGammes } from "@/lib/services/modules";
 import { listCommandesAval } from "@/lib/services/aval";
 import { listCommandes } from "@/lib/services/commandes";
 import { listPreparation } from "@/lib/services/preparation";
 import { getFactures } from "@/lib/services/facturation";
 import { getChaines, getJournees, getModeles } from "@/lib/services/gpao";
+import { listActionsRegistre } from "@/lib/services/qc";
+import { listLots } from "@/lib/services/tissu";
+import { reliquatsTissu } from "@/lib/services/matiere-tissu";
+import { relances as relancesFournitures } from "@/lib/services/fournitures";
+import { enRetard } from "@/lib/domain/actions-qualite";
 import type { Tone } from "@/components/shared/status-badge";
 
 const WEEKDAY_FR = ["dim", "lun", "mar", "mer", "jeu", "ven", "sam"];
@@ -30,11 +34,10 @@ export type CockpitData = {
 };
 
 export async function getCockpitData(): Promise<CockpitData> {
-  const [commandes, prepa, gammes, magasin, factures, chaines, journees, modeles] =
+  const [commandes, prepa, magasin, factures, chaines, journees, modeles] =
     await Promise.all([
       listCommandes(),
       listPreparation(),
-      listGammes(),
       listCommandesAval({ archived: false }),
       getFactures(),
       getChaines(),
@@ -57,10 +60,7 @@ export async function getCockpitData(): Promise<CockpitData> {
   const late = commandes.filter((c) => c.statutKey === "retard");
   const unassigned = commandes.filter((c) => !c.assigne);
 
-  const gammeModeles = new Set(gammes.map((g) => g.modele.trim().toLowerCase()));
-  const noSam = [...new Set(commandes.map((c) => c.modele.trim().toLowerCase()))].filter(
-    (m) => m && !gammeModeles.has(m),
-  );
+  const sansModele = commandesSansModeleGpao(commandes, prepa, modeles);
 
   /* Valeurs propres : une commande découpée apparaît dans la liste avec sa
    * mère et ses parts, et additionner les deux compterait deux fois les
@@ -120,7 +120,7 @@ export async function getCockpitData(): Promise<CockpitData> {
       matieres: tissusPending.length,
       prepa: beNoOk.length,
       production: prepa.filter((r) => r.lancee).length,
-      magasin: magasin.filter((m) => m.magasinQte > 0 && !m.magasinExpedie).length,
+      magasin: magasin.filter((m) => m.stockQte > 0 && m.etatMagasin !== "expedie").length,
     },
     insights: [
       late.length && { tone: "danger", text: `${late.length} commande(s) en retard de livraison`, href: "/commandes" },
@@ -128,7 +128,11 @@ export async function getCockpitData(): Promise<CockpitData> {
       pretes.length && { tone: "success", text: `${pretes.length} commande(s) prête(s) à lancer — tous les feux au vert`, href: "/dt" },
       tissusPending.length && { tone: "stage-2", text: `${tissusPending.length} tissu(s) non conforme(s) ou en attente de contrôle`, href: "/magtissu" },
       beNoOk.length && { tone: "stage-3", text: `${beNoOk.length} tête(s) de série en attente OK PRO client`, href: "/dt" },
-      noSam.length && { tone: "purple", text: `${noSam.length} modèle(s) sans gamme SAM définie`, href: "/gammes" },
+      sansModele.length && {
+        tone: "purple",
+        text: `${sansModele.length} commande(s) lancée(s) en chaîne sans modèle GPAO relié — leur production ne remonte pas`,
+        href: "/gpao_prod",
+      },
     ].filter(Boolean) as CockpitData["insights"],
     kpis: {
       caEnCours,
@@ -145,6 +149,30 @@ export async function getCockpitData(): Promise<CockpitData> {
   };
 }
 
+/** Commandes lancées sur une chaîne interne, non livrées, sans modèle GPAO
+ * relié. Un OF rattaché à un porteur est ignoré : c'est le porteur qui porte
+ * le modèle du groupe. */
+function commandesSansModeleGpao(
+  commandes: Awaited<ReturnType<typeof listCommandes>>,
+  prepa: Awaited<ReturnType<typeof listPreparation>>,
+  modeles: { commandeId: number | null }[],
+) {
+  const relies = new Set(modeles.map((m) => m.commandeId).filter((id): id is number => id != null));
+  const lancees = new Map(prepa.map((r) => [r.id, r]));
+  return commandes.filter((c) => {
+    const r = lancees.get(c.id);
+    return (
+      c.chaineId != null &&
+      !c.faconnierId &&
+      c.statutKey !== "livree" &&
+      c.statutKey !== "archivee" &&
+      !!r?.lancee &&
+      !r.porteurOf &&
+      !relies.has(c.id)
+    );
+  });
+}
+
 /* ─────────── Computed alertes (replaces the static seeded rows) ─────────── */
 export type AlertItem = {
   iconName: string;
@@ -159,12 +187,16 @@ export type AlertesData = { alerts: AlertItem[]; total: number; critiques: numbe
 const MARGE_MINI = 0.15; // marge brute < 15 % du CA ligne → alerte
 
 export async function getAlertes(): Promise<AlertesData> {
-  const [commandes, prepa, gammes, magasin] = await Promise.all([
+  const [commandes, prepa, magasin, modeles, actions, lots, rel] = await Promise.all([
     listCommandes(),
     listPreparation(),
-    listGammes(),
     listCommandesAval({ archived: false }),
+    getModeles(),
+    listActionsRegistre(),
+    listLots(),
+    relancesFournitures(),
   ]);
+  const aRelancer = new Map(rel.clients.flatMap((r) => r.commandes.map((c) => [c.id, { ...c, client: r.client }] as const)));
 
   const alerts: AlertItem[] = [];
 
@@ -223,7 +255,17 @@ export async function getAlertes(): Promise<AlertesData> {
     }
 
     const four = r.feux.find((f) => f.id === "four")!;
-    if (four.etat.kind !== "ok") {
+    const relance = aRelancer.get(r.id);
+    if (relance && (relance.niveau === "urgent" || relance.niveau === "retard")) {
+      // L'export approche et il manque encore des fournitures : relancer le client.
+      alerts.push({
+        iconName: "Boxes",
+        tone: "danger",
+        title: `Relancer ${relance.client} — fournitures ${r.of}`,
+        detail: `${relance.manques.length} référence(s) manquante(s) · export ${relance.joursRestants != null && relance.joursRestants < 0 ? `dépassé de ${-relance.joursRestants} j` : `dans ${relance.joursRestants} j`}`,
+        level: ["danger", "Relance"],
+      });
+    } else if (four.etat.kind !== "ok") {
       alerts.push({
         iconName: "Boxes",
         tone: "warning",
@@ -290,30 +332,76 @@ export async function getAlertes(): Promise<AlertesData> {
     }
   }
 
-  const gammeModeles = new Set(gammes.map((g) => g.modele.trim().toLowerCase()));
-  for (const m of [...new Set(commandes.map((c) => c.modele))]) {
-    if (m && !gammeModeles.has(m.trim().toLowerCase())) {
-      alerts.push({
-        iconName: "AlertCircle",
-        tone: "warning",
-        title: `Modèle sans gamme SAM — ${m}`,
-        detail: "Décomposition opératoire à définir (Méthodes)",
-        level: ["warning", "Méthodes"],
-      });
-    }
+  /* Tissu reçu en écart avec le BL du client (manque, laize, défauts) et pas
+   * encore coupé : c'est maintenant qu'il faut réclamer. */
+  for (const l of lots) {
+    if (!l.ecarts.aReclamer || l.bilan.consomme > 0) continue;
+    alerts.push({
+      iconName: "Layers",
+      tone: "danger",
+      title: `Tissu à réclamer — lot ${l.identifiant}${l.client ? ` (${l.client})` : ""}`,
+      detail: l.ecarts.motifs.slice(0, 2).join(" · "),
+      level: ["danger", "Réclamation"],
+    });
+  }
+  /* Reliquats de tissu restés en magasin après la coupe : à rendre au client. */
+  for (const g of (await reliquatsTissu(lots)).groupes) {
+    alerts.push({
+      iconName: "Layers",
+      tone: "warning",
+      title: `Reliquats tissu à rendre — ${g.client}`,
+      detail: `${g.saison} · ${g.lots.length} lot(s) · ${Object.entries(g.totalParUnite).map(([u, v]) => `${v} ${u}`).join(" · ")}`,
+      level: ["warning", "Magasin tissu"],
+    });
+  }
+
+  /* Actions qualité (contrôle, QRQC, plans) dont l'échéance est passée. */
+  const jour = new Date().toISOString().slice(0, 10);
+  for (const a of actions.filter((x) => enRetard(x, jour))) {
+    alerts.push({
+      iconName: "ShieldCheck",
+      tone: a.priorite === "haute" ? "danger" : "warning",
+      title: `Action qualité en retard${a.of ? ` — ${a.of}` : ""}`,
+      detail: `${a.action || a.defaut || "Action sans libellé"} · ${a.responsable || "sans responsable"} · échéance ${a.echeance.split("-").reverse().join("/")}`,
+      level: a.priorite === "haute" ? ["danger", "Critique"] : ["warning", "Qualité"],
+    });
+  }
+
+  /* Remplace l'ancienne « Modèle sans gamme SAM », qui comparait les commandes
+   * à une table de démonstration et alertait sur presque tout. Le vrai trou :
+   * une commande lancée sur une chaîne interne dont aucun modèle GPAO n'est
+   * relié — les pièces saisies en chaîne ne comptent pas dans son avancement. */
+  for (const c of commandesSansModeleGpao(commandes, prepa, modeles)) {
+    alerts.push({
+      iconName: "Factory",
+      tone: "warning",
+      title: `Production non reliée — ${c.of}`,
+      detail: `${c.modele} · ${c.chaine} : aucun modèle GPAO relié à cette commande, la production saisie ne remonte pas dans l'avancement`,
+      level: ["warning", "GPAO"],
+    });
   }
 
   /* Le magasin remonte ce qui dort : un lot complet non expédié est du CA
    * immobilisé, et un lot préparé sans bon de livraison est un oubli. */
   for (const m of magasin) {
-    if (m.magasinExpedie || m.magasinQte <= 0) continue;
-    if (m.magasinQte >= m.qte) {
+    if (m.etatMagasin === "expedie" || m.stockQte <= 0) continue;
+    // Stock réel (entré − déjà expédié) couvrant tout le reste à livrer.
+    if (m.stockQte >= m.qte - m.expedieQte) {
       alerts.push({
         iconName: "Truck",
         tone: "warning",
         title: `Lot complet à expédier — ${m.of}`,
-        detail: `${m.client} · ${m.modele} · ${m.magasinQte} pcs au magasin`,
+        detail: `${m.client} · ${m.modele} · ${m.stockQte} pcs au magasin`,
         level: ["warning", "À expédier"],
+      });
+    }
+    if (m.ncAttente > 0) {
+      alerts.push({
+        iconName: "AlertCircle",
+        tone: "warning",
+        title: `Non conformes façonnier sans décision — ${m.of}`,
+        detail: `${m.modele} · ${m.ncAttente} pcs à retoucher ou mettre au rebut`,
+        level: ["warning", "Magasin"],
       });
     }
   }

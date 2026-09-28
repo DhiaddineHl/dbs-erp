@@ -10,15 +10,15 @@ import {
   commandeJournal,
   commandeLancement,
   commandeTds,
-  commandeTissuLigne,
   faconnier,
   fournitureCatalogue,
 } from "@/lib/db/schema";
 import * as biz from "@/lib/domain/commande";
 import * as fx from "@/lib/domain/feux";
 import { getChuteDefaut } from "@/lib/services/commandes";
-import { type Auteur, type Tx, journaliserFiche } from "@/lib/services/journal-fiche";
+import { type Auteur, journaliserFiche } from "@/lib/services/journal-fiche";
 import { type ResumePlan, resumesPlans } from "@/lib/services/plan-coupe";
+import { ligneTissuParCommandes } from "@/lib/services/tissu";
 
 /* Lecture agrégée des cinq écrans de préparation. Une seule requête par table,
  * recollées en mémoire : la liste tient dans quelques centaines de lignes et
@@ -166,7 +166,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
   const ids = rows.map((r) => r.c.id);
   if (!ids.length) return [];
 
-  const [tdsRows, etapeRows, fournRows, tissuRows, lancRows] = await Promise.all([
+  const [tdsRows, etapeRows, fournRows, parTissu, lancRows] = await Promise.all([
     db.select().from(commandeTds).where(inArray(commandeTds.commandeId, ids)).orderBy(asc(commandeTds.n)),
     db.select().from(commandeEtape).where(inArray(commandeEtape.commandeId, ids)),
     db
@@ -174,20 +174,15 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       .from(commandeFournitureLigne)
       .where(inArray(commandeFournitureLigne.commandeId, ids))
       .orderBy(asc(commandeFournitureLigne.id)),
-    db
-      .select()
-      .from(commandeTissuLigne)
-      .where(inArray(commandeTissuLigne.commandeId, ids))
-      .orderBy(asc(commandeTissuLigne.id)),
+    // Matières par commande : lues depuis le magasin tissu par lots (voir
+    // lib/services/tissu.ts) — remplace l'ancien commande_tissu_ligne.
+    ligneTissuParCommandes(ids),
     db.select().from(commandeLancement).where(inArray(commandeLancement.commandeId, ids)),
   ]);
 
   const versLigneFourniture = (f: (typeof fournRows)[number]): fx.LigneFourniture => ({
     id: f.id, designation: f.designation, qtePrevue: f.qtePrevue, qteRecue: f.qteRecue, unite: f.unite,
-  });
-  const versLigneTissu = (t: (typeof tissuRows)[number]): fx.LigneTissu => ({
-    id: t.id, nom: t.nom, reference: t.reference, couleur: t.couleur, laize: t.laize,
-    metragePrevu: t.metragePrevu, metrageRecu: t.metrageRecu, controle: t.controle, note: t.note,
+    origine: f.origine, fournisseur: f.fournisseur, nomenclatureId: f.nomenclatureId,
   });
 
   const groupBy = <T extends { commandeId: number }>(list: T[]) => {
@@ -202,7 +197,6 @@ export async function listPreparation(): Promise<PreparationRow[]> {
   const parTds = groupBy(tdsRows);
   const parEtape = groupBy(etapeRows);
   const parFourn = groupBy(fournRows);
-  const parTissu = groupBy(tissuRows);
   const parLanc = new Map(lancRows.map((l) => [l.commandeId, l]));
   const now = new Date();
 
@@ -228,7 +222,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       etape: e.etape, fait: e.fait, date: e.date, par: e.par,
     }));
     const fournitures: fx.LigneFourniture[] = (parFourn.get(c.id) ?? []).map(versLigneFourniture);
-    const tissuLignes: fx.LigneTissu[] = (parTissu.get(c.id) ?? []).map(versLigneTissu);
+    const tissuLignes: fx.LigneTissu[] = parTissu.get(c.id) ?? [];
     const l = parLanc.get(c.id);
     const lancement: fx.Lancement | null = l
       ? {
@@ -252,12 +246,17 @@ export async function listPreparation(): Promise<PreparationRow[]> {
      * propre à la ligne : ce sont des travaux par commande, pas des achats. */
     const source = porteur ?? c;
     const fournituresEff = porteur ? (parFourn.get(porteur.id) ?? []).map(versLigneFourniture) : fournitures;
-    const tissuLignesEff = porteur ? (parTissu.get(porteur.id) ?? []).map(versLigneTissu) : tissuLignes;
+    const tissuLignesEff = porteur ? (parTissu.get(porteur.id) ?? []) : tissuLignes;
+    // Magasin par lots : les champs historiques se déduisent des lots affectés.
+    const lotsSynthese = fx.syntheseLots(tissuLignesEff);
+    const tissuRecuEff = lotsSynthese ? lotsSynthese.recu : source.tissuRecu;
+    const tissuDateEff = lotsSynthese ? lotsSynthese.dateReelle || null : source.tissuDateReelle;
+    const tissuControleEff = lotsSynthese ? lotsSynthese.controle : source.tissuControle;
     const commandeFacts = {
       ...c,
-      tissuRecu: source.tissuRecu,
-      tissuDateReelle: source.tissuDateReelle,
-      tissuControle: source.tissuControle,
+      tissuRecu: tissuRecuEff,
+      tissuDateReelle: tissuDateEff,
+      tissuControle: tissuControleEff,
       tissuLibere: source.tissuLibere,
       statutGlobalFournitures: source.fournituresStatut,
       /* Le besoin se juge sur ce que le porteur doit couvrir, sinon un membre
@@ -305,15 +304,15 @@ export async function listPreparation(): Promise<PreparationRow[]> {
        * pour la référence, pas pour l'OF. Sur une ligne autonome, la quantité
        * du groupe est la sienne — le chiffre ne change pas. */
       besoinTissu: biz.besoinTissu(c, chuteDefaut, qteGroupe),
-      ecartTissu: biz.ecartTissu(c, chuteDefaut, qteGroupe),
+      ecartTissu: biz.ecartTissu({ ...c, tissuRecu: tissuRecuEff }, chuteDefaut, qteGroupe),
       ecartConsoPct: fx.ecartConsommationPct(c),
 
       /* Ce que la ligne AFFICHE en matière est ce que son porteur a saisi :
        * un membre dont la case serait vide donnerait à croire que rien n'est
        * arrivé, et quelqu'un ressaisirait la même réception. */
-      tissuRecu: source.tissuRecu,
-      tissuDateReelle: iso(source.tissuDateReelle),
-      tissuControle: source.tissuControle,
+      tissuRecu: tissuRecuEff,
+      tissuDateReelle: iso(tissuDateEff),
+      tissuControle: tissuControleEff,
       tissuNote: source.tissuNote,
 
       fournituresStatut: source.fournituresStatut,
@@ -573,9 +572,11 @@ export async function ajouterLigneDepuisCatalogue(commandeId: number, catalogueI
   });
 }
 
+export type ChampLigneFourniture = "designation" | "qtePrevue" | "qteRecue" | "unite" | "origine" | "fournisseur";
+
 export async function majLigneFourniture(
   ligneId: number,
-  champ: "designation" | "qtePrevue" | "qteRecue" | "unite",
+  champ: ChampLigneFourniture,
   valeur: string,
   auteur: Auteur,
 ) {
@@ -583,16 +584,26 @@ export async function majLigneFourniture(
     const [l] = await tx.select().from(commandeFournitureLigne).where(eq(commandeFournitureLigne.id, ligneId));
     if (!l) throw new Error("Ligne introuvable");
     const numerique = champ === "qtePrevue" || champ === "qteRecue";
-    const nouvelle = numerique ? Math.max(0, Number(valeur.replace(",", ".")) || 0) : valeur;
+    const nouvelle = numerique
+      ? Math.max(0, Number(valeur.replace(",", ".")) || 0)
+      : champ === "origine"
+        ? (valeur === "dbs" ? "dbs" : "client")
+        : valeur;
     const avant = l[champ];
     if (String(avant) === String(nouvelle)) return;
 
+    /* Corriger à la main le prévu d'une ligne calculée la détache de la
+     * nomenclature : sinon le prochain recalcul écraserait la correction. */
+    const detache = champ === "qtePrevue" && l.nomenclatureId != null;
     await tx
       .update(commandeFournitureLigne)
-      .set({ [champ]: nouvelle })
+      .set(detache ? { qtePrevue: nouvelle as number, nomenclatureId: null } : { [champ]: nouvelle })
       .where(eq(commandeFournitureLigne.id, ligneId));
 
-    const lbl = { designation: "désignation", qtePrevue: "quantité prévue", qteRecue: "quantité reçue", unite: "unité" }[champ];
+    const lbl = {
+      designation: "désignation", qtePrevue: "quantité prévue", qteRecue: "quantité reçue", unite: "unité",
+      origine: "origine", fournisseur: "fournisseur",
+    }[champ];
     await log(tx, l.commandeId, auteur, "four", `${l.designation || "Ligne sans désignation"} — ${lbl}`, {
       avant, apres: nouvelle,
     });
@@ -610,95 +621,15 @@ export async function supprimerLigneFourniture(ligneId: number, auteur: Auteur) 
   });
 }
 
-/* ── tissu (détail par matière) ── */
-
-export async function ajouterLigneTissu(commandeId: number, auteur: Auteur) {
-  return db.transaction(async (tx) => {
-    await tx.insert(commandeTissuLigne).values({ commandeId });
-    await log(tx, commandeId, auteur, "tissu", "Matière ajoutée", { apres: "nouvelle matière" });
-  });
-}
-
-export type ChampLigneTissu =
-  | "nom"
-  | "reference"
-  | "couleur"
-  | "laize"
-  | "metragePrevu"
-  | "metrageRecu"
-  | "controle"
-  | "note";
-
-const CHAMPS_LIGNE_TISSU: Record<ChampLigneTissu, { label: string; type: "text" | "number" | "enum" }> = {
-  nom: { label: "matière", type: "text" },
-  reference: { label: "référence", type: "text" },
-  couleur: { label: "couleur", type: "text" },
-  laize: { label: "laize (cm)", type: "number" },
-  metragePrevu: { label: "métrage prévu", type: "number" },
-  metrageRecu: { label: "métrage reçu", type: "number" },
-  controle: { label: "contrôle qualité", type: "enum" },
-  note: { label: "note", type: "text" },
-};
-
-/** Le feu tissu et le drapeau `tissuLibere` de la commande sont recalculés à
- * chaque écriture de matière : dès qu'il existe des lignes de détail, ce sont
- * elles qui libèrent (ou non) la coupe, exactement comme le contrôle mono le
- * faisait sur la commande. */
-async function recalculerTissuLibere(tx: Tx, commandeId: number) {
-  const lignes = await tx.select().from(commandeTissuLigne).where(eq(commandeTissuLigne.commandeId, commandeId));
-  const libere = fx.tissuLibereParLignes(
-    lignes.map((l) => ({
-      id: l.id, nom: l.nom, reference: l.reference, couleur: l.couleur, laize: l.laize,
-      metragePrevu: l.metragePrevu, metrageRecu: l.metrageRecu, controle: l.controle, note: l.note,
-    })),
-  );
-  await tx.update(commande).set({ tissuLibere: libere, updatedAt: new Date() }).where(eq(commande.id, commandeId));
-}
-
-export async function majLigneTissu(ligneId: number, champ: ChampLigneTissu, valeur: string, auteur: Auteur) {
-  const cfg = CHAMPS_LIGNE_TISSU[champ];
-  return db.transaction(async (tx) => {
-    const [l] = await tx.select().from(commandeTissuLigne).where(eq(commandeTissuLigne.id, ligneId));
-    if (!l) throw new Error("Matière introuvable");
-
-    let nouvelle: string | number | null;
-    if (cfg.type === "number") {
-      if (valeur === "") nouvelle = champ === "laize" ? null : 0;
-      else {
-        const n = Number(valeur.replace(",", "."));
-        if (!Number.isFinite(n) || n < 0) throw new Error("Valeur invalide");
-        nouvelle = n;
-      }
-    } else {
-      nouvelle = valeur;
-    }
-
-    const avant = l[champ];
-    if (String(avant ?? "") === String(nouvelle ?? "")) return;
-
-    await tx.update(commandeTissuLigne).set({ [champ]: nouvelle }).where(eq(commandeTissuLigne.id, ligneId));
-
-    const action = champ === "controle" ? "Contrôle tissu" : `Modification matière — ${cfg.label}`;
-    const lisible = (v: unknown) =>
-      champ === "controle" ? (CONTROLE_LABEL[String(v ?? "")] ?? String(v ?? "")) : v;
-    await log(tx, l.commandeId, auteur, "tissu", `${l.nom || "Matière"} — ${action}`, {
-      avant: lisible(avant) as string,
-      apres: lisible(nouvelle) as string,
-    });
-
-    if (champ === "controle") await recalculerTissuLibere(tx, l.commandeId);
-  });
-}
-
-export async function supprimerLigneTissu(ligneId: number, auteur: Auteur) {
-  return db.transaction(async (tx) => {
-    const [l] = await tx.select().from(commandeTissuLigne).where(eq(commandeTissuLigne.id, ligneId));
-    if (!l) return;
-    await tx.delete(commandeTissuLigne).where(eq(commandeTissuLigne.id, ligneId));
-    await log(tx, l.commandeId, auteur, "tissu", "Matière retirée", { avant: l.nom || "matière sans nom" });
-    await recalculerTissuLibere(tx, l.commandeId);
-  });
-}
+/* Le détail tissu par matière (ajouterLigneTissu / majLigneTissu /
+ * supprimerLigneTissu, sur `commande_tissu_ligne`) a été retiré en migration
+ * 0034 : ces actions n'étaient plus appelées depuis aucun écran (la saisie du
+ * détail matière se fait désormais dans le magasin tissu par lots), et la
+ * table qu'elles écrivaient est supprimée. La lecture du feu tissu par
+ * matière (`tissuLignes`, plus haut) vit maintenant côté magasin tissu, voir
+ * `ligneTissuParCommandes` dans lib/services/tissu.ts — c'est elle qui doit
+ * tenir `commande.tissuLibere` à jour désormais (recalculée depuis les
+ * affectations/lots dans lib/actions/tissu.ts). */
 
 /* ── lancement ── */
 

@@ -3,6 +3,7 @@ import { asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { commande, tissuAffectation, tissuLot, tissuMouvement, tissuReception } from "@/lib/db/schema";
 import * as tx from "@/lib/domain/tissu";
+import type { LigneTissu } from "@/lib/domain/feux";
 
 /* Magasin tissu — lecture. Toute la lecture passe par les mouvements et les
  * affectations : on ne stocke jamais un « disponible » en dur (voir domaine). */
@@ -44,6 +45,15 @@ export type LotRow = {
   nbRouleaux: number | null;
   controle: string;
   note: string;
+  /** Client (donneur d'ordre) et BL du bon de réception. */
+  client: string;
+  blClient: string;
+  quantiteAnnoncee: number | null;
+  laizeAnnoncee: number | null;
+  defauts: string;
+  rouleaux: tx.RouleauControle[];
+  /** Écarts contre le BL client : manque, laize, défauts → réclamation. */
+  ecarts: tx.EcartsReception;
   bilan: tx.BilanLot;
   statut: tx.StatutLot;
   affectations: AffectationRow[];
@@ -56,6 +66,7 @@ export type ReceptionRow = {
   date: string;
   fournisseur: string;
   client: string;
+  blClient: string;
   observations: string;
   piecesJointes: string[];
   createdBy: string;
@@ -93,9 +104,15 @@ export async function listLots(): Promise<LotRow[]> {
       nbRouleaux: tissuLot.nbRouleaux,
       controle: tissuLot.controle,
       note: tissuLot.note,
+      quantiteAnnoncee: tissuLot.quantiteAnnoncee,
+      laizeAnnoncee: tissuLot.laizeAnnoncee,
+      defauts: tissuLot.defauts,
+      rouleaux: tissuLot.rouleaux,
       receptionNumero: tissuReception.numero,
       receptionDate: tissuReception.date,
       fournisseur: tissuReception.fournisseur,
+      client: tissuReception.client,
+      blClient: tissuReception.blClient,
     })
     .from(tissuLot)
     .leftJoin(tissuReception, eq(tissuLot.receptionId, tissuReception.id))
@@ -132,6 +149,13 @@ export async function listLots(): Promise<LotRow[]> {
       nbRouleaux: l.nbRouleaux,
       controle: l.controle,
       note: l.note,
+      client: l.client ?? "",
+      blClient: l.blClient ?? "",
+      quantiteAnnoncee: l.quantiteAnnoncee,
+      laizeAnnoncee: l.laizeAnnoncee,
+      defauts: l.defauts,
+      rouleaux: l.rouleaux ?? [],
+      ecarts: tx.ecartsReception({ ...l, rouleaux: l.rouleaux ?? [] }),
       bilan,
       statut: tx.statutLot(bilan),
       affectations: a.map((x) => ({
@@ -169,6 +193,7 @@ export async function listReceptions(): Promise<ReceptionRow[]> {
     date: dISO(r.date),
     fournisseur: r.fournisseur,
     client: r.client,
+    blClient: r.blClient,
     observations: r.observations,
     piecesJointes: r.piecesJointes ? r.piecesJointes.split(",").filter(Boolean) : [],
     createdBy: r.createdBy,
@@ -270,6 +295,83 @@ export async function couvertureTissuParCommande(): Promise<Map<number, Couvertu
   for (const m of mvts) {
     if (m.commandeId == null || m.sens !== "sortie") continue;
     get(m.commandeId).consomme += m.quantite;
+  }
+  return out;
+}
+
+/* ─────────── détail par matière pour la préparation / direction technique ───
+ *
+ * Remplace l'ancien `commande_tissu_ligne` (supprimé en migration 0034) : une
+ * « matière » d'une commande, désormais, ce sont les LOTS qui lui ont été
+ * affectés — le lot porte déjà référence, couleur, laize et son propre
+ * contrôle qualité, exactement l'information qu'il fallait avant saisir à la
+ * main par ligne. Un même lot affecté en plusieurs fois à une commande (reste
+ * réaffecté…) ne compte qu'une seule ligne, quantités cumulées.
+ *
+ * Il n'existe plus de « métrage prévu » distinct au niveau de la commande dans
+ * le modèle par lots (le besoin théorique se calcule par ailleurs, depuis la
+ * nomenclature) : on porte donc le métrage affecté des deux côtés, pour ne
+ * jamais afficher un faux manque là où rien n'a jamais été promis. */
+export async function ligneTissuParCommandes(commandeIds: number[]): Promise<Map<number, LigneTissu[]>> {
+  const out = new Map<number, LigneTissu[]>();
+  if (!commandeIds.length) return out;
+
+  const rows = await db
+    .select({
+      commandeId: tissuAffectation.commandeId,
+      lotId: tissuLot.id,
+      identifiant: tissuLot.identifiant,
+      reference: tissuLot.reference,
+      couleur: tissuLot.couleur,
+      laize: tissuLot.laize,
+      controle: tissuLot.controle,
+      lotNote: tissuLot.note,
+      quantite: tissuAffectation.quantite,
+      affNote: tissuAffectation.note,
+      dateReception: tissuReception.date,
+    })
+    .from(tissuAffectation)
+    .innerJoin(tissuLot, eq(tissuAffectation.lotId, tissuLot.id))
+    .leftJoin(tissuReception, eq(tissuLot.receptionId, tissuReception.id))
+    .where(inArray(tissuAffectation.commandeId, commandeIds));
+
+  type Accum = { id: number; nom: string; reference: string; couleur: string; laize: number | null; controle: string; quantite: number; notes: Set<string>; dateReception: string };
+  const parCommande = new Map<number, Map<number, Accum>>();
+  for (const r of rows) {
+    if (r.commandeId == null) continue;
+    let parLot = parCommande.get(r.commandeId);
+    if (!parLot) {
+      parLot = new Map();
+      parCommande.set(r.commandeId, parLot);
+    }
+    let acc = parLot.get(r.lotId);
+    if (!acc) {
+      acc = { id: r.lotId, nom: r.identifiant || "Matière", reference: r.reference, couleur: r.couleur, laize: r.laize, controle: r.controle, quantite: 0, notes: new Set(), dateReception: r.dateReception ?? "" };
+      if (r.lotNote) acc.notes.add(r.lotNote);
+      parLot.set(r.lotId, acc);
+    }
+    acc.quantite += r.quantite;
+    if (r.affNote) acc.notes.add(r.affNote);
+  }
+
+  for (const [commandeId, parLot] of parCommande) {
+    out.set(
+      commandeId,
+      [...parLot.values()]
+        .sort((a, b) => a.nom.localeCompare(b.nom, "fr"))
+        .map((a) => ({
+          id: a.id,
+          nom: a.nom,
+          reference: a.reference,
+          couleur: a.couleur,
+          laize: a.laize,
+          metragePrevu: a.quantite,
+          metrageRecu: a.quantite,
+          controle: a.controle,
+          note: [...a.notes].join(" — "),
+          dateReception: a.dateReception,
+        })),
+    );
   }
   return out;
 }

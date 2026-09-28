@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   bl,
@@ -13,9 +13,11 @@ import {
   facture,
   factureLigne,
   magasinMouvement,
+  qcInspection,
 } from "@/lib/db/schema";
 import * as av from "@/lib/domain/aval";
 import * as biz from "@/lib/domain/commande";
+import { conditionEntreeStock, productionGpaoParCommande, recalculerProduit } from "@/lib/services/avancement";
 
 /* ─────────── recalcul des compteurs ───────────
  * Les compteurs de la commande sont la somme de ses mouvements. Toute écriture
@@ -32,29 +34,47 @@ async function recalculerCommande(tx: Tx, commandeId: number) {
     .select({ coupeQte: sql<number>`coalesce(sum(${coupe.qte}), 0)::int` })
     .from(coupe)
     .where(eq(coupe.commandeId, commandeId));
-  const [{ produit }] = await tx
-    .select({ produit: sql<number>`coalesce(sum(${br.qteOk}), 0)::int` })
-    .from(br)
-    .where(eq(br.commandeId, commandeId));
+  // Le rebut n'entre pas au stock : seules les entrées réelles comptent.
   const [{ magasinQte }] = await tx
     .select({ magasinQte: sql<number>`coalesce(sum(${magasinMouvement.qte}), 0)::int` })
     .from(magasinMouvement)
-    .where(eq(magasinMouvement.commandeId, commandeId));
+    .where(conditionEntreeStock(commandeId));
 
-  const patch: Record<string, unknown> = {
-    coupeQte,
-    // La production est plafonnée à la quantité commandée : un surplus reçu ne
-    // fait pas dépasser 100 % d'avancement.
-    produit: Math.min(produit, c.qte),
-    magasinQte,
-    updatedAt: new Date(),
-  };
+  const patch: Record<string, unknown> = { coupeQte, magasinQte, updatedAt: new Date() };
   // Un stock retombé à zéro annule la préparation : on ne prépare pas du vide.
   if (magasinQte <= 0) {
     patch.magasinPrepare = false;
     patch.magasinExpedie = false;
   }
   await tx.update(commande).set(patch).where(eq(commande.id, commandeId));
+  /* `produit` n'est plus calculé ici sur les seuls BR (ce qui remettait à 0
+   * toute production interne) : formule unique, partagée avec la GPAO. */
+  await recalculerProduit(tx, commandeId);
+}
+
+/** Pièces parties sur des BL envoyés ou facturés, par commande. */
+async function expeditionsParCommande(ex: Pick<typeof db, "select"> = db): Promise<Map<number, number>> {
+  const rows = await ex
+    .select({ commandeId: blLigne.commandeId, qte: sql<number>`coalesce(sum(${blLigne.qteLivree}), 0)::int` })
+    .from(blLigne)
+    .innerJoin(bl, eq(blLigne.blId, bl.id))
+    .where(inArray(bl.statut, ["sent", "invoiced"]))
+    .groupBy(blLigne.commandeId);
+  const m = new Map<number, number>();
+  for (const r of rows) if (r.commandeId != null) m.set(r.commandeId, r.qte);
+  return m;
+}
+
+/** Refuse une suppression qui ferait passer le stock sous ce qui est déjà expédié. */
+async function verifierStockApresRetrait(tx: Tx, commandeId: number, retrait: number) {
+  const [c] = await tx.select({ magasinQte: commande.magasinQte }).from(commande).where(eq(commande.id, commandeId));
+  const expedie = (await expeditionsParCommande(tx)).get(commandeId) ?? 0;
+  if (c && c.magasinQte - retrait < expedie) {
+    throw new Error(
+      `Impossible : ${expedie} pièce(s) de cette commande sont déjà parties sur un bon de livraison envoyé. ` +
+        `Le stock ne peut pas descendre en dessous.`,
+    );
+  }
 }
 
 /* ─────────── lectures ─────────── */
@@ -91,7 +111,23 @@ export type CommandeAval = {
   archived: boolean;
   livrable: number;
   etatMagasin: av.EtatMagasin;
+  /** Pièces parties sur des BL envoyés / facturés. */
+  expedieQte: number;
+  /** Stock physique = entré − expédié. */
+  stockQte: number;
+  /** Production GPAO (interne) des modèles liés. */
+  produitGpao: number;
+  /** Pièces entrées au stock depuis la production interne. */
+  entreesInternes: number;
+  /** Non conformes reçues des façonniers encore sans décision. */
+  ncAttente: number;
+  /** Dernier contrôle qualité FINAL clôturé : accepte | reserve | refuse | "" (aucun). */
+  qcFinal: string;
 };
+
+/** Faits calculés à côté de la commande (mouvements, BL, GPAO, QC). */
+type FaitsAval = { expedie: number; gpao: number; internes: number; ncAttente: number; qc: string };
+const FAITS_VIDES: FaitsAval = { expedie: 0, gpao: 0, internes: 0, ncAttente: 0, qc: "" };
 
 const iso = (d: string | null) => d ?? "";
 /** CA d'une ligne. `biz.chiffreAffaires` réclame une commande complète ;
@@ -111,8 +147,10 @@ async function commandesBrutes() {
 function versAval(
   r: Awaited<ReturnType<typeof commandesBrutes>>[number],
   qteAffectee = 0,
+  faits: FaitsAval = FAITS_VIDES,
 ): CommandeAval {
   const { c, clientNom, faconnierNom, chaineNom } = r;
+  const flux = { ...c, expedieQte: faits.expedie };
   return {
     id: c.id,
     of: c.ofNumber,
@@ -138,9 +176,57 @@ function versAval(
     magasinPrepare: c.magasinPrepare,
     magasinExpedie: c.magasinExpedie,
     archived: c.archived,
-    livrable: av.quantiteLivrable(c),
-    etatMagasin: av.etatMagasin(c),
+    livrable: av.quantiteLivrable(flux),
+    etatMagasin: av.etatMagasin(flux),
+    expedieQte: faits.expedie,
+    stockQte: av.stockPhysique(flux),
+    produitGpao: faits.gpao,
+    entreesInternes: faits.internes,
+    ncAttente: faits.ncAttente,
+    qcFinal: faits.qc,
   };
+}
+
+/** Tous les faits aval, en quelques requêtes pour toute la liste. */
+async function faitsAval(): Promise<Map<number, FaitsAval>> {
+  const [expedie, gpao, mouvements, brs, qcs] = await Promise.all([
+    expeditionsParCommande(),
+    productionGpaoParCommande(),
+    db
+      .select({ commandeId: magasinMouvement.commandeId, origine: magasinMouvement.origine, qte: sql<number>`coalesce(sum(${magasinMouvement.qte}), 0)::int` })
+      .from(magasinMouvement)
+      .groupBy(magasinMouvement.commandeId, magasinMouvement.origine),
+    db.select({ commandeId: br.commandeId, nc: sql<number>`coalesce(sum(${br.qteNc}), 0)::int` }).from(br).groupBy(br.commandeId),
+    db
+      .select({ commandeId: qcInspection.commandeId, verdict: qcInspection.verdictCloture, date: qcInspection.dateCloture, id: qcInspection.id })
+      .from(qcInspection)
+      .where(and(eq(qcInspection.typeControle, "final"), eq(qcInspection.statut, "cloture"))),
+  ]);
+  const out = new Map<number, FaitsAval>();
+  const get = (id: number) => {
+    let f = out.get(id);
+    if (!f) out.set(id, (f = { ...FAITS_VIDES }));
+    return f;
+  };
+  for (const [id, q] of expedie) get(id).expedie = q;
+  for (const [id, q] of gpao) get(id).gpao = q;
+  for (const b of brs) get(b.commandeId).ncAttente += b.nc;
+  for (const m of mouvements) {
+    const f = get(m.commandeId);
+    if (m.origine === "interne") f.internes += m.qte;
+    if (m.origine === "retouche" || m.origine === "rebut") f.ncAttente -= m.qte;
+  }
+  for (const f of out.values()) f.ncAttente = Math.max(0, f.ncAttente);
+  // Dernier contrôle final clôturé de chaque commande.
+  const dernier = new Map<number, { verdict: string; cle: string }>();
+  for (const q of qcs) {
+    if (q.commandeId == null) continue;
+    const cle = `${q.date ?? ""}#${String(q.id).padStart(8, "0")}`;
+    const d = dernier.get(q.commandeId);
+    if (!d || cle > d.cle) dernier.set(q.commandeId, { verdict: q.verdict, cle });
+  }
+  for (const [id, d] of dernier) get(id).qc = d.verdict;
+  return out;
 }
 
 export async function listCommandesAval(opts: { archived?: boolean } = {}): Promise<CommandeAval[]> {
@@ -152,9 +238,10 @@ export async function listCommandesAval(opts: { archived?: boolean } = {}): Prom
     if (c.parentId == null) continue;
     affectee.set(c.parentId, (affectee.get(c.parentId) ?? 0) + c.qte);
   }
+  const faits = await faitsAval();
   return rows
     .filter(({ c }) => (opts.archived === undefined ? true : c.archived === opts.archived))
-    .map((r) => versAval(r, affectee.get(r.c.id) ?? 0));
+    .map((r) => versAval(r, affectee.get(r.c.id) ?? 0, faits.get(r.c.id)));
 }
 
 export type BrRow = {
@@ -171,20 +258,89 @@ export type BrRow = {
   qteNc: number;
   controle: string;
   note: string;
+  /** Non conformes déjà traitées (retouchées ou rebutées). */
+  ncRetouchees: number;
+  ncRebut: number;
+  ncAttente: number;
 };
 
 export async function listBr(): Promise<BrRow[]> {
+  const traitements = await db
+    .select({ brId: magasinMouvement.brId, origine: magasinMouvement.origine, qte: sql<number>`coalesce(sum(${magasinMouvement.qte}), 0)::int` })
+    .from(magasinMouvement)
+    .where(inArray(magasinMouvement.origine, ["retouche", "rebut"]))
+    .groupBy(magasinMouvement.brId, magasinMouvement.origine);
+  const parBr = new Map<number, { retouche: number; rebut: number }>();
+  for (const t of traitements) {
+    if (t.brId == null) continue;
+    const e = parBr.get(t.brId) ?? { retouche: 0, rebut: 0 };
+    if (t.origine === "retouche") e.retouche += t.qte;
+    else e.rebut += t.qte;
+    parBr.set(t.brId, e);
+  }
   const rows = await db
     .select({ b: br, of: commande.ofNumber, modele: commande.modele, clientNom: client.nom })
     .from(br)
     .leftJoin(commande, eq(br.commandeId, commande.id))
     .leftJoin(client, eq(commande.clientId, client.id))
     .orderBy(desc(br.date), desc(br.id));
-  return rows.map(({ b, of, modele, clientNom }) => ({
-    id: b.id, numero: b.numero, date: b.date, commandeId: b.commandeId,
-    of: of ?? "", modele: modele ?? "", client: clientNom ?? "", faconnier: b.faconnier,
-    qteRecue: b.qteRecue, qteOk: b.qteOk, qteNc: b.qteNc, controle: b.controle, note: b.note,
-  }));
+  return rows.map(({ b, of, modele, clientNom }) => {
+    const t = parBr.get(b.id) ?? { retouche: 0, rebut: 0 };
+    return {
+      id: b.id, numero: b.numero, date: b.date, commandeId: b.commandeId,
+      of: of ?? "", modele: modele ?? "", client: clientNom ?? "", faconnier: b.faconnier,
+      qteRecue: b.qteRecue, qteOk: b.qteOk, qteNc: b.qteNc, controle: b.controle, note: b.note,
+      ncRetouchees: t.retouche, ncRebut: t.rebut, ncAttente: av.ncEnAttente(b.qteNc, t.retouche + t.rebut),
+    };
+  });
+}
+
+/* ─────────── journal des mouvements (entrées, NC, sorties BL) ─────────── */
+
+export type MouvementRow = {
+  cle: string;
+  date: string;
+  sens: "entree" | "sortie" | "rebut";
+  type: string;
+  document: string;
+  commandeId: number | null;
+  of: string;
+  modele: string;
+  client: string;
+  qte: number;
+  note: string;
+};
+
+export async function listMouvements(): Promise<MouvementRow[]> {
+  const [mvts, sorties] = await Promise.all([
+    db
+      .select({ m: magasinMouvement, of: commande.ofNumber, modele: commande.modele, clientNom: client.nom, brNumero: br.numero })
+      .from(magasinMouvement)
+      .leftJoin(commande, eq(magasinMouvement.commandeId, commande.id))
+      .leftJoin(client, eq(commande.clientId, client.id))
+      .leftJoin(br, eq(magasinMouvement.brId, br.id)),
+    db
+      .select({ l: blLigne, numero: bl.numero, date: bl.date, statut: bl.statut, clientNom: bl.clientNom })
+      .from(blLigne)
+      .innerJoin(bl, eq(blLigne.blId, bl.id))
+      .where(inArray(bl.statut, ["sent", "invoiced"])),
+  ]);
+  const out: MouvementRow[] = [];
+  for (const { m, of, modele, clientNom, brNumero } of mvts) {
+    const o = av.ORIGINES_MOUVEMENT[m.origine as av.OrigineMouvement] ?? av.ORIGINES_MOUVEMENT.interne;
+    out.push({
+      cle: `m${m.id}`, date: m.date, sens: o.entreStock ? "entree" : "rebut", type: o.label,
+      document: brNumero ?? "", commandeId: m.commandeId, of: of ?? "", modele: modele ?? "",
+      client: clientNom ?? "", qte: m.qte, note: m.note,
+    });
+  }
+  for (const { l, numero, date, clientNom } of sorties) {
+    out.push({
+      cle: `l${l.id}`, date, sens: "sortie", type: "Expédition (BL)", document: numero,
+      commandeId: l.commandeId, of: l.of, modele: l.modele, client: clientNom, qte: l.qteLivree, note: "",
+    });
+  }
+  return out.sort((a, b) => b.date.localeCompare(a.date) || b.cle.localeCompare(a.cle));
 }
 
 export type BlLigneRow = {
@@ -330,6 +486,12 @@ export async function supprimerBr(id: number) {
   return db.transaction(async (tx) => {
     const [b] = await tx.select().from(br).where(eq(br.id, id));
     if (!b) return;
+    // Retire l'entrée du BR et les NC réintégrées qui en dépendent.
+    const [{ retire }] = await tx
+      .select({ retire: sql<number>`coalesce(sum(${magasinMouvement.qte}), 0)::int` })
+      .from(magasinMouvement)
+      .where(and(eq(magasinMouvement.brId, id), inArray(magasinMouvement.origine, ["br", "retouche"])));
+    await verifierStockApresRetrait(tx, b.commandeId, retire);
     // Le mouvement de stock part en cascade ; le recalcul rétablit les compteurs.
     await tx.delete(br).where(eq(br.id, id));
     await recalculerCommande(tx, b.commandeId);
@@ -374,8 +536,32 @@ export async function supprimerMouvementMagasin(id: number) {
   return db.transaction(async (tx) => {
     const [m] = await tx.select().from(magasinMouvement).where(eq(magasinMouvement.id, id));
     if (!m) return;
+    if (m.origine === "br") throw new Error("Cette entrée vient d'un bon de réception : supprimez le BR lui-même.");
+    if (m.origine !== "rebut") await verifierStockApresRetrait(tx, m.commandeId, m.qte);
     await tx.delete(magasinMouvement).where(eq(magasinMouvement.id, id));
     await recalculerCommande(tx, m.commandeId);
+  });
+}
+
+/** Décision sur des non conformes d'un BR : réintégrées au stock après
+ * retouche (elles comptent alors comme produites), ou mises au rebut. */
+export async function traiterNc(v: { brId: number; decision: "retouche" | "rebut"; qte: number; date: string; note: string }) {
+  return db.transaction(async (tx) => {
+    const [b] = await tx.select().from(br).where(eq(br.id, v.brId));
+    if (!b) throw new Error("Bon de réception introuvable");
+    const [{ deja }] = await tx
+      .select({ deja: sql<number>`coalesce(sum(${magasinMouvement.qte}), 0)::int` })
+      .from(magasinMouvement)
+      .where(and(eq(magasinMouvement.brId, v.brId), inArray(magasinMouvement.origine, ["retouche", "rebut"])));
+    const reste = av.ncEnAttente(b.qteNc, deja);
+    if (v.qte <= 0) throw new Error("Quantité invalide");
+    if (v.qte > reste) throw new Error(`Il ne reste que ${reste} pièce(s) non conforme(s) en attente sur ${b.numero}.`);
+    await tx.insert(magasinMouvement).values({
+      commandeId: b.commandeId, date: v.date, qte: v.qte, origine: v.decision, brId: b.id,
+      note: v.note || (v.decision === "retouche" ? `NC ${b.numero} retouchées` : `NC ${b.numero} au rebut`),
+    });
+    await recalculerCommande(tx, b.commandeId);
+    return { numero: b.numero, reste: reste - v.qte };
   });
 }
 
@@ -437,6 +623,17 @@ export async function creerBl(v: {
         };
       });
     if (!lignes.length) throw new Error("Sélectionnez au moins une commande");
+    /* On ne livre pas plus que le stock physique d'une commande qui passe par
+     * le magasin (entré − déjà parti sur des BL envoyés). */
+    const expedie = await expeditionsParCommande(tx);
+    for (const l of lignes) {
+      const c = parId.get(l.commandeId!)!;
+      if (c.magasinQte <= 0) continue;
+      const stock = av.stockPhysique({ magasinQte: c.magasinQte, expedieQte: expedie.get(c.id) ?? 0 });
+      if (l.qteLivree > stock) {
+        throw new Error(`${c.ofNumber} : ${l.qteLivree} pcs demandées mais seulement ${stock} en stock au magasin.`);
+      }
+    }
     await tx.insert(blLigne).values(lignes);
 
     // Émettre un BL marque les commandes concernées comme préparées.
@@ -451,21 +648,42 @@ export async function creerBl(v: {
 
 export async function majStatutBl(id: number, statut: string) {
   await db.update(bl).set({ statut }).where(eq(bl.id, id));
-  // Un BL envoyé vaut expédition des commandes qu'il porte.
-  if (statut === "sent" || statut === "invoiced") {
-    const lignes = await db.select({ commandeId: blLigne.commandeId }).from(blLigne).where(eq(blLigne.blId, id));
-    const ids = lignes.map((l) => l.commandeId).filter((x): x is number => x !== null);
-    if (ids.length) {
+  /* Un BL envoyé fait partir ses pièces du stock. La commande n'est dite
+   * « expédiée » que quand le cumul des BL envoyés couvre toute sa quantité :
+   * on peut livrer en plusieurs fois (avant, le premier BL soldait tout). */
+  const lignes = await db.select({ commandeId: blLigne.commandeId }).from(blLigne).where(eq(blLigne.blId, id));
+  const ids = [...new Set(lignes.map((l) => l.commandeId).filter((x): x is number => x !== null))];
+  if (!ids.length) return;
+  const expedie = await expeditionsParCommande();
+  const commandes = await db.select({ id: commande.id, qte: commande.qte, magasinExpedie: commande.magasinExpedie }).from(commande).where(inArray(commande.id, ids));
+  for (const c of commandes) {
+    const complete = av.livraisonComplete(c.qte, expedie.get(c.id) ?? 0);
+    if (complete && !c.magasinExpedie) {
       await db
         .update(commande)
         .set({ magasinExpedie: true, magasinPrepare: true, statutLog: "expedie", dateLivraison: biz.todayISO(), updatedAt: new Date() })
-        .where(inArray(commande.id, ids));
+        .where(eq(commande.id, c.id));
+    } else if (!complete && c.magasinExpedie && statut === "draft") {
+      // BL repassé en brouillon : la commande n'est plus entièrement partie.
+      await db.update(commande).set({ magasinExpedie: false, statutLog: "pret", dateLivraison: null, updatedAt: new Date() }).where(eq(commande.id, c.id));
     }
   }
 }
 
 export async function supprimerBl(id: number) {
+  const lignes = await db.select({ commandeId: blLigne.commandeId }).from(blLigne).where(eq(blLigne.blId, id));
   await db.delete(bl).where(eq(bl.id, id));
+  // Les pièces de ce BL reviennent au stock : une commande qui n'est plus
+  // entièrement livrée repasse « à expédier ».
+  const ids = [...new Set(lignes.map((l) => l.commandeId).filter((x): x is number => x !== null))];
+  if (!ids.length) return;
+  const expedie = await expeditionsParCommande();
+  const commandes = await db.select({ id: commande.id, qte: commande.qte, magasinExpedie: commande.magasinExpedie }).from(commande).where(inArray(commande.id, ids));
+  for (const c of commandes) {
+    if (c.magasinExpedie && !av.livraisonComplete(c.qte, expedie.get(c.id) ?? 0)) {
+      await db.update(commande).set({ magasinExpedie: false, statutLog: "pret", dateLivraison: null, updatedAt: new Date() }).where(eq(commande.id, c.id));
+    }
+  }
 }
 
 /* ─────────── rapprochement facturation ─────────── */
@@ -670,4 +888,28 @@ export async function getPlanFaconnier(): Promise<PlanFaconnierData> {
 
 export async function majStatutLogistique(commandeId: number, statut: string) {
   await db.update(commande).set({ statutLog: statut, updatedAt: new Date() }).where(eq(commande.id, commandeId));
+}
+
+/** Bon de réception complet, pour l'impression (document à signer). */
+export async function getBrImpression(id: number) {
+  const [row] = await db
+    .select({ b: br, c: commande, clientNom: client.nom })
+    .from(br)
+    .leftJoin(commande, eq(br.commandeId, commande.id))
+    .leftJoin(client, eq(commande.clientId, client.id))
+    .where(eq(br.id, id));
+  if (!row) return null;
+  const tous = await db.select().from(br).where(eq(br.commandeId, row.b.commandeId)).orderBy(asc(br.date), asc(br.id));
+  // Cumul jusqu'à ce bon inclus : où en est la commande après cette réception.
+  const jusque = tous.slice(0, tous.findIndex((x) => x.id === id) + 1);
+  return {
+    br: row.b,
+    commande: row.c,
+    client: row.clientNom ?? "",
+    cumulRecu: jusque.reduce((s, x) => s + x.qteRecue, 0),
+    cumulOk: jusque.reduce((s, x) => s + x.qteOk, 0),
+    cumulNc: jusque.reduce((s, x) => s + x.qteNc, 0),
+    rang: jusque.length,
+    total: tous.length,
+  };
 }

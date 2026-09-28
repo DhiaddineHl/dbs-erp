@@ -150,6 +150,12 @@ export async function importerGpao(src: Sauvegarde, r: Rapport) {
       opsSam: reindexer(brut.opsSam, idOuvriere),
       opsPoste: reindexer(brut.opsPoste, idOuvriere),
       opsDetail: reindexer(brut.opsDetail, idOuvriere),
+      /* L'équipe du jour est mémorisée telle que la sauvegarde la donne : sans
+       * elle, la journée afficherait l'équipe ACTUELLE de la chaîne, et une
+       * ouvrière changée de chaîne disparaîtrait de son propre historique. */
+      ouvrieres: ((brut.ouvrieres ?? []) as OuvriereSrc[])
+        .filter((o) => idOuvriere.has(o.id) && r.texte(o.nom))
+        .map((o) => ({ id: idOuvriere.get(o.id)!, nom: r.texte(o.nom), poste: r.texte(o.poste), sam: entier(o.sam, 100), personnelId: null })),
     });
     nbJournees++;
   }

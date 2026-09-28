@@ -6,6 +6,7 @@ import { listFaconniers } from "@/lib/services/commandes";
 import { getRoleModules } from "@/lib/services/permissions";
 import { ECRANS, type EcranId } from "./config";
 import { EcranPreparation } from "./ecran";
+import { NavMagfour } from "../magfour/nav-magfour";
 
 /* Coquille serveur commune aux cinq écrans : charge une fois l'état complet de
  * la préparation, calcule les droits d'écriture du rôle, et laisse la coquille
@@ -32,6 +33,7 @@ export async function PagePreparation({ ecran }: { ecran: EcranId }) {
   return (
     <>
       <PageHeader icon={cfg.Icon} title={cfg.titre} description={cfg.sous} />
+      {ecran === "magfour" && <NavMagfour actif="/magfour" />}
       <EcranPreparation
         ecran={ecran}
         rows={rows}

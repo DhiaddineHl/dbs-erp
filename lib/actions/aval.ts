@@ -14,19 +14,18 @@ const fail = (e: unknown): Result<never> => ({
   error: e instanceof Error ? e.message : "Erreur",
 });
 
-const PRODUCTION = ["admin", "resp", "chef", "magasin"];
 
 async function exigerAval() {
   const user = await assertUser();
   const role = userRole(user);
-  if (role !== "admin" && !PRODUCTION.includes(role)) {
+  if (role !== "admin" && !av.ROLES_SAISIE_MAGASIN.includes(role)) {
     throw new Error("Saisie réservée à la production et au magasin");
   }
   return { id: user.id, name: user.name, role };
 }
 
 function revalider() {
-  for (const p of ["/br", "/magasin", "/bl", "/commandes", "/archives", "/tracabilite", "/prevexport", "/cockpit"]) {
+  for (const p of ["/br", "/magasin", "/bl", "/commandes", "/archives", "/tracabilite", "/prevexport", "/cockpit", "/gpao_prod"]) {
     revalidatePath(p);
   }
 }
@@ -42,14 +41,16 @@ const entier = (v: string | number) => {
 export async function verifierReception(
   commandeId: number,
   qteRecue: number,
-  qteOk: number,
+  qteOk: number | null,
   qteNc: number,
+  controle = "ok",
 ): Promise<Result<av.AlerteReception[]>> {
   try {
     await exigerAval();
     const ctx = await svc.contexteReception(commandeId);
     if (!ctx) return { ok: false, error: "Commande introuvable" };
-    return ok(av.verifierReception({ ...ctx, qteRecue, qteOk, qteNc }));
+    const n = av.normaliserReception({ qteRecue, qteOk, qteNc, controle });
+    return ok(av.verifierReception({ ...ctx, qteRecue: n.qteRecue, qteOk: n.qteOk, qteNc: n.qteNc }));
   } catch (e) {
     return fail(e);
   }
@@ -68,9 +69,16 @@ export async function creerBr(v: {
 }): Promise<Result<{ numero: string; alertes: av.AlerteReception[] }>> {
   try {
     await exigerAval();
-    const qteRecue = entier(v.qteRecue);
-    const qteOk = entier(v.qteOk) || qteRecue;
-    const qteNc = entier(v.qteNc);
+    // « 0 conforme » est une vraie valeur ; un champ vide = reçu − non conforme ;
+    // un lot refusé n'entre pas au stock (lib/domain/aval → normaliserReception).
+    const vide = v.qteOk === "" || v.qteOk === null || v.qteOk === undefined;
+    const n = av.normaliserReception({
+      qteRecue: entier(v.qteRecue),
+      qteOk: vide ? null : entier(v.qteOk),
+      qteNc: entier(v.qteNc),
+      controle: v.controle,
+    });
+    const { qteRecue, qteOk, qteNc } = n;
     if (!v.date) return { ok: false, error: "Renseignez la date de réception" };
     if (qteRecue <= 0) return { ok: false, error: "La quantité reçue doit être supérieure à zéro" };
 
@@ -88,7 +96,7 @@ export async function creerBr(v: {
 
     const r = await svc.creerBr({
       commandeId: v.commandeId, date: v.date, qteRecue, qteOk, qteNc,
-      controle: v.controle, note: v.note ?? "",
+      controle: n.controle, note: v.note ?? "",
     });
     await journaliser("creation", "Réception ST", `${r.numero} — ${qteOk} conformes, ${qteNc} NC`);
     revalider();
@@ -159,6 +167,7 @@ export async function receptionMagasin(v: {
     const qte = entier(v.qte);
     if (qte <= 0) return { ok: false, error: "La quantité reçue doit être supérieure à zéro" };
     await svc.receptionMagasin({ commandeId: v.commandeId, date: v.date, qte, note: v.note ?? "" });
+    await journaliser("creation", "Magasin produits finis", `entrée production interne — commande ${v.commandeId} · ${qte} pcs${v.note ? ` · ${v.note}` : ""}`);
     revalider();
     return ok();
   } catch (e) {
@@ -170,6 +179,7 @@ export async function supprimerMouvementMagasin(id: number): Promise<Result> {
   try {
     await exigerAval();
     await svc.supprimerMouvementMagasin(id);
+    await journaliser("suppression", "Magasin produits finis", `mouvement de stock id ${id}`);
     revalider();
     return ok();
   } catch (e) {
@@ -317,6 +327,32 @@ export async function majStatutLogistique(commandeId: number, statut: string): P
     await svc.majStatutLogistique(commandeId, statut);
     revalider();
     return ok();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── non conformes : retouche ou rebut ─────────── */
+
+export async function traiterNc(v: {
+  brId: number;
+  decision: "retouche" | "rebut";
+  qte: string | number;
+  date?: string;
+  note?: string;
+}): Promise<Result<{ numero: string; reste: number }>> {
+  try {
+    await exigerAval();
+    if (v.decision !== "retouche" && v.decision !== "rebut") return { ok: false, error: "Décision inconnue" };
+    const qte = entier(v.qte);
+    const r = await svc.traiterNc({ brId: v.brId, decision: v.decision, qte, date: v.date || new Date().toISOString().slice(0, 10), note: v.note ?? "" });
+    await journaliser(
+      "modification",
+      "Magasin produits finis",
+      `${r.numero} — ${qte} NC ${v.decision === "retouche" ? "réintégrées après retouche" : "mises au rebut"}`,
+    );
+    revalider();
+    return ok(r);
   } catch (e) {
     return fail(e);
   }

@@ -9,7 +9,7 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { COULEUR_RENDEMENT, SEUIL_ALERTE, niveau } from "@/lib/domain/rendement";
+import { COULEUR_RENDEMENT, niveau } from "@/lib/domain/rendement";
 import { Kpi, Tuiles } from "../aval/ui";
 import { majBasePortail, rattacherOuvrieresManquantes, regenererJetonDirection, supprimerJetonDirection } from "./actions";
 
@@ -30,13 +30,17 @@ export function QrOuvClient({
   base,
   direction,
   peutSaisir,
+  seuilAlerte,
 }: {
   cartes: CarteAffichee[];
   nonRattachees: number;
   base: string;
   direction: { url: string; svg: string } | null;
   peutSaisir: boolean;
+  /** Seuil d'alerte de l'atelier (le même qu'à la TV et sur le portail). */
+  seuilAlerte: number;
 }) {
+  const SEUIL_ALERTE = seuilAlerte;
   const router = useRouter();
   const [adresse, setAdresse] = useState(base);
   const [pending, start] = useTransition();
@@ -209,7 +213,7 @@ export function QrOuvClient({
                   className="mt-1 text-[12px] font-extrabold tabular-nums"
                   style={{ color: n ? COULEUR_RENDEMENT[n] : "#94a3b8" }}
                 >
-                  {c.general === null ? "pas encore mesuré" : `${c.general} %`}
+                  {c.general === null ? "pas encore mesuré" : `${c.general} % · 30 j`}
                 </div>
                 <div className="no-print mt-1.5 text-[9.5px] text-muted-foreground">Scannez pour voir le rendement</div>
               </div>

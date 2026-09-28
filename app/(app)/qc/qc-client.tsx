@@ -6,14 +6,18 @@ import { PageHeader } from "@/components/shared/page-header";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Input } from "@/components/ui/input";
-import { VERDICTS } from "@/lib/domain/qc";
-import type { BaremeRow, ChecklistRow, InspectionRow } from "@/lib/services/qc";
+import { VERDICTS, actionOuverte } from "@/lib/domain/qc";
+import type { OrigineAction } from "@/lib/domain/actions-qualite";
+import type { ActionRegistreRow, BaremeRow, ChecklistRow, InspectionRow } from "@/lib/services/qc";
 import * as A from "@/lib/actions/qc";
 import { BoutonAction } from "./primitives";
 import { Editeur, type CommandeChoix } from "./editeur";
 import { Baremes } from "./baremes";
 import { DashboardQualite } from "./dashboard";
 import { Checklists } from "./checklists";
+import { ActionsRegistre } from "./actions-registre";
+
+export type OngletQc = "insp" | "actions" | "dashboard" | "baremes" | "checklists";
 
 const nb = new Intl.NumberFormat("fr-FR");
 
@@ -22,15 +26,22 @@ export function QcClient({
   baremes,
   checklists,
   commandes,
+  actions,
+  ongletInitial = "insp",
+  origineInitiale = "",
   peutSaisir,
 }: {
   inspections: InspectionRow[];
   baremes: BaremeRow[];
   checklists: ChecklistRow[];
   commandes: CommandeChoix[];
+  actions: ActionRegistreRow[];
+  ongletInitial?: OngletQc;
+  origineInitiale?: "" | OrigineAction;
   peutSaisir: boolean;
 }) {
-  const [onglet, setOnglet] = useState<"insp" | "dashboard" | "baremes" | "checklists">("insp");
+  const [onglet, setOnglet] = useState<OngletQc>(ongletInitial);
+  const actionsOuvertes = useMemo(() => actions.filter((a) => actionOuverte(a.statut)).length, [actions]);
   const [ouverte, setOuverte] = useState<number | null>(null);
   const [q, setQ] = useState("");
 
@@ -61,8 +72,8 @@ export function QcClient({
       <>
         <PageHeader
           icon={ShieldCheck}
-          title="Contrôle Qualité PF"
-          description="Inspection produit fini — échantillonnage AQL, barèmes clients, verdict"
+          title="Qualité & actions"
+          description="Inspections AQL, barèmes clients — et toutes les actions qualité : correctives, QRQC 5M, plans d'actions"
         />
         <Editeur
           insp={courante}
@@ -81,8 +92,8 @@ export function QcClient({
     <>
       <PageHeader
         icon={ShieldCheck}
-        title="Contrôle Qualité PF"
-        description="Inspection produit fini — échantillonnage AQL, barèmes clients, verdict"
+        title="Qualité & actions"
+        description="Inspections AQL, barèmes clients — et toutes les actions qualité : correctives, QRQC 5M, plans d'actions"
         actions={
           peutSaisir &&
           onglet === "insp" && (
@@ -116,6 +127,7 @@ export function QcClient({
         {(
           [
             ["insp", "Inspections"],
+            ["actions", "Actions & QRQC"],
             ["dashboard", "Tableau de bord"],
             ["checklists", "Checklists"],
             ["baremes", "Barèmes de mesures"],
@@ -129,16 +141,27 @@ export function QcClient({
             }`}
           >
             {l} {k === "baremes" && <span className="opacity-70">{baremes.length}</span>}
+            {k === "actions" && actionsOuvertes > 0 && (
+              <span className="ml-1 rounded-full bg-[var(--danger)] px-1.5 text-[10px] text-white">{actionsOuvertes}</span>
+            )}
           </button>
         ))}
       </div>
 
-      {onglet === "baremes" ? (
+      {onglet === "actions" ? (
+        <ActionsRegistre
+          actions={actions}
+          commandes={commandes}
+          peutSaisir={peutSaisir}
+          origineInitiale={origineInitiale}
+          onOuvrirInspection={(id) => setOuverte(id)}
+        />
+      ) : onglet === "baremes" ? (
         <Baremes baremes={baremes} peutSaisir={peutSaisir} />
       ) : onglet === "checklists" ? (
         <Checklists checklists={checklists} peutSaisir={peutSaisir} />
       ) : onglet === "dashboard" ? (
-        <DashboardQualite inspections={inspections} />
+        <DashboardQualite inspections={inspections} actionsOuvertes={actionsOuvertes} />
       ) : (
         <SectionPanel
           title="Inspections"

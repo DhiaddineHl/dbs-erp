@@ -239,6 +239,27 @@
       "when": 1790248395325,
       "tag": "0033_modele_prix_manuel",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790369009747,
+      "tag": "0034_supprimer_commande_tissu_ligne",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790521236388,
+      "tag": "0035_actions_qualite_unifiees",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790524298036,
+      "tag": "0036_magasins_matiere",
+      "breakpoints": true
     }
   ]
 }

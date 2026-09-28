@@ -59,7 +59,8 @@ export const qcInspection = pgTable(
     verdictCloture: text().notNull().default(""),
     dateCloture: date(),
     note: text().notNull().default(""),
-    /** QRQC ouvert automatiquement quand le lot est refusé. */
+    /** Action QRQC ouverte automatiquement quand le lot est refusé
+     * (id dans qc_action_corrective — anciennement une ligne de m_qrqc). */
     qrqcId: integer(),
     /** Chaînage des re-contrôles. */
     recontroleDeId: integer().references((): AnyPgColumn => qcInspection.id, { onDelete: "set null" }),
@@ -138,9 +139,21 @@ export const qcActionCorrective = pgTable(
   "qc_action_corrective",
   {
     id: serial().primaryKey(),
-    inspectionId: integer()
-      .notNull()
-      .references(() => qcInspection.id, { onDelete: "cascade" }),
+    /** Contrôle d'origine. Null pour une action QRQC ou de plan d'actions
+     * saisie hors contrôle (ex-modules « QRQC » et « Plans d'actions »). */
+    inspectionId: integer().references(() => qcInspection.id, { onDelete: "cascade" }),
+    /** qc (défaut de contrôle) | qrqc (problème terrain, analyse 5M) | plan (amélioration) */
+    origine: text().notNull().default("qc"),
+    /** Famille 5M : Main d'œuvre | Machine | Matière | Méthode | Milieu, ou "". */
+    cause5m: text().notNull().default(""),
+    /** haute | moyenne | basse | "" */
+    priorite: text().notNull().default(""),
+    /** Commande concernée (reprise de l'inspection quand il y en a une). */
+    commandeId: integer().references(() => commande.id, { onDelete: "set null" }),
+    /** N° d'OF tel que saisi — garde la trace quand l'OF n'existe plus / pas. */
+    of: text().notNull().default(""),
+    dateOuverture: date().notNull().defaultNow(),
+    note: text().notNull().default(""),
     /** Défaut d'origine, si l'action découle d'un défaut précis. */
     defautId: integer().references(() => qcDefaut.id, { onDelete: "set null" }),
     /** Défaut constaté (repris ou saisi librement). */
@@ -156,7 +169,7 @@ export const qcActionCorrective = pgTable(
     photoApres: text().references(() => fichier.hash),
     createdAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [index("qc_action_insp_idx").on(t.inspectionId)],
+  (t) => [index("qc_action_insp_idx").on(t.inspectionId), index("qc_action_commande_idx").on(t.commandeId)],
 );
 
 /* ─────────── barèmes de mesures clients ───────────

@@ -28,7 +28,6 @@ async function exigerControle(): Promise<svc.Auteur> {
 
 function revalider() {
   revalidatePath("/qc");
-  revalidatePath("/qrqc");
   revalidatePath("/cockpit");
 }
 
@@ -225,6 +224,21 @@ export async function ajouterAction(inspectionId: number, defautId: number | nul
   try {
     await exigerControle();
     const id = await svc.ajouterAction(inspectionId, defautId);
+    revalider();
+    return ok(id);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Action saisie hors contrôle : problème terrain (QRQC) ou plan d'actions. */
+export async function creerActionLibre(v: svc.NouvelleAction): Promise<Result<number>> {
+  try {
+    await exigerControle();
+    if (!v.defaut.trim() && !v.action.trim()) throw new Error("Décrivez le problème ou l'action");
+    if (v.origine !== "qrqc" && v.origine !== "plan") throw new Error("Origine inconnue");
+    const id = await svc.creerActionLibre(v);
+    await journaliser("creation", "Actions qualité", `action ${v.origine.toUpperCase()} n°${id} — ${(v.defaut || v.action).slice(0, 80)}`);
     revalider();
     return ok(id);
   } catch (e) {

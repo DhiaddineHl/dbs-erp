@@ -1,12 +1,3 @@
-import {
-  CAUSE_5M,
-  CONTROLE,
-  PRIO,
-  STATUT_ACTION,
-  STATUT_QRQC,
-  STATUT_RECEP,
-  labels,
-} from "./options";
 
 export type Field = {
   name: string;
@@ -72,50 +63,4 @@ export const FACONNIER_FIELDS: Field[] = [
   { name: "contact", label: "Contact" },
   { name: "tel", label: "Téléphone" },
   { name: "prixFacon", label: "Prix façon réf. (€/pcs)", placeholder: "4,20" },
-];
-
-export const TISSU_FIELDS: Field[] = [
-  { name: "date", label: "Date", placeholder: "10 juin" },
-  { name: "cmd", label: "Commande", type: "select", dynamic: true, required: true },
-  { name: "design", label: "Désignation", required: true, full: true },
-  { name: "recue", label: "Qté reçue", type: "number" },
-  { name: "prevue", label: "Qté prévue", type: "number" },
-  { name: "ecart", label: "Écart", placeholder: "-50 m / +50 m / 0 m" },
-  { name: "controle", label: "Contrôle", type: "select", options: labels(CONTROLE) },
-  { name: "statut", label: "Statut", type: "select", options: labels(STATUT_RECEP) },
-];
-
-export const FOURNITURE_FIELDS: Field[] = [
-  { name: "date", label: "Date", placeholder: "10 juin" },
-  { name: "cmd", label: "Commande", type: "select", dynamic: true, required: true },
-  { name: "type", label: "Type", placeholder: "Boutons / Fermetures…" },
-  { name: "design", label: "Désignation", required: true, full: true },
-  { name: "qte", label: "Quantité", placeholder: "14 400 u" },
-  { name: "controle", label: "Contrôle", type: "select", options: labels(CONTROLE) },
-  { name: "statut", label: "Statut", type: "select", options: labels(STATUT_RECEP) },
-];
-
-export const GAMME_FIELDS: Field[] = [
-  { name: "modele", label: "Modèle", required: true, full: true },
-  { name: "ops", label: "Opérations", type: "number" },
-  { name: "sam", label: "SAM total", placeholder: "612 s" },
-  { name: "cout", label: "Coût MO/pcs", placeholder: "0,60 €" },
-  { name: "cap", label: "Capacité/j/op.", placeholder: "47 pcs" },
-];
-
-export const QRQC_FIELDS: Field[] = [
-  { name: "date", label: "Date", placeholder: "12 juin" },
-  { name: "pb", label: "Problème", required: true, full: true },
-  { name: "cause", label: "Cause 5M", type: "select", options: labels(CAUSE_5M) },
-  { name: "cmd", label: "Commande", placeholder: "OF-2026-001" },
-  { name: "action", label: "Action corrective", full: true },
-  { name: "statut", label: "Statut", type: "select", options: labels(STATUT_QRQC) },
-];
-
-export const ACTION_FIELDS: Field[] = [
-  { name: "action", label: "Action", required: true, full: true },
-  { name: "resp", label: "Responsable" },
-  { name: "echeance", label: "Échéance", placeholder: "16 juin" },
-  { name: "prio", label: "Priorité", type: "select", options: labels(PRIO) },
-  { name: "statut", label: "Statut", type: "select", options: labels(STATUT_ACTION) },
 ];

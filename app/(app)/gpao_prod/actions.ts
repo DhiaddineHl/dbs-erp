@@ -1,10 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser } from "@/lib/auth/server";
+import { assertUser, userRole } from "@/lib/auth/server";
 import * as g from "@/lib/services/gpao";
 import * as at from "@/lib/services/atelier";
+import { cleNom } from "@/lib/domain/atelier";
 import { setSetting } from "@/lib/services/permissions";
+import * as rent from "@/lib/services/rentabilite";
+import * as ident from "@/lib/services/identite-ouvrieres";
+import { completerFiches } from "@/lib/services/identite-ouvrieres";
+import { normaliserParams, type ParamsUsine } from "@/lib/domain/cout-usine";
 import type { journee as journeeTable } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 
@@ -72,7 +77,9 @@ export async function duplicateDay(input: {
       effectif: input.effectif,
       nbHeures: input.nbHeures,
       cols: input.cols,
-      ouvrieres: input.ouvrieres,
+      // L'équipe recopiée reçoit les fiches connues AUJOURD'HUI : une journée
+      // dupliquée ne doit pas propager une ligne restée « sans fiche ».
+      ouvrieres: await completerFiches(input.ouvrieres),
       objManuel: input.objManuel ?? null,
       sortie: {},
       ops: {},
@@ -159,7 +166,14 @@ export async function saveOuvriere(input: {
     ]);
 
     if (input.id) {
-      await g.updateOuvriere(input.id, { nom: input.nom, poste: input.poste, sam: input.sam });
+      /* Renommer une ligne, c'est souvent la donner à une autre ouvrière : sa
+       * fiche doit suivre le NOUVEAU nom (les journées passées gardent la leur). */
+      const patch: Parameters<typeof g.updateOuvriere>[1] = { nom: input.nom, poste: input.poste, sam: input.sam };
+      const actuelle = await g.getOuvriere(input.id);
+      if (!actuelle || actuelle.personnelId == null || cleNom(actuelle.nom) !== cleNom(input.nom)) {
+        patch.personnelId = personne.personnelId;
+      }
+      await g.updateOuvriere(input.id, patch);
       revalider();
       return { ok: true as const, id: input.id, personne };
     }
@@ -399,6 +413,95 @@ export async function commandesPourLien() {
   try {
     await assertUser();
     return { ok: true as const, data: await g.listCommandesInternes(true) };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── coût de l'heure usine & rentabilité ───────────
+ *
+ * Paramètres partagés par tous les postes (réglage « gpao.coutUsine ») :
+ * charges mensuelles, ouvrières directes, heures/mois, et les objectifs
+ * (rendement cible, marge cible, minutes par retouche). Tout le monde qui a
+ * accès à la GPAO peut les lire ; seuls l'administrateur et le responsable
+ * production peuvent les modifier (ce sont des chiffres de gestion). */
+const ROLES_COUT_USINE = ["admin", "resp"];
+
+export async function lireParamsUsine() {
+  try {
+    const user = await assertUser();
+    const params = await rent.lireParamsUsine();
+    return { ok: true as const, params, modifiable: ROLES_COUT_USINE.includes(userRole(user)) };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Enregistre tout ou partie des paramètres : les champs absents gardent leur
+ * valeur actuelle (la Simulation règle le coût, la Rentabilité les objectifs). */
+export async function enregistrerParamsUsine(input: Partial<ParamsUsine>) {
+  try {
+    const user = await assertUser();
+    if (!ROLES_COUT_USINE.includes(userRole(user))) {
+      throw new Error("Réservé à l'administrateur et au responsable production");
+    }
+    const actuels = await rent.lireParamsUsine();
+    const params = normaliserParams({ ...actuels, ...input });
+    await setSetting(rent.CLE_COUT_USINE, params);
+    revalidatePath("/cockpit");
+    return { ok: true as const, params };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Rapport de rentabilité d'une période (marge par modèle, pertes, point mort…). */
+export async function rentabilite(from: string, to: string) {
+  try {
+    await assertUser();
+    return { ok: true as const, data: await rent.rentabiliteGpao(from, to) };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── identité des ouvrières (fusion / réparation) ───────────
+ *
+ * Une personne = une fiche, partout : écran TV, historique, classement, QR.
+ * « Vérifier » calcule le bilan sans rien écrire ; « Appliquer » fusionne les
+ * fiches en double et relie toutes les journées. Réservé admin + resp. */
+async function exigerGestion() {
+  const user = await assertUser();
+  if (!["admin", "resp"].includes(userRole(user))) throw new Error("Réservé à l'administrateur et au responsable production");
+}
+
+export async function verifierIdentites() {
+  try {
+    await exigerGestion();
+    return { ok: true as const, bilan: await ident.reparerIdentites(false) };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function appliquerIdentites() {
+  try {
+    await exigerGestion();
+    const bilan = await ident.reparerIdentites(true);
+    for (const p of [PATH, "/qrouv", "/personnel"]) revalidatePath(p);
+    return { ok: true as const, bilan };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Fusion manuelle de fiches homonymes : on choisit celle qu'on garde. */
+export async function fusionnerFichesPersonnel(gardeId: number, autresIds: number[]) {
+  try {
+    await exigerGestion();
+    const bilan = await ident.fusionnerFiches(gardeId, autresIds);
+    for (const p of [PATH, "/qrouv", "/personnel"]) revalidatePath(p);
+    return { ok: true as const, bilan };
   } catch (e) {
     return fail(e);
   }

@@ -6,7 +6,6 @@ import {
   client,
   commande,
   faconnier,
-  mQrqc,
   qcActionCorrective,
   qcBareme,
   qcBaremePoint,
@@ -55,7 +54,43 @@ export type ActionRow = {
   statut: string;
   photoAvant: string | null;
   photoApres: string | null;
+  /** qc | qrqc | plan — voir lib/domain/actions-qualite.ts */
+  origine: string;
+  cause5m: string;
+  priorite: string;
+  commandeId: number | null;
+  of: string;
+  dateOuverture: string;
+  note: string;
 };
+
+/** Une action du registre, avec de quoi la situer hors de l'éditeur. */
+export type ActionRegistreRow = ActionRow & {
+  inspectionId: number | null;
+  inspection: string;
+  client: string;
+  modele: string;
+};
+
+const versActionRow = (a: typeof qcActionCorrective.$inferSelect): ActionRow => ({
+  id: a.id,
+  defautId: a.defautId,
+  defaut: a.defaut,
+  cause: a.cause,
+  action: a.action,
+  responsable: a.responsable,
+  echeance: a.echeance ?? "",
+  statut: a.statut,
+  photoAvant: a.photoAvant,
+  photoApres: a.photoApres,
+  origine: a.origine,
+  cause5m: a.cause5m,
+  priorite: a.priorite,
+  commandeId: a.commandeId,
+  of: a.of,
+  dateOuverture: a.dateOuverture ?? "",
+  note: a.note,
+});
 
 export type ChecklistReponseRow = {
   id: number;
@@ -268,7 +303,7 @@ export async function listInspections(): Promise<InspectionRow[]> {
   const parDefaut = group(defauts);
   const parMesure = group(mesures);
   const parPhoto = group(photos);
-  const parAction = group(actions);
+  const parAction = group(actions.filter((a): a is typeof a & { inspectionId: number } => a.inspectionId != null));
   const parChecklist = group(checklist);
   // Chaînage inverse : quelle inspection re-contrôle celle-ci.
   const recontrolePar = new Map(inspections.filter((i) => i.recontroleDeId).map((i) => [i.recontroleDeId!, i.id]));
@@ -319,18 +354,7 @@ export async function listInspections(): Promise<InspectionRow[]> {
 
       defauts: defautsRows,
       mesures: mesuresRows,
-      actions: (parAction.get(i.id) ?? []).map((a) => ({
-        id: a.id,
-        defautId: a.defautId,
-        defaut: a.defaut,
-        cause: a.cause,
-        action: a.action,
-        responsable: a.responsable,
-        echeance: iso(a.echeance),
-        statut: a.statut,
-        photoAvant: a.photoAvant,
-        photoApres: a.photoApres,
-      })),
+      actions: (parAction.get(i.id) ?? []).map(versActionRow),
       checklist: (parChecklist.get(i.id) ?? []).map((c) => ({
         id: c.id,
         ordre: c.ordre,
@@ -533,17 +557,118 @@ export async function ajouterAction(inspectionId: number, defautId: number | nul
     const [d] = await db.select().from(qcDefaut).where(eq(qcDefaut.id, defautId));
     if (d) defautTexte = [d.famille, d.emplacement, d.description].filter(Boolean).join(" · ");
   }
+  const [insp] = await db
+    .select({ commandeId: qcInspection.commandeId, of: qcInspection.of })
+    .from(qcInspection)
+    .where(eq(qcInspection.id, inspectionId));
   const [row] = await db
     .insert(qcActionCorrective)
-    .values({ inspectionId, defautId, defaut: defautTexte })
+    .values({ inspectionId, defautId, defaut: defautTexte, origine: "qc", commandeId: insp?.commandeId ?? null, of: insp?.of ?? "" })
     .returning({ id: qcActionCorrective.id });
   return row.id;
 }
 
-export type ChampAction = "defaut" | "cause" | "action" | "responsable" | "echeance" | "statut";
+/* ─────────── registre des actions (ex-QRQC et plans d'actions) ─────────── */
+
+/** Toutes les actions qualité — nées d'un contrôle ou saisies librement. */
+export async function listActionsRegistre(): Promise<ActionRegistreRow[]> {
+  const rows = await db
+    .select({
+      a: qcActionCorrective,
+      numero: qcInspection.numero,
+      inspOf: qcInspection.of,
+      inspClient: qcInspection.client,
+      inspModele: qcInspection.modele,
+      cmdOf: commande.ofNumber,
+      cmdModele: commande.modele,
+      cmdClient: client.nom,
+    })
+    .from(qcActionCorrective)
+    .leftJoin(qcInspection, eq(qcInspection.id, qcActionCorrective.inspectionId))
+    .leftJoin(commande, eq(commande.id, qcActionCorrective.commandeId))
+    .leftJoin(client, eq(client.id, commande.clientId))
+    .orderBy(desc(qcActionCorrective.id));
+  return rows.map((r) => ({
+    ...versActionRow(r.a),
+    of: r.cmdOf || r.a.of || r.inspOf || "",
+    inspectionId: r.a.inspectionId,
+    inspection: r.numero != null ? qc.numeroQc(r.numero) : "",
+    client: r.cmdClient || r.inspClient || "",
+    modele: r.cmdModele || r.inspModele || "",
+  }));
+}
+
+/** Nombre d'actions encore ouvertes (badge du menu). */
+export async function compterActionsOuvertes(): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(qcActionCorrective)
+    .where(sql`${qcActionCorrective.statut} not in ('verifie', 'cloture')`);
+  return n;
+}
+
+export type NouvelleAction = {
+  origine: "qrqc" | "plan";
+  defaut: string;
+  cause5m: string;
+  action: string;
+  responsable: string;
+  echeance: string;
+  priorite: string;
+  commandeId: number | null;
+};
+
+/** Action saisie hors contrôle : problème terrain (QRQC) ou amélioration. */
+export async function creerActionLibre(v: NouvelleAction) {
+  let of = "";
+  if (v.commandeId) {
+    const [c] = await db.select({ of: commande.ofNumber }).from(commande).where(eq(commande.id, v.commandeId));
+    if (!c) throw new Error("Commande introuvable");
+    of = c.of;
+  }
+  const [row] = await db
+    .insert(qcActionCorrective)
+    .values({
+      origine: v.origine,
+      defaut: v.defaut.trim(),
+      cause5m: v.cause5m,
+      action: v.action.trim(),
+      responsable: v.responsable.trim(),
+      echeance: v.echeance || null,
+      priorite: v.priorite,
+      commandeId: v.commandeId,
+      of,
+    })
+    .returning({ id: qcActionCorrective.id });
+  return row.id;
+}
+
+export type ChampAction =
+  | "defaut"
+  | "cause"
+  | "action"
+  | "responsable"
+  | "echeance"
+  | "statut"
+  | "cause5m"
+  | "priorite"
+  | "origine"
+  | "note"
+  | "commandeId";
 
 export async function majAction(id: number, champ: ChampAction, valeur: string) {
-  const patch: Record<string, unknown> = champ === "echeance" ? { echeance: valeur || null } : { [champ]: valeur };
+  let patch: Partial<typeof qcActionCorrective.$inferInsert>;
+  if (champ === "echeance") patch = { echeance: valeur || null };
+  else if (champ === "commandeId") {
+    const commandeId = valeur ? Number(valeur) : null;
+    let of = "";
+    if (commandeId) {
+      const [c] = await db.select({ of: commande.ofNumber }).from(commande).where(eq(commande.id, commandeId));
+      if (!c) throw new Error("Commande introuvable");
+      of = c.of;
+    }
+    patch = { commandeId, of };
+  } else patch = { [champ]: valeur };
   await db.update(qcActionCorrective).set(patch).where(eq(qcActionCorrective.id, id));
 }
 
@@ -556,7 +681,11 @@ export async function photoAction(id: number, quand: "avant" | "apres", hash: st
 }
 
 export async function supprimerAction(id: number) {
-  await db.delete(qcActionCorrective).where(eq(qcActionCorrective.id, id));
+  await db.transaction(async (tx) => {
+    // L'inspection refusée qui l'avait ouverte ne pointe plus sur rien.
+    await tx.update(qcInspection).set({ qrqcId: null }).where(eq(qcInspection.qrqcId, id));
+    await tx.delete(qcActionCorrective).where(eq(qcActionCorrective.id, id));
+  });
 }
 
 /* ── clôture / réouverture / re-contrôle ── */
@@ -572,22 +701,24 @@ export async function cloturer(id: number, auteur: Auteur) {
   return db.transaction(async (tx) => {
     let qrqcId = insp.qrqcId;
 
-    /* Connexion ERP : un lot refusé ouvre automatiquement un QRQC. C'est ce qui
-     * fait que le refus déclenche une action corrective au lieu de rester une
-     * ligne dans un tableau. */
+    /* Connexion ERP : un lot refusé ouvre automatiquement une action QRQC,
+     * rattachée au contrôle et à la commande. C'est ce qui fait que le refus
+     * déclenche un suivi au lieu de rester une ligne dans un tableau. */
     if (verdict === "refuse" && !qrqcId) {
       const [q] = await tx
-        .insert(mQrqc)
+        .insert(qcActionCorrective)
         .values({
-          date: todayISO(),
-          pb: `Lot refusé au contrôle qualité ${qc.numeroQc(insp.numero)} — ${insp.of} · ${insp.modele}${insp.client ? ` (${insp.client})` : ""} : ${insp.proposition.raison}`,
-          cause: "Méthode",
-          cmd: insp.of,
-          action: `Retour qualité ${insp.faconnier || ""} — retouches / remplacement et re-contrôle sous 48 h`.trim(),
-          statutTone: "danger",
-          statutLabel: "Ouvert",
+          inspectionId: id,
+          origine: "qrqc",
+          defaut: `Lot refusé au contrôle ${qc.numeroQc(insp.numero)} — ${insp.of} · ${insp.modele}${insp.client ? ` (${insp.client})` : ""} : ${insp.proposition.raison}`,
+          cause5m: "Méthode",
+          action: `Retour qualité ${insp.faconnier || ""} — retouches / remplacement et re-contrôle sous 48 h`.replace(/\s+/g, " ").trim(),
+          priorite: "haute",
+          statut: "a_traiter",
+          commandeId: insp.commandeId,
+          of: insp.of,
         })
-        .returning({ id: mQrqc.id });
+        .returning({ id: qcActionCorrective.id });
       qrqcId = q.id;
     }
 

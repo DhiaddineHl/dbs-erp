@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV_STRUCTURE } from "@/lib/nav";
+import { NAV_STRUCTURE, entreeAutorisee } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
 const STAGE_COLOR: Record<number, string> = {
@@ -14,7 +14,14 @@ const STAGE_COLOR: Record<number, string> = {
   5: "var(--s5)",
 };
 
-export function Sidebar({ modules }: { modules: Record<string, boolean> }) {
+export function Sidebar({
+  modules,
+  badges = {},
+}: {
+  modules: Record<string, boolean>;
+  /** Pastilles calculées sur les données (lib/services/compteurs-menu.ts). */
+  badges?: Record<string, number>;
+}) {
   const pathname = usePathname();
 
   // Filter nav by the authenticated role's module permissions (loaded from DB
@@ -22,7 +29,7 @@ export function Sidebar({ modules }: { modules: Record<string, boolean> }) {
   // lien du menu sans toucher à la route ni aux droits.
   const groups = NAV_STRUCTURE.map((g) => ({
     ...g,
-    items: g.items.filter((it) => !it.masque && modules[it.id] !== false),
+    items: g.items.filter((it) => !it.masque && entreeAutorisee(it, modules)),
   })).filter((g) => g.items.length > 0);
 
   return (
@@ -56,7 +63,7 @@ export function Sidebar({ modules }: { modules: Record<string, boolean> }) {
               </span>
             </div>
             {group.items.map((item) => {
-              const active = pathname === item.href;
+              const active = pathname === item.href.split("?")[0];
               const Icon = item.icon;
               return (
                 <Link
@@ -70,9 +77,9 @@ export function Sidebar({ modules }: { modules: Record<string, boolean> }) {
                 >
                   <Icon className="size-[18px] shrink-0" />
                   <span className="truncate">{item.label}</span>
-                  {item.badge ? (
+                  {badges[item.id] ? (
                     <span className="ml-auto min-w-[18px] rounded-full bg-[var(--danger)] px-1.5 py-px text-center text-[9px] font-bold text-white">
-                      {item.badge}
+                      {badges[item.id]}
                     </span>
                   ) : null}
                 </Link>

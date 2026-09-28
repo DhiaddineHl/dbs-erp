@@ -11,6 +11,9 @@ export function proxy(request: NextRequest) {
   const sessionCookie = getSessionCookie(request);
   if (!sessionCookie) {
     const url = new URL("/login", request.url);
+    // Retour à la page demandée après connexion (ex. QR de saisie du magasin).
+    const { pathname, search } = request.nextUrl;
+    if (pathname !== "/") url.searchParams.set("suite", pathname + search);
     return NextResponse.redirect(url);
   }
   return NextResponse.next();

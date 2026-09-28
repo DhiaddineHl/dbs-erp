@@ -5,18 +5,26 @@
  * C'est la même définition que l'écran GPAO (journées et historique) et que la
  * recherche par seuil — un seul et même chiffre pour une personne, partout. */
 
-export const SEUIL_ALERTE = 75;
+/* Seuils et couleurs : UNE échelle pour l'écran GPAO, la TV et le portail QR.
+ *   ≥ 85 % vert (bon) · ≥ 60 % orange (moyen) · en dessous rouge (faible).
+ * Le seuil d'ALERTE (« objectif non atteint ») est le réglage de l'atelier
+ * (gpao.seuilAlerte, 65 % par défaut), le même qu'à la TV. */
 export const SEUIL_BON = 85;
+export const SEUIL_MOYEN = 60;
+export const SEUIL_ALERTE_DEFAUT = 65;
+export const CLE_SEUIL_ALERTE = "gpao.seuilAlerte";
 
 export type OpDetail = { poste: string; sam: number; qte: number };
 
+/** Ce qu'il faut d'une journée pour mesurer un rendement. Les matrices
+ * secondaires sont facultatives : l'écran GPAO les omet quand elles sont vides. */
 export type JourneeBrute = {
   date: string;
   cols: string[];
   ops: Record<number, Record<string, number | "RI" | "ABS">>;
-  opsSam: Record<number, Record<string, number>>;
-  opsDetail: Record<number, Record<string, OpDetail[]>>;
-  ret: Record<number, number>;
+  opsSam?: Record<number, Record<string, number>>;
+  opsDetail?: Record<number, Record<string, OpDetail[]>>;
+  ret?: Record<number, number>;
 };
 
 export type OuvriereBrute = { id: number; nom: string; poste: string; sam: number };
@@ -66,95 +74,35 @@ export type Rendement = {
   poste: string;
   /** Aucune production enregistrée : la personne existe, la mesure non. */
   trouve: boolean;
+  /** Rendement général = moyenne pondérée sur la PÉRIODE DE RÉFÉRENCE (30
+   * derniers jours), la même que l'historique par défaut. */
   general: number | null;
+  /** Bornes de la période de référence et nombre de journées qu'elle contient. */
+  periode: { from: string; to: string; jours: number };
+  /** Mois en cours, même calcul. */
+  mois: { rendement: number | null; jours: number };
+  /** Toutes les journées, anciennes comprises (pour l'historique du portail). */
   jours: JourRendement[];
   dernier: JourRendement | null;
+  /** Totaux de la période de référence. */
   piecesTotal: number;
   retouchesTotal: number;
 };
 
-/** Calcule le rendement d'une ouvrière sur l'ensemble des journées fournies.
- * `presente` dit, pour chaque journée, quelle ligne ouvrière la concerne — la
- * résolution d'identité est faite en amont, par le rattachement au registre. */
-export function rendementOuvriere(
-  identite: { nom: string; matricule: string; poste: string },
-  journees: { journee: JourneeBrute; ouvriere: OuvriereBrute }[],
-): Rendement {
-  const jours: JourRendement[] = [];
-  let piecesTotal = 0;
-  let retouchesTotal = 0;
-
-  const triees = [...journees].sort((a, b) => a.journee.date.localeCompare(b.journee.date));
-
-  for (const { journee: j, ouvriere: o } of triees) {
-    let gagne = 0;
-    let travaillees = 0;
-    let pieces = 0;
-    const barres: BarreHeure[] = [];
-
-    for (const col of j.cols ?? []) {
-      const w = heureTravaillee(j, o.id, col);
-      const e = gagneHeure(j, o, col);
-      const q = qteHeure(j, o.id, col);
-      if (w) travaillees++;
-      gagne += e;
-      pieces += q;
-      // 3600 s = une heure de travail « pleine » au temps standard.
-      barres.push({ col, pct: w ? Math.round((e / 3600) * 100) : null, qte: q });
-    }
-
-    const retouches = Number(j.ret?.[o.id] ?? 0) || 0;
-    jours.push({
-      date: j.date,
-      rendement: travaillees > 0 ? Math.round((gagne / (travaillees * 3600)) * 100) : null,
-      pieces,
-      retouches,
-      barres,
-    });
-    piecesTotal += pieces;
-    retouchesTotal += retouches;
-  }
-
-  if (!jours.length) {
-    return { ...identite, trouve: false, general: null, jours: [], dernier: null, piecesTotal: 0, retouchesTotal: 0 };
-  }
-
-  /* Moyenne PONDÉRÉE par les heures travaillées : une journée pleine pèse plus
-   * qu'une demi-journée. On recompose Σ(gagné) ÷ Σ(heures×3600) — équivalent à
-   * pondérer chaque rendement journalier par ses heures — pour que le « général »
-   * du QR coïncide avec l'historique et la recherche par seuil. */
-  let gagneTotal = 0;
-  let heuresTotal = 0;
-  for (const { journee: j, ouvriere: o } of triees) {
-    for (const col of j.cols ?? []) {
-      if (heureTravaillee(j, o.id, col)) heuresTotal += 1;
-      gagneTotal += gagneHeure(j, o, col);
-    }
-  }
-  const general = heuresTotal > 0 ? Math.round((gagneTotal / (heuresTotal * 3600)) * 100) : null;
-
-  return {
-    ...identite,
-    trouve: true,
-    general,
-    jours,
-    dernier: jours[jours.length - 1],
-    piecesTotal,
-    retouchesTotal,
-  };
-}
+/* Le calcul d'une personne sur plusieurs journées vit dans
+ * ./rendement-personne (identité + moyenne), partagé avec l'écran GPAO. */
 
 export type NiveauRendement = "bon" | "moyen" | "faible";
 
 export function niveau(pct: number | null): NiveauRendement | null {
   if (pct === null) return null;
-  return pct >= SEUIL_BON ? "bon" : pct >= SEUIL_ALERTE ? "moyen" : "faible";
+  return pct >= SEUIL_BON ? "bon" : pct >= SEUIL_MOYEN ? "moyen" : "faible";
 }
 
 export const COULEUR_RENDEMENT: Record<NiveauRendement, string> = {
-  bon: "#16a34a",
-  moyen: "#d97706",
-  faible: "#dc2626",
+  bon: "#19b27b",
+  moyen: "#c4861a",
+  faible: "#e04545",
 };
 
 /* ─────────── vue direction ─────────── */

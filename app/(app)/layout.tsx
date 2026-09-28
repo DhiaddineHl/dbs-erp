@@ -2,6 +2,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { requireUser, userRole } from "@/lib/auth/server";
 import { getRoleModules, listRoles } from "@/lib/services/permissions";
+import { compteursMenu } from "@/lib/services/compteurs-menu";
 
 export default async function AppLayout({
   children,
@@ -13,6 +14,7 @@ export default async function AppLayout({
   const role = userRole(user);
   const [modules, roles] = await Promise.all([getRoleModules(role), listRoles()]);
   const roleLabel = roles.find((r) => r.key === role)?.label ?? role;
+  const badges = await compteursMenu(modules);
 
   return (
     /* Les classes `app-*` n'habillent rien : elles donnent prise à la feuille
@@ -20,7 +22,7 @@ export default async function AppLayout({
      * pages « document » sortent seules et entières sur le papier. */
     <div className="app-shell grid h-screen grid-cols-[248px_1fr] grid-rows-[60px_1fr]">
       <div className="app-sidebar row-span-2 min-h-0">
-        <Sidebar modules={modules} />
+        <Sidebar modules={modules} badges={badges} />
       </div>
       <div className="app-topbar contents">
         <Topbar user={{ name: user.name, email: user.email, role, roleLabel }} />

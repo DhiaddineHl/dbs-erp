@@ -169,9 +169,10 @@ const MAGFOUR: EcranConfig = {
   titre: "Magasin Fournitures",
   sous: "Réception des fournitures par commande et par modèle",
   aide:
-    "Renseignez un statut global pour aller vite, ou détaillez référence par référence (boutons, fermetures, " +
-    "étiquettes, fil…) avec les quantités prévues et reçues. Dès qu'au moins une ligne de détail existe, c'est elle " +
-    "qui pilote le feu et le statut global se verrouille.",
+    "Le prévu se calcule depuis la nomenclature du modèle (qté par pièce × pièces + casse) — bouton « Appliquer la " +
+    "nomenclature ». Chaque ligne a son origine : fournie par le client, ou achetée par DBS (CMT). Les réceptions se " +
+    "saisissent par bon du client (plusieurs commandes d'un coup), les excédents partent en restes client. Dès " +
+    "qu'une ligne de détail existe, c'est elle qui pilote le feu et le statut global se verrouille.",
   domaine: "four",
   defaut: "encours",
   porteurSeul: true,

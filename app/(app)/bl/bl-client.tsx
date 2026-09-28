@@ -334,7 +334,7 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
                 <tr className="text-[10px] uppercase text-muted-foreground">
                   <th className="px-2 py-1.5 text-left">OF / Modèle</th>
                   <th className="px-2 py-1.5 text-right">Commandé</th>
-                  <th className="px-2 py-1.5 text-right">Magasin</th>
+                  <th className="px-2 py-1.5 text-right">En stock</th>
                   <th className="px-2 py-1.5 text-right">PU</th>
                   <th className="px-2 py-1.5 text-right">Qté à livrer</th>
                 </tr>
@@ -350,11 +350,16 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
                           <span>
                             <b className="text-brand">{c.of}</b> · {c.modele}
                             {c.couleur && <span className="text-muted-foreground"> · {c.couleur}</span>}
+                            {/* Avertissement qualité (ne bloque pas) : dernier contrôle final. */}
+                            {c.qcFinal === "refuse" && <span className="ml-1 rounded bg-[var(--danger-l)] px-1 text-[9.5px] font-bold text-[var(--danger-d)]">QC final refusé</span>}
+                            {c.qcFinal === "reserve" && <span className="ml-1 rounded bg-warning-muted px-1 text-[9.5px] font-bold">QC sous réserve</span>}
+                            {c.qcFinal === "" && <span className="ml-1 text-[9.5px] text-muted-foreground">(sans QC final)</span>}
+                            {c.expedieQte > 0 && <span className="ml-1 text-[9.5px] text-muted-foreground">· déjà livré {nb.format(c.expedieQte)}</span>}
                           </span>
                         </label>
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{nb.format(c.qte)}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{nb.format(c.magasinQte)}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{nb.format(c.stockQte)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">
                         {c.prixVente == null ? "—" : `${eur.format(c.prixVente)} €`}
                       </td>

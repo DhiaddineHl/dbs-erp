@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+/** Uniquement un chemin de l'application : jamais une autre origine (« //x », « https:… »). */
+const suiteSure = (s: string) => s.startsWith("/") && !s.startsWith("//") && !s.startsWith("/\\") && !s.startsWith("/login");
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -25,9 +28,10 @@ export default function LoginPage() {
       setError(error.message || "Identifiants invalides");
       return;
     }
-    // "/" resolves to the first page the signed-in user's role actually has
-    // access to — never a hardcoded page they might not be allowed to see.
-    router.push("/");
+    // Retour à la page d'origine (ex. QR du magasin) si elle est locale ;
+    // sinon "/" mène à la première page que le rôle a réellement le droit de voir.
+    const suite = new URLSearchParams(window.location.search).get("suite") ?? "";
+    router.push(suiteSure(suite) ? suite : "/");
     router.refresh();
   }
 

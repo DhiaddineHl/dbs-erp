@@ -12,7 +12,6 @@ import {
   FAMILLES_DEFAUT,
   GRAVITES,
   POINTS_MESURE,
-  STATUTS_ACTION,
   STATUTS_POINT,
   TYPES_CONTROLE,
   VERDICTS,
@@ -21,7 +20,8 @@ import {
 } from "@/lib/domain/qc";
 import type { BaremeRow, ChecklistRow, InspectionRow } from "@/lib/services/qc";
 import * as A from "@/lib/actions/qc";
-import { ChampAction, BoutonAction, SelectAction, useAction } from "./primitives";
+import { ChampAction, BoutonAction, SelectAction, compresser, useAction } from "./primitives";
+import { CarteAction } from "./actions-registre";
 
 const nb = new Intl.NumberFormat("fr-FR");
 
@@ -158,7 +158,7 @@ export function Editeur({
                     toast.error(r.error);
                     return;
                   }
-                  if (r.data?.qrqcCree) toast.error("⛔ Lot refusé → un problème QRQC a été ouvert automatiquement");
+                  if (r.data?.qrqcCree) toast.error("⛔ Lot refusé → une action QRQC a été ouverte automatiquement");
                   else toast.success(`Inspection clôturée — ${VERDICTS[r.data!.verdict as keyof typeof VERDICTS].label}`);
                   router.refresh();
                 })
@@ -180,10 +180,12 @@ export function Editeur({
       )}
       {insp.qrqcId && (
         <div className="mb-4 rounded-lg border border-[var(--danger)] bg-[var(--danger-l)] px-3 py-2 text-xs">
-          ⛔ Lot refusé — problème qualité ouvert.{" "}
-          <Link href="/qrqc" className="font-semibold underline">
-            Voir le QRQC
+          ⛔ Lot refusé — une action QRQC a été ouverte automatiquement : elle figure dans les actions correctives
+          ci-dessous et dans l&apos;onglet{" "}
+          <Link href="/qc?onglet=actions&origine=qrqc" className="font-semibold underline">
+            Actions &amp; QRQC
           </Link>
+          .
         </div>
       )}
 
@@ -625,7 +627,7 @@ export function Editeur({
         ) : (
           <div className="space-y-2.5">
             {insp.actions.map((a) => (
-              <LigneAction key={a.id} action={a} />
+              <CarteAction key={a.id} action={a} />
             ))}
           </div>
         )}
@@ -896,142 +898,4 @@ function BoutonPhoto({
       />
     </>
   );
-}
-
-/* ─── Action corrective : une carte éditable, avec photos avant/après ───
- *
- * Modifiable même après clôture (suivi). Statuts : à traiter → en cours →
- * corrigé → vérifié → clôturé. Deux emplacements photo (avant / après) qui
- * réutilisent la compression et le stockage par hash. */
-function LigneAction({ action: a }: { action: InspectionRow["actions"][number] }) {
-  const st = STATUTS_ACTION.find((s) => s.value === a.statut);
-  return (
-    <div className="rounded-xl border bg-card p-3">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <StatusBadge tone={st?.tone ?? "neutral"}>{st?.label ?? a.statut}</StatusBadge>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="w-40">
-            <SelectAction
-              valeur={a.statut}
-              options={STATUTS_ACTION.map((s) => ({ value: s.value, label: s.label }))}
-              onSave={(x) => A.majAction(a.id, "statut", x)}
-            />
-          </div>
-          <BoutonAction variant="ghost" confirmer="Supprimer cette action ?" onRun={() => A.supprimerAction(a.id)}>
-            <Trash2 className="size-3.5" />
-          </BoutonAction>
-        </div>
-      </div>
-
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Bloc label="Défaut constaté">
-          <ChampAction valeur={a.defaut} placeholder="Défaut…" onSave={(x) => A.majAction(a.id, "defaut", x)} />
-        </Bloc>
-        <Bloc label="Cause (5M)">
-          <ChampAction valeur={a.cause} placeholder="Cause racine…" onSave={(x) => A.majAction(a.id, "cause", x)} />
-        </Bloc>
-        <Bloc label="Action corrective">
-          <ChampAction valeur={a.action} placeholder="Action décidée…" onSave={(x) => A.majAction(a.id, "action", x)} />
-        </Bloc>
-        <div className="grid grid-cols-2 gap-2">
-          <Bloc label="Responsable">
-            <ChampAction
-              valeur={a.responsable}
-              placeholder="Nom…"
-              onSave={(x) => A.majAction(a.id, "responsable", x)}
-            />
-          </Bloc>
-          <Bloc label="Échéance">
-            <ChampAction valeur={a.echeance} type="date" onSave={(x) => A.majAction(a.id, "echeance", x)} />
-          </Bloc>
-        </div>
-      </div>
-
-      <div className="mt-2 grid grid-cols-2 gap-3">
-        <PhotoAction actionId={a.id} quand="avant" hash={a.photoAvant} />
-        <PhotoAction actionId={a.id} quand="apres" hash={a.photoApres} />
-      </div>
-    </div>
-  );
-}
-
-function PhotoAction({ actionId, quand, hash }: { actionId: number; quand: "avant" | "apres"; hash: string | null }) {
-  const router = useRouter();
-  const input = useRef<HTMLInputElement>(null);
-  const [pending, start] = useTransition();
-  const label = quand === "avant" ? "Photo AVANT" : "Photo APRÈS";
-
-  return (
-    <div className="rounded-lg border border-dashed p-2">
-      <div className="mb-1 text-[10.5px] font-bold uppercase text-muted-foreground">{label}</div>
-      {hash ? (
-        <div className="flex items-start gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`/api/fichier/${hash}`} alt={label} className="h-24 w-auto rounded border object-cover" />
-          <BoutonAction variant="ghost" onRun={() => A.retirerPhotoAction(actionId, quand)}>
-            <Trash2 className="size-3.5" />
-          </BoutonAction>
-        </div>
-      ) : (
-        <Button variant="outline" size="sm" disabled={pending} onClick={() => input.current?.click()}>
-          <Camera className="size-3.5" /> {pending ? "Envoi…" : "Ajouter"}
-        </Button>
-      )}
-      <input
-        ref={input}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        hidden
-        onChange={async (e) => {
-          const f = e.target.files?.[0];
-          e.target.value = "";
-          if (!f) return;
-          const compressee = await compresser(f);
-          const fd = new FormData();
-          fd.set("actionId", String(actionId));
-          fd.set("quand", quand);
-          fd.set("fichier", compressee, "photo.jpg");
-          start(async () => {
-            const r = await A.photoAction(fd);
-            if (!r.ok) {
-              toast.error(r.error);
-              return;
-            }
-            toast.success("Photo ajoutée");
-            router.refresh();
-          });
-        }}
-      />
-    </div>
-  );
-}
-
-/** Compression avant envoi — 560 px de côté maximum, JPEG qualité 0,62, comme
- * PilotPro : les rapports restent lisibles et les photos d'atelier ne saturent
- * pas le stockage. */
-async function compresser(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file).catch(() => null);
-  if (!bitmap) return file;
-  const max = 560;
-  let { width: w, height: h } = bitmap;
-  if (w > h) {
-    if (w > max) {
-      h = Math.round((h * max) / w);
-      w = max;
-    }
-  } else if (h > max) {
-    w = Math.round((w * max) / h);
-    h = max;
-  }
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return file;
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", 0.62));
-  return blob ?? file;
 }

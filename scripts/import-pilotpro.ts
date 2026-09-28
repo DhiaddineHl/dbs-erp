@@ -84,7 +84,7 @@ const TABLES_REPRISES = [
   "ouvriere",
   "chaine",
   "modele",
-  "m_qrqc",
+  "qc_action_corrective",
 ];
 
 /** Tables où toute réexécution crée des doublons. */

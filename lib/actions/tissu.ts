@@ -5,10 +5,25 @@ import { and, eq } from "drizzle-orm";
 import { assertUser, userRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { commande, tissuAffectation, tissuLot, tissuMouvement, tissuReception } from "@/lib/db/schema";
-import { peutModifier } from "@/lib/domain/feux";
+import { peutModifier, tissuLibereParLignes } from "@/lib/domain/feux";
 import { getRoleModules } from "@/lib/services/permissions";
 import * as tx from "@/lib/domain/tissu";
 import * as svc from "@/lib/services/tissu";
+
+/** Recalcule `commande.tissuLibere` pour une ou plusieurs commandes à partir
+ * de ce que le magasin tissu leur a réellement affecté (lots + contrôle).
+ * Reprend, sur le modèle par lots, ce que faisait l'ancien
+ * `recalculerTissuLibere` de commande_tissu_ligne (supprimé en 0034) : appelé
+ * chaque fois qu'une affectation ou le contrôle d'un lot change. */
+async function recalculerTissuLibere(commandeIds: (number | null)[]) {
+  const ids = [...new Set(commandeIds.filter((id): id is number => id != null))];
+  if (!ids.length) return;
+  const parCommande = await svc.ligneTissuParCommandes(ids);
+  for (const id of ids) {
+    const libere = tissuLibereParLignes(parCommande.get(id) ?? []);
+    await db.update(commande).set({ tissuLibere: libere, updatedAt: new Date() }).where(eq(commande.id, id));
+  }
+}
 
 /* Magasin tissu — écritures. Règle d'or : aucune quantité ne bouge sans un
  * mouvement. La création d'un lot écrit son mouvement d'entrée ; une sortie de
@@ -58,7 +73,14 @@ export type SaisieLot = {
   unite?: string;
   nbRouleaux?: string;
   note?: string;
+  /** Contrôle à réception contre le BL du client. */
+  quantiteAnnoncee?: string;
+  laizeAnnoncee?: string;
+  defauts?: string;
+  controle?: string;
 };
+
+const CONTROLES_LOT = ["", "conforme", "reserve", "refuse"];
 
 const nombre = (s: string | undefined): number => {
   const n = Number(String(s ?? "").replace(",", ".").trim());
@@ -82,6 +104,7 @@ export async function creerReception(input: {
   date?: string;
   fournisseur?: string;
   client?: string;
+  blClient?: string;
   observations?: string;
   lots: SaisieLot[];
 }): Promise<Result<{ receptionId: number }>> {
@@ -104,6 +127,7 @@ export async function creerReception(input: {
           date: dateRecep,
           fournisseur: input.fournisseur ?? "",
           client: input.client ?? "",
+          blClient: (input.blClient ?? "").trim(),
           observations: input.observations ?? "",
           createdBy: a.name,
         })
@@ -133,6 +157,10 @@ export async function creerReception(input: {
             unite: l.unite || "m",
             nbRouleaux: entierOuNull(l.nbRouleaux),
             note: l.note ?? "",
+            quantiteAnnoncee: nombreOuNull(l.quantiteAnnoncee),
+            laizeAnnoncee: nombreOuNull(l.laizeAnnoncee),
+            defauts: (l.defauts ?? "").trim(),
+            controle: CONTROLES_LOT.includes(l.controle ?? "") ? (l.controle ?? "") : "",
           })
           .returning({ id: tissuLot.id });
 
@@ -191,7 +219,42 @@ export async function ajouterLot(receptionId: number, lot: SaisieLot): Promise<R
   }
 }
 
-export type ChampLot = "reference" | "couleur" | "composition" | "saison" | "laize" | "unite" | "note" | "controle" | "identifiant";
+export type ChampLot =
+  | "reference"
+  | "couleur"
+  | "composition"
+  | "saison"
+  | "laize"
+  | "unite"
+  | "note"
+  | "controle"
+  | "identifiant"
+  | "quantiteAnnoncee"
+  | "laizeAnnoncee"
+  | "defauts"
+  | "rouleaux";
+
+/** Fiche de contrôle rouleau par rouleau, reçue en JSON depuis l'écran. */
+function lireRouleaux(valeur: string): tx.RouleauControle[] {
+  let brut: unknown;
+  try {
+    brut = JSON.parse(valeur || "[]");
+  } catch {
+    throw new Error("Fiche rouleaux illisible");
+  }
+  if (!Array.isArray(brut)) throw new Error("Fiche rouleaux illisible");
+  const num = (v: unknown) => {
+    const n = Number(String(v ?? "").replace(",", "."));
+    return v === "" || v == null || !Number.isFinite(n) || n < 0 ? null : n;
+  };
+  return brut.slice(0, 200).map((r: Record<string, unknown>, i) => ({
+    n: String(r?.n ?? i + 1).slice(0, 20),
+    annonce: num(r?.annonce),
+    mesure: num(r?.mesure),
+    laize: num(r?.laize),
+    defauts: String(r?.defauts ?? "").slice(0, 300),
+  }));
+}
 
 /** Modifie un champ descriptif d'un lot. La quantité reçue ne se modifie PAS
  * ici (elle correspond à l'entrée physique) : elle se corrige par un mouvement
@@ -199,9 +262,22 @@ export type ChampLot = "reference" | "couleur" | "composition" | "saison" | "lai
 export async function majLot(lotId: number, champ: ChampLot, valeur: string): Promise<Result> {
   try {
     await auteur();
+    if (champ === "controle" && !CONTROLES_LOT.includes(valeur)) return { ok: false, error: "Contrôle inconnu" };
     const patch: Record<string, unknown> =
-      champ === "laize" ? { laize: nombreOuNull(valeur) } : champ === "identifiant" ? { identifiant: valeur.trim().toUpperCase() } : { [champ]: valeur };
+      champ === "laize" || champ === "quantiteAnnoncee" || champ === "laizeAnnoncee"
+        ? { [champ]: nombreOuNull(valeur) }
+        : champ === "identifiant"
+          ? { identifiant: valeur.trim().toUpperCase() }
+          : champ === "rouleaux"
+            ? { rouleaux: lireRouleaux(valeur) }
+            : { [champ]: valeur };
     await db.update(tissuLot).set(patch).where(eq(tissuLot.id, lotId));
+    // Le contrôle qualité du lot conditionne le feu tissu de chaque commande
+    // à qui il est affecté : on le retient à jour tout de suite.
+    if (champ === "controle") {
+      const affs = await db.select({ commandeId: tissuAffectation.commandeId }).from(tissuAffectation).where(eq(tissuAffectation.lotId, lotId));
+      await recalculerTissuLibere(affs.map((a) => a.commandeId));
+    }
     revalider();
     return { ok: true };
   } catch (e) {
@@ -212,7 +288,11 @@ export async function majLot(lotId: number, champ: ChampLot, valeur: string): Pr
 export async function supprimerLot(lotId: number): Promise<Result> {
   try {
     await auteur();
+    const affs = await db.select({ commandeId: tissuAffectation.commandeId }).from(tissuAffectation).where(eq(tissuAffectation.lotId, lotId));
     await db.delete(tissuLot).where(eq(tissuLot.id, lotId));
+    // Les affectations de ce lot disparaissent en cascade : les commandes qui
+    // en dépendaient perdent cette matière, leur feu tissu doit en tenir compte.
+    await recalculerTissuLibere(affs.map((a) => a.commandeId));
     revalider();
     return { ok: true };
   } catch (e) {
@@ -256,6 +336,7 @@ export async function affecter(input: {
       note: input.note ?? "",
       createdBy: a.name,
     });
+    await recalculerTissuLibere([input.commandeId]);
     revalider();
     return { ok: true };
   } catch (e) {
@@ -266,7 +347,9 @@ export async function affecter(input: {
 export async function supprimerAffectation(id: number): Promise<Result> {
   try {
     await auteur();
+    const [a] = await db.select({ commandeId: tissuAffectation.commandeId }).from(tissuAffectation).where(eq(tissuAffectation.id, id));
     await db.delete(tissuAffectation).where(eq(tissuAffectation.id, id));
+    await recalculerTissuLibere([a?.commandeId ?? null]);
     revalider();
     return { ok: true };
   } catch (e) {
@@ -356,6 +439,62 @@ export async function supprimerReception(id: number): Promise<Result> {
     await db.delete(tissuReception).where(eq(tissuReception.id, id));
     revalider();
     return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── reliquats rendus au client ───────────
+ *
+ * Rendre un reliquat, c'est une SORTIE du stock qui n'est pas une
+ * consommation (sens « rendu ») : le bilan matière de la commande reste juste
+ * et le client récupère un bon de retour numéroté RT-AAAA-NNN. */
+
+async function prochainNumeroRetour(): Promise<string> {
+  const annee = new Date().getFullYear();
+  const prefixe = `RT-${annee}-`;
+  const rows = await db.select({ motif: tissuMouvement.motif }).from(tissuMouvement).where(eq(tissuMouvement.sens, "rendu"));
+  let max = 0;
+  for (const r of rows) {
+    if (!r.motif.startsWith(prefixe)) continue;
+    const n = parseInt(r.motif.slice(prefixe.length), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${prefixe}${String(max + 1).padStart(3, "0")}`;
+}
+
+/** Rend au client tout le disponible des lots choisis (ou une quantité par lot). */
+export async function rendreAuClient(input: { lots: { lotId: number; quantite?: string }[] }): Promise<Result<{ numero: string }>> {
+  try {
+    const a = await auteur();
+    if (!input.lots.length) return { ok: false, error: "Choisissez au moins un lot." };
+    const tous = new Map((await svc.listLots()).map((l) => [l.id, l]));
+    const lignes: { lotId: number; q: number; commandeId: number | null; label: string }[] = [];
+    let client = "";
+    for (const x of input.lots) {
+      const l = tous.get(x.lotId);
+      if (!l) return { ok: false, error: "Lot introuvable." };
+      const q = x.quantite ? nombre(x.quantite) : l.bilan.disponible;
+      if (q <= 0) continue;
+      if (q > l.bilan.disponible + 0.001) return { ok: false, error: `${l.identifiant} : il ne reste que ${l.bilan.disponible} ${l.unite}.` };
+      if (client && l.client && client.toLowerCase() !== l.client.toLowerCase()) {
+        return { ok: false, error: "Un bon de retour ne concerne qu'un seul client." };
+      }
+      client = client || l.client;
+      // Rattaché à la dernière commande servie par ce lot : le bilan matière la retrouve.
+      const derniere = l.affectations.at(-1);
+      lignes.push({ lotId: l.id, q, commandeId: derniere?.commandeId ?? null, label: derniere?.commandeLabel ?? "" });
+    }
+    if (!lignes.length) return { ok: false, error: "Rien à rendre : ces lots sont vides." };
+    const numero = await prochainNumeroRetour();
+    await db.insert(tissuMouvement).values(
+      lignes.map((l) => ({
+        lotId: l.lotId, sens: "rendu", quantite: Math.round(l.q * 100) / 100, commandeId: l.commandeId,
+        commandeLabel: l.label, motif: numero, createdBy: a.name,
+      })),
+    );
+    revalider();
+    return { ok: true, numero };
   } catch (e) {
     return fail(e);
   }

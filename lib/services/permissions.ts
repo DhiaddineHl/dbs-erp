@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { appSetting, role as roleTable, rolePermission } from "@/lib/db/schema";
 import { BUILTIN_ROLES, defaultModuleAccess, estRoleBuiltin } from "@/lib/auth/permissions";
-import { NAV_STRUCTURE } from "@/lib/nav";
+import { NAV_STRUCTURE, entreeAutorisee } from "@/lib/nav";
 
 /** Route to send a signed-in user to when no target page is specified — the
  * first menu item their role actually has (same filter as the sidebar), so
@@ -81,7 +81,7 @@ export async function getLandingPath(role: string): Promise<string> {
   const modules = await getRoleModules(role);
   for (const group of NAV_STRUCTURE) {
     for (const item of group.items) {
-      if (!item.masque && modules[item.id] !== false) return item.href;
+      if (!item.masque && entreeAutorisee(item, modules)) return item.href;
     }
   }
   return SANS_ACCES_PATH;

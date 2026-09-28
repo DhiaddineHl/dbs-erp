@@ -69,26 +69,88 @@ export function verifierReception(input: {
 
 export const receptionBloquee = (alertes: AlerteReception[]) => alertes.some((a) => a.niveau === "bloquant");
 
+/** Rend une saisie de réception cohérente AVANT enregistrement.
+ *
+ *  - « conforme » laissé vide = reçu − non conforme (et non plus « tout le
+ *    reçu » : un lot à 20 NC n'entrait jamais à 20 NC) ;
+ *  - « 0 » conforme est une vraie valeur : un lot entièrement refusé n'entre
+ *    plus au stock (avant, 0 était remplacé par la quantité reçue) ;
+ *  - contrôle « refusé » = rien n'entre au stock, tout est non conforme. */
+export function normaliserReception(v: {
+  qteRecue: number;
+  /** null = champ laissé vide. */
+  qteOk: number | null;
+  qteNc: number;
+  controle: string;
+}): { qteRecue: number; qteOk: number; qteNc: number; controle: ControleBr } {
+  const recue = Math.max(0, Math.round(v.qteRecue));
+  const controle: ControleBr = v.controle === "refuse" || v.controle === "ecart" ? v.controle : "ok";
+  if (controle === "refuse") return { qteRecue: recue, qteOk: 0, qteNc: recue, controle };
+  const nc = Math.max(0, Math.round(v.qteNc));
+  const ok = v.qteOk === null ? Math.max(0, recue - nc) : Math.max(0, Math.round(v.qteOk));
+  return { qteRecue: recue, qteOk: ok, qteNc: nc, controle: nc > 0 && controle === "ok" ? "ecart" : controle };
+}
+
+/* ─────────── avancement : UNE formule pour « produit » ───────────
+ *
+ * Avant, deux modules écrivaient `commande.produit` chacun avec sa règle : la
+ * GPAO y mettait sa production interne, puis la moindre entrée en stock ou
+ * coupe la remplaçait par la seule somme des réceptions façonniers — une
+ * commande interne retombait à 0. Désormais :
+ *
+ *   produit = production GPAO des modèles liés
+ *           + pièces conformes reçues des façonniers
+ *           + non conformes réintégrées après retouche
+ *   (plafonné à la quantité commandée) */
+export function produitCommande(v: { qte: number; gpao: number; brOk: number; reprises: number }): number {
+  const total = Math.max(0, v.gpao) + Math.max(0, v.brOk) + Math.max(0, v.reprises);
+  return Math.min(total, Math.max(0, v.qte));
+}
+
+/** Non conformes d'un BR encore sans décision (ni retouchées, ni rebutées). */
+export const ncEnAttente = (qteNc: number, traitees: number) => Math.max(0, qteNc - traitees);
+
+/** Origines d'un mouvement de stock produits finis. */
+export type OrigineMouvement = "interne" | "br" | "retouche" | "rebut";
+export const ORIGINES_MOUVEMENT: Record<OrigineMouvement, { label: string; entreStock: boolean }> = {
+  interne: { label: "Production interne", entreStock: true },
+  br: { label: "Réception façonnier", entreStock: true },
+  retouche: { label: "NC réintégrées après retouche", entreStock: true },
+  rebut: { label: "NC mises au rebut", entreStock: false },
+};
+
 /* ─────────── magasin produits finis ─────────── */
 
-export type EtatMagasin = "vide" | "partiel" | "complet" | "prepare" | "expedie";
+export type EtatMagasin = "vide" | "partiel" | "complet" | "prepare" | "expediePartiel" | "expedie";
 
 export const ETATS_MAGASIN: Record<EtatMagasin, { label: string; tone: Tone }> = {
   vide: { label: "Rien en stock", tone: "neutral" },
   partiel: { label: "Partiel", tone: "warning" },
   complet: { label: "Complet", tone: "success" },
   prepare: { label: "Préparé export", tone: "brand" },
+  expediePartiel: { label: "Expédié en partie", tone: "info" },
   expedie: { label: "✓ Expédié", tone: "success" },
 };
 
-/** L'état avance dans un seul sens : ce qui est expédié l'emporte sur tout. */
+/** Stock physique : ce qui est entré moins ce qui est parti sur un BL envoyé. */
+export const stockPhysique = (c: { magasinQte: number; expedieQte?: number }) =>
+  Math.max(0, c.magasinQte - (c.expedieQte ?? 0));
+
+/** L'état avance dans un seul sens : ce qui est expédié l'emporte sur tout.
+ * Une commande n'est « expédiée » que quand toute la quantité est partie (ou
+ * qu'on l'a soldée à la main) : on peut livrer en plusieurs fois. */
 export function etatMagasin(c: {
   qte: number;
   magasinQte: number;
+  expedieQte?: number;
   magasinPrepare: boolean;
   magasinExpedie: boolean;
 }): EtatMagasin {
-  if (c.magasinExpedie) return "expedie";
+  const expedie = c.expedieQte ?? 0;
+  if (c.magasinExpedie || (c.qte > 0 && expedie >= c.qte)) return "expedie";
+  // Déjà livrée en partie : c'est l'information utile, sauf si un nouveau lot
+  // est en stock et préparé pour le prochain BL.
+  if (expedie > 0 && (!c.magasinPrepare || stockPhysique(c) <= 0)) return "expediePartiel";
   if (c.magasinPrepare) return "prepare";
   if (c.magasinQte <= 0) return "vide";
   return c.magasinQte >= c.qte ? "complet" : "partiel";
@@ -102,13 +164,17 @@ export const STATUTS_BL: Record<StatutBl, { label: string; tone: Tone }> = {
   invoiced: { label: "✓ Facturé", tone: "success" },
 };
 
-/** Quantité livrable : ce qui est au magasin, sinon ce qui reste à livrer.
+/** Quantité livrable : le stock physique, sinon ce qui reste à livrer.
  * Le repli existe parce que toutes les commandes ne passent pas par le stock. */
-export function quantiteLivrable(c: { qte: number; produit: number; magasinQte: number }): number {
-  if (c.magasinQte > 0) return c.magasinQte;
-  const reste = c.qte - c.produit;
-  return reste > 0 ? reste : c.qte;
+export function quantiteLivrable(c: { qte: number; produit: number; magasinQte: number; expedieQte?: number }): number {
+  const expedie = c.expedieQte ?? 0;
+  if (c.magasinQte > 0) return stockPhysique(c);
+  const reste = c.qte - Math.max(c.produit, expedie);
+  return reste > 0 ? reste : Math.max(0, c.qte - expedie);
 }
+
+/** Une commande est entièrement livrée quand le cumul des BL envoyés couvre la quantité. */
+export const livraisonComplete = (qte: number, expedieQte: number) => qte > 0 && expedieQte >= qte;
 
 /* ─────────── numérotation ─────────── */
 
@@ -367,4 +433,67 @@ export function libelleMoisExport(mois: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(mois);
   if (!m) return mois || "sans date";
   return `${MOIS_FR[Number(m[2]) - 1] ?? m[2]} ${m[1]}`;
+}
+
+/* ─────────── saisie mobile du magasinier (QR) ───────────
+ *
+ * Ce que le téléphone propose de réceptionner, sans rien avoir à chercher :
+ *   - production interne : ce que les chaînes GPAO ont sorti et qui n'est pas
+ *     encore entré au magasin (la quantité est pré-remplie) ;
+ *   - façonniers : les commandes sous-traitées dont il reste des pièces à
+ *     recevoir, rangées par façonnier. */
+
+/** Rôles autorisés à saisir au magasin (entrées, réceptions, BL). */
+export const ROLES_SAISIE_MAGASIN = ["admin", "resp", "chef", "magasin"];
+
+export type CommandeReceptionnable = {
+  id: number;
+  of: string;
+  modele: string;
+  couleur: string;
+  client: string;
+  faconnier: string;
+  chaine: string;
+  qte: number;
+  produit: number;
+  produitGpao: number;
+  entreesInternes: number;
+  etatMagasin: EtatMagasin;
+};
+
+export const aEntrerInterne = (c: Pick<CommandeReceptionnable, "produitGpao" | "entreesInternes">) =>
+  Math.max(0, c.produitGpao - c.entreesInternes);
+
+export const resteFaconnier = (c: Pick<CommandeReceptionnable, "qte" | "produit">) => Math.max(0, c.qte - c.produit);
+
+export type ListesReception<T> = {
+  /** Production interne : d'abord ce qui attend d'être entré. */
+  internes: (T & { aEntrer: number })[];
+  /** Façonniers : commandes avec un reste, groupées par façonnier. */
+  faconniers: { faconnier: string; commandes: (T & { reste: number })[] }[];
+};
+
+export function listesReception<T extends CommandeReceptionnable>(commandes: T[]): ListesReception<T> {
+  const actives = commandes.filter((c) => c.etatMagasin !== "expedie");
+
+  const internes = actives
+    .filter((c) => !c.faconnier && (c.chaine || c.produitGpao > 0))
+    .map((c) => ({ ...c, aEntrer: aEntrerInterne(c) }))
+    .filter((c) => c.aEntrer > 0 || c.produit < c.qte)
+    .sort((a, b) => b.aEntrer - a.aEntrer || a.of.localeCompare(b.of));
+
+  const parFaconnier = new Map<string, (T & { reste: number })[]>();
+  for (const c of actives) {
+    if (!c.faconnier) continue;
+    const reste = resteFaconnier(c);
+    if (reste <= 0) continue;
+    const g = parFaconnier.get(c.faconnier) ?? [];
+    g.push({ ...c, reste });
+    parFaconnier.set(c.faconnier, g);
+  }
+  const faconniers = [...parFaconnier.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([faconnier, cmds]) => ({ faconnier, commandes: cmds.sort((a, b) => a.of.localeCompare(b.of)) }));
+
+  return { internes, faconniers };
 }

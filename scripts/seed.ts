@@ -12,7 +12,6 @@ import { randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
-import type { PgTable } from "drizzle-orm/pg-core";
 import { Pool } from "pg";
 
 import * as schema from "@/lib/db/schema";
@@ -345,58 +344,6 @@ async function seedGrandLivre() {
   console.log(`  ✓ ${FOURNISSEURS_DEMO.length} fournisseurs (${mouvements} mouvements)`);
 }
 
-async function insertIfEmpty<T extends PgTable>(tbl: T, rows: T["$inferInsert"][]) {
-  const count = await db.$count(tbl);
-  if (count > 0) return false;
-  if (rows.length) await db.insert(tbl).values(rows);
-  return true;
-}
-
-async function seedModules() {
-  const s = schema;
-  let n = 0;
-  const tick = (ok: boolean) => ok && n++;
-
-  tick(await insertIfEmpty(s.mGamme, M.GAMMES));
-  tick(await insertIfEmpty(s.mCapaciteChaine, M.CAPACITE_CHAINES));
-  tick(await insertIfEmpty(s.mOf, M.OFS));
-
-  tick(await insertIfEmpty(s.mTissu, M.TISSUS.map((r) => ({
-    date: r.date, cmd: r.cmd, design: r.design, recue: r.recue, prevue: r.prevue,
-    ecartTone: r.ecart[0], ecartLabel: r.ecart[1], controleTone: r.controle[0], controleLabel: r.controle[1],
-    statutTone: r.statut[0], statutLabel: r.statut[1],
-  }))));
-  tick(await insertIfEmpty(s.mFourniture, M.FOURNITURES.map((r) => ({
-    date: r.date, cmd: r.cmd, type: r.type, design: r.design, qte: r.qte,
-    controleTone: r.controle[0], controleLabel: r.controle[1], statutTone: r.statut[0], statutLabel: r.statut[1],
-  }))));
-  tick(await insertIfEmpty(s.mBe, M.BE.map((r) => ({
-    of: r.of, mc: r.mc, envoi: r.envoi, ok: r.ok, ref: r.ref, statutTone: r.statut[0], statutLabel: r.statut[1],
-  }))));
-  tick(await insertIfEmpty(s.mCosting, M.COSTING.map((r) => ({
-    of: r.of, modele: r.modele, qte: r.qte, sam: r.sam, coutP: r.coutP, coutT: r.coutT, pf: r.pf,
-    ecartTone: r.ecart[0], ecartLabel: r.ecart[1], delai: r.delai,
-  }))));
-  tick(await insertIfEmpty(s.mOrdo, M.ORDO.map((r) => ({
-    rang: r.rang, prioTone: r.prio[0], prioLabel: r.prio[1], of: r.of, mc: r.mc, qte: r.qte, sam: r.sam,
-    charge: r.charge, assigne: r.assigne, export: r.export, critTone: r.crit[0], critLabel: r.crit[1],
-  }))));
-  tick(await insertIfEmpty(s.mAlerte, M.ALERTS.map((r) => ({
-    iconName: r.iconName, tone: r.tone, title: r.title, detail: r.detail,
-    levelTone: r.level[0], levelLabel: r.level[1],
-  }))));
-  tick(await insertIfEmpty(s.mQrqc, M.QRQC.map((r) => ({
-    date: r.date, pb: r.pb, cause: r.cause, cmd: r.cmd, action: r.action,
-    statutTone: r.statut[0], statutLabel: r.statut[1],
-  }))));
-  tick(await insertIfEmpty(s.mAction, M.ACTIONS.map((r) => ({
-    action: r.action, resp: r.resp, echeance: r.echeance, prioTone: r.prio[0], prioLabel: r.prio[1],
-    statutTone: r.statut[0], statutLabel: r.statut[1],
-  }))));
-
-  console.log(n ? `  ✓ ${n} module table(s) seeded` : "  • modules already seeded — skipped");
-}
-
 /** Flux aval de démonstration : lâchers de coupe, réceptions sous-traitance,
  * entrées magasin et bons de livraison, reconstruits à partir de ce que les
  * commandes déclarent déjà avoir produit.
@@ -542,7 +489,6 @@ async function main() {
   await seedBaremes();
   await seedFinance();
   await seedGrandLivre();
-  await seedModules();
   await seedAval();
   await seedAtelier();
   console.log("Done.");

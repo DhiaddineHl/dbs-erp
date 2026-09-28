@@ -1,34 +1,23 @@
-import { headers } from "next/headers";
 import { requireUser, userRole } from "@/lib/auth/server";
 import { qrSvg, urlDirection, urlPortail } from "@/lib/atelier/qr";
+import { CLE_SEUIL_ALERTE, SEUIL_ALERTE_DEFAUT } from "@/lib/domain/rendement";
 import { listOuvrieres } from "@/lib/services/atelier";
 import { getSetting } from "@/lib/services/permissions";
-import { cartesQr } from "@/lib/services/portail";
+import { basePortail, cartesQr } from "@/lib/services/portail";
 import { QrOuvClient, type CarteAffichee } from "./qrouv-client";
 
 const ATELIER = ["admin", "resp", "chef"];
-
-/** Adresse de base des QR : celle configurée par l'administrateur, sinon
- * l'origine de la requête en cours — qui suffit tant qu'on reste sur le même
- * réseau, et qui donne au moins un QR testable tout de suite. */
-async function basePortail(): Promise<string> {
-  const reglee = await getSetting<string>("basePortail", "");
-  if (reglee) return reglee;
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
-  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  return host ? `${proto}://${host}` : "";
-}
 
 export default async function QrOuvPage() {
   const user = await requireUser();
   const role = userRole(user);
 
-  const [cartes, ouvrieres, base, jeton] = await Promise.all([
+  const [cartes, ouvrieres, base, jeton, seuilAlerte] = await Promise.all([
     cartesQr(),
     listOuvrieres(),
     basePortail(),
     getSetting<string>("jetonDirection", ""),
+    getSetting<number>(CLE_SEUIL_ALERTE, SEUIL_ALERTE_DEFAUT),
   ]);
 
   const affichees: CarteAffichee[] = await Promise.all(
@@ -52,6 +41,7 @@ export default async function QrOuvPage() {
       base={await getSetting<string>("basePortail", "")}
       direction={direction}
       peutSaisir={ATELIER.includes(role)}
+      seuilAlerte={seuilAlerte}
     />
   );
 }

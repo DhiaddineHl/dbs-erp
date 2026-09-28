@@ -175,7 +175,7 @@ export async function supprimerDuCatalogue(id: number): Promise<Result> {
 
 export async function majLigneFourniture(
   ligneId: number,
-  champ: "designation" | "qtePrevue" | "qteRecue" | "unite",
+  champ: svc.ChampLigneFourniture,
   valeur: string,
 ): Promise<Result> {
   try {
@@ -199,44 +199,11 @@ export async function supprimerLigneFourniture(ligneId: number): Promise<Result>
   }
 }
 
-/* ─────────── tissu (détail par matière) ─────────── */
-
-export async function ajouterLigneTissu(commandeId: number): Promise<Result> {
-  try {
-    const auteur = await exigerDroit("tissu");
-    await svc.ajouterLigneTissu(commandeId, auteur);
-    revalider();
-    return ok;
-  } catch (e) {
-    return fail(e);
-  }
-}
-
-export async function majLigneTissu(
-  ligneId: number,
-  champ: svc.ChampLigneTissu,
-  valeur: string,
-): Promise<Result> {
-  try {
-    const auteur = await exigerDroit("tissu");
-    await svc.majLigneTissu(ligneId, champ, valeur, auteur);
-    revalider();
-    return ok;
-  } catch (e) {
-    return fail(e);
-  }
-}
-
-export async function supprimerLigneTissu(ligneId: number): Promise<Result> {
-  try {
-    const auteur = await exigerDroit("tissu");
-    await svc.supprimerLigneTissu(ligneId, auteur);
-    revalider();
-    return ok;
-  } catch (e) {
-    return fail(e);
-  }
-}
+/* Le détail tissu par matière (ajouterLigneTissu / majLigneTissu /
+ * supprimerLigneTissu) est retiré en même temps que commande_tissu_ligne
+ * (migration 0034) — ces actions n'étaient appelées depuis aucun écran ; la
+ * saisie du détail matière se fait désormais dans le magasin tissu par lots
+ * (/magtissu, lib/actions/tissu.ts). */
 
 /* ─────────── lancement ─────────── */
 

@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { date, doublePrecision, index, integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { date, doublePrecision, index, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 import { commande } from "./commande";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -31,6 +31,8 @@ export const tissuReception = pgTable(
     fournisseur: text().notNull().default(""),
     /** Client / donneur d'ordre concerné, quand le tissu est fourni par lui. */
     client: text().notNull().default(""),
+    /** N° du bon de livraison du client : la réception se contrôle contre lui. */
+    blClient: text().notNull().default(""),
     observations: text().notNull().default(""),
     /** Pièces jointes (photos du bon, du rouleau…) : hash fichier séparés par des virgules. */
     piecesJointes: text().notNull().default(""),
@@ -39,6 +41,15 @@ export const tissuReception = pgTable(
   },
   (t) => [index("tissu_reception_date_idx").on(t.date)],
 );
+
+/** Un rouleau contrôlé : métrage annoncé (étiquette), mesuré, laize réelle, défauts. */
+export type RouleauControle = {
+  n: string;
+  annonce: number | null;
+  mesure: number | null;
+  laize: number | null;
+  defauts: string;
+};
 
 /** Lot de tissu = stock identifiable et traçable (AUBER-01, MAR-01…).
  *
@@ -67,6 +78,15 @@ export const tissuLot = pgTable(
     nbRouleaux: integer(),
     /** "" | conforme | reserve | refuse — contrôle qualité du lot. */
     controle: text().notNull().default(""),
+    /* ── contrôle à réception contre le bon de livraison du client ── */
+    /** Métrage annoncé sur le BL client (null = non renseigné). */
+    quantiteAnnoncee: doublePrecision(),
+    /** Laize annoncée / commandée (cm). La laize réelle est `laize`. */
+    laizeAnnoncee: doublePrecision(),
+    /** Défauts constatés (texte libre, repris sur la réclamation). */
+    defauts: text().notNull().default(""),
+    /** Contrôle rouleau par rouleau (facultatif). */
+    rouleaux: jsonb().$type<RouleauControle[]>().notNull().default([]),
     note: text().notNull().default(""),
     createdAt: timestamp().notNull().defaultNow(),
   },
@@ -109,6 +129,8 @@ export const tissuAffectation = pgTable(
  *   entree        → réception initiale (quantité positive) — trace de l'entrée
  *   sortie        → consommation réelle en production (diminue le disponible)
  *   retour        → retour de reste au stock (rare, ex. sur-sortie corrigée)
+ *   rendu         → reliquat rendu au client (sort du stock, n'est PAS une
+ *                   consommation) — motif = n° du bon de retour
  *   ajustement    → correction d'inventaire physique (± selon quantite) */
 export const tissuMouvement = pgTable(
   "tissu_mouvement",
@@ -117,7 +139,7 @@ export const tissuMouvement = pgTable(
     lotId: integer()
       .notNull()
       .references(() => tissuLot.id, { onDelete: "cascade" }),
-    /** entree | sortie | retour | ajustement */
+    /** entree | sortie | retour | rendu | ajustement */
     sens: text().notNull(),
     /** Toujours positive ; c'est `sens` qui donne le signe métier. */
     quantite: doublePrecision().notNull().default(0),

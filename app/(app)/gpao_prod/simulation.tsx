@@ -1,15 +1,32 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import type { SimulationData } from "@/lib/services/gpao";
-import { commandesPourLien, lierModele, majPrixManuel, rapprocherModelesCommandes, simuler } from "./actions";
+import {
+  bilanCoutUsine,
+  heuresMensuellesUsine,
+  paramsComplets,
+  PARAMS_USINE_VIDES,
+  type BilanCoutUsine,
+  type ParamsUsine,
+} from "@/lib/domain/cout-usine";
+import {
+  commandesPourLien,
+  enregistrerParamsUsine,
+  lierModele,
+  lireParamsUsine,
+  majPrixManuel,
+  rapprocherModelesCommandes,
+  simuler,
+} from "./actions";
 
 type CmdLien = { id: number; of: string; modele: string; ref: string; client: string; archived?: boolean };
 
 const nb = new Intl.NumberFormat("fr-FR");
 const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 const eur2 = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const eur4 = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso);
 
 /* Simulation (nouvelle fonctionnalité) : à partir des journées GPAO, voir les
@@ -24,7 +41,17 @@ export function SimulationView() {
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
   const [data, setData] = useState<SimulationData | null>(null);
   const [groupe, setGroupe] = useState<"jour" | "modele">("jour");
-  const [coutHoraire, setCoutHoraire] = useState("");
+  const [usine, setUsine] = useState<ParamsUsine>(PARAMS_USINE_VIDES);
+  const [usineModifiable, setUsineModifiable] = useState(false);
+
+  // Paramètres de coût usine partagés (charges, effectif direct, heures/mois).
+  useEffect(() => {
+    lireParamsUsine().then((r) => {
+      if (!r.ok) return;
+      setUsine(r.params);
+      setUsineModifiable(r.modifiable);
+    });
+  }, []);
   const [cmds, setCmds] = useState<CmdLien[] | null>(null);
 
   const rafraichir = () =>
@@ -118,7 +145,7 @@ export function SimulationView() {
           >
             🔗 Relier modèles ↔ commandes
           </button>
-          <button className="btn amber sm" disabled={!data || !data.lignes.length} onClick={() => data && printSimulation(data, groupe)}>
+          <button className="btn amber sm" disabled={!data || !data.lignes.length} onClick={() => data && printSimulation(data, groupe, usine)}>
             🖨 Imprimer
           </button>
         </div>
@@ -139,44 +166,21 @@ export function SimulationView() {
             )}
           </div>
 
-          {/* Bilan coût : coût horaire usine saisi à la main × heures travaillées. */}
-          <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "#fff", marginTop: 12 }}>
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
-              <b style={{ fontSize: 14 }}>💶 Bilan coût de la période</b>
-              <label style={{ fontSize: 12, color: "var(--muted)" }}>
-                Coût d&apos;1 heure à l&apos;usine (€) :{" "}
-                <input
-                  type="number"
-                  step="0.01"
-                  value={coutHoraire}
-                  onChange={(e) => setCoutHoraire(e.target.value)}
-                  placeholder="ex: 4,50"
-                  style={{ width: 90, padding: 6, border: "1px solid var(--border)", borderRadius: 8 }}
-                />
-              </label>
-            </div>
-            {(() => {
-              const cout = Number(String(coutHoraire).replace(",", ".")) || 0;
-              const coutTotal = Math.round(data.heuresTravaillees * cout);
-              const marge = data.totalCa - coutTotal;
-              return (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 10 }}>
-                  <Kpi label="Heures travaillées" val={`${nb.format(data.heuresTravaillees)} h`} />
-                  <Kpi label="Pièces produites" val={nb.format(data.totalPieces)} />
-                  <Kpi label="CA produit" val={`${eur.format(data.totalCa)} €`} accent />
-                  {cout > 0 && <Kpi label="Coût main d'œuvre" val={`${eur.format(coutTotal)} €`} warn />}
-                  {cout > 0 && <Kpi label="Marge (CA − coût)" val={`${eur.format(marge)} €`} accent={marge >= 0} warn={marge < 0} />}
-                  {cout > 0 && data.totalPieces > 0 && (
-                    <Kpi label="Coût / pièce" val={`${eur2.format(coutTotal / data.totalPieces)} €`} />
-                  )}
-                </div>
-              );
-            })()}
-            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-              Heures = cellules horaires réellement saisies (hors RI/ABS). Le coût horaire est celui que tu saisis
-              (salaire chargé + charges usine ÷ heures) — l&apos;app ne le connaît pas.
-            </div>
-          </div>
+          {/* Bilan coût : charges usine réparties sur la période ÷ heures GPAO saisies. */}
+          <BilanCoutPanel
+            key={`${usine.chargesMensuelles}|${usine.effectifDirect}|${usine.heuresMois}`}
+            data={data}
+            params={usine}
+            modifiable={usineModifiable}
+            onEnregistrer={(p) =>
+              start(async () => {
+                const r = await enregistrerParamsUsine(p);
+                if (!r.ok) return void toast.error(r.error);
+                setUsine(r.params);
+                toast.success("Paramètres de coût usine enregistrés");
+              })
+            }
+          />
 
           <table className="tbl" style={{ marginTop: 12 }}>
             <thead>
@@ -281,6 +285,154 @@ export function SimulationView() {
   );
 }
 
+/** Bornes réelles de la période : si « Du » ou « Au » est laissé vide, on prend
+ * la première journée produite, et aujourd'hui (ou la dernière journée). */
+function periodeEffective(data: SimulationData): { from: string; to: string } {
+  const dates = data.lignes.map((l) => l.date).sort();
+  const from = data.from || dates[0] || "";
+  const to = data.to || new Date().toISOString().slice(0, 10);
+  return { from, to };
+}
+
+function calculerBilan(data: SimulationData, p: ParamsUsine): BilanCoutUsine {
+  const { from, to } = periodeEffective(data);
+  return bilanCoutUsine(p, { from, to, heuresSaisies: data.heuresTravaillees, ca: data.totalCa, pieces: data.totalPieces });
+}
+
+type ChampCout = "chargesMensuelles" | "effectifDirect" | "heuresMois";
+
+const pct = (x: number | null) => (x == null ? "—" : `${Math.round(x * 100)} %`);
+
+/* Bilan coût de la période.
+ *
+ * Les ouvrières directes paient toute l'usine : le coût standard d'une heure
+ * est charges mensuelles ÷ (effectif direct × heures/mois). Sur la période, les
+ * charges sont réparties au prorata du calendrier, puis divisées par les heures
+ * RÉELLEMENT saisies en GPAO — coût horaire réel. La marge est CA − charges de
+ * la période : elle reste juste même quand la saisie GPAO est incomplète. */
+function BilanCoutPanel({
+  data,
+  params,
+  modifiable,
+  onEnregistrer,
+}: {
+  data: SimulationData;
+  params: ParamsUsine;
+  modifiable: boolean;
+  onEnregistrer: (p: ParamsUsine) => void;
+}) {
+  // Champs initialisés depuis les paramètres partagés ; le parent remonte le
+  // composant (clé) quand ceux-ci arrivent ou sont réenregistrés.
+  const [edit, setEdit] = useState<Record<ChampCout, string>>(() => ({
+    chargesMensuelles: params.chargesMensuelles ? String(params.chargesMensuelles) : "",
+    effectifDirect: params.effectifDirect ? String(params.effectifDirect) : "",
+    heuresMois: params.heuresMois ? String(params.heuresMois) : "",
+  }));
+
+  const num = (v: string) => {
+    const n = Number(v.replace(",", "."));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  // Le calcul suit la saisie en cours (aperçu avant enregistrement).
+  const p: ParamsUsine = {
+    ...params, // objectifs (rendement/marge cibles…) conservés : réglés dans Rentabilité
+    chargesMensuelles: num(edit.chargesMensuelles),
+    effectifDirect: num(edit.effectifDirect),
+    heuresMois: num(edit.heuresMois),
+  };
+  const modifie =
+    p.chargesMensuelles !== params.chargesMensuelles || p.effectifDirect !== params.effectifDirect || p.heuresMois !== params.heuresMois;
+  const complet = paramsComplets(p);
+  const b = complet ? calculerBilan(data, p) : null;
+  const { from, to } = periodeEffective(data);
+
+  const champ = (k: ChampCout, label: string, placeholder: string, w = 100) => (
+    <label style={{ fontSize: 12, color: "var(--muted)" }}>
+      {label}{" "}
+      <input
+        type="text"
+        inputMode="decimal"
+        value={edit[k]}
+        disabled={!modifiable}
+        onChange={(e) => setEdit((x) => ({ ...x, [k]: e.target.value }))}
+        placeholder={placeholder}
+        style={{ width: w, padding: 6, border: "1px solid var(--border)", borderRadius: 8 }}
+      />
+    </label>
+  );
+
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "#fff", marginTop: 12 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
+        <b style={{ fontSize: 14 }}>💶 Bilan coût de la période</b>
+        {champ("chargesMensuelles", "Charges usine / mois (€)", "ex: 44000", 110)}
+        {champ("effectifDirect", "Ouvrières directes", "ex: 45", 70)}
+        {champ("heuresMois", "Heures / mois / ouvrière", "ex: 195", 70)}
+        {modifiable ? (
+          <button className="btn primary sm" disabled={!modifie || !complet} onClick={() => onEnregistrer(p)}>
+            Enregistrer
+          </button>
+        ) : (
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>Modifiable par l&apos;administrateur ou le responsable prod.</span>
+        )}
+      </div>
+
+      {complet && (
+        <div style={{ fontSize: 12, marginTop: 8, color: "var(--txt)" }}>
+          Coût standard d&apos;une heure : {eur.format(p.chargesMensuelles)} € ÷ ({nb.format(p.effectifDirect)} ×{" "}
+          {nb.format(p.heuresMois)} h = {nb.format(heuresMensuellesUsine(p))} h) ={" "}
+          <b>{eur2.format(b?.coutHoraireStandard ?? 0)} €/h</b> · soit {eur4.format((b?.coutHoraireStandard ?? 0) / 60)} €/min
+        </div>
+      )}
+
+      {!b ? (
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
+          Renseigne les charges mensuelles de l&apos;usine, le nombre d&apos;ouvrières directes et les heures par mois pour
+          obtenir le coût horaire, les charges de la période et la marge.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 10 }}>
+            <Kpi label="CA produit" val={`${eur.format(b.ca)} €`} accent />
+            <Kpi label={`Charges période (${nb.format(Math.round(b.mois * 100) / 100)} mois)`} val={`${eur.format(b.chargesPeriode)} €`} warn />
+            <Kpi label="Marge (CA − charges)" val={`${eur.format(b.marge)} €`} accent={b.marge >= 0} warn={b.marge < 0} />
+            <Kpi label="Taux de marge" val={pct(b.tauxMarge)} accent={(b.tauxMarge ?? 0) >= 0} warn={(b.tauxMarge ?? 0) < 0} />
+            <Kpi label="Coût / pièce" val={b.coutPiece == null ? "—" : `${eur2.format(b.coutPiece)} €`} />
+            <Kpi label="Heures saisies GPAO" val={`${nb.format(b.heuresSaisies)} h`} />
+            <Kpi label="Heures payées (théorie)" val={`${nb.format(Math.round(b.heuresTheoriques))} h`} />
+            <Kpi label="Taux de saisie GPAO" val={pct(b.tauxSaisie)} warn={(b.tauxSaisie ?? 1) < 0.9} />
+            <Kpi label="Coût horaire standard" val={b.coutHoraireStandard == null ? "—" : `${eur2.format(b.coutHoraireStandard)} €`} />
+            <Kpi
+              label="Coût horaire réel période"
+              val={b.coutHoraireReel == null ? "—" : `${eur2.format(b.coutHoraireReel)} €`}
+              warn={(b.coutHoraireReel ?? 0) > (b.coutHoraireStandard ?? Infinity) * 1.05}
+            />
+          </div>
+          {b.tauxSaisie != null && b.tauxSaisie < 0.9 && (
+            <div style={{ fontSize: 12, marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "#FEF3F2", color: "#b42318" }}>
+              ⚠ La GPAO ne couvre que {pct(b.tauxSaisie)} des heures payées sur la période (
+              {nb.format(Math.round(b.heuresTheoriques - b.heuresSaisies))} h non saisies : absences, arrêts, RI ou saisies
+              manquantes). Les charges restent dues : chaque heure saisie coûte donc {eur2.format(b.coutHoraireReel ?? 0)} € au
+              lieu de {eur2.format(b.coutHoraireStandard ?? 0)} €.
+            </div>
+          )}
+          {b.tauxSaisie != null && b.tauxSaisie > 1.1 && (
+            <div style={{ fontSize: 12, marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "#FFFAEB", color: "#93370D" }}>
+              ⚠ Plus d&apos;heures saisies que d&apos;heures payées ({pct(b.tauxSaisie)}) : vérifie l&apos;effectif direct et les
+              heures/mois, ou des heures supplémentaires / renforts sur la période.
+            </div>
+          )}
+        </>
+      )}
+      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
+        Période du {dateFr(from)} au {dateFr(to)}{b ? ` (${b.jours} jours)` : ""}. Charges réparties au prorata du calendrier ;
+        heures GPAO = cellules horaires réellement saisies (hors RI/ABS). La marge ne dépend pas de la qualité de saisie :
+        CA − charges de la période.
+      </div>
+    </div>
+  );
+}
+
 function Kpi({ label, val, accent, warn }: { label: string; val: string; accent?: boolean; warn?: boolean }) {
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: "10px 14px", background: "#fff" }}>
@@ -324,7 +476,7 @@ function regrouper(data: SimulationData, mode: "jour" | "modele"): GroupeLigne[]
     .sort((a, b) => (a.cle < b.cle ? -1 : 1));
 }
 
-function printSimulation(data: SimulationData, mode: "jour" | "modele") {
+function printSimulation(data: SimulationData, mode: "jour" | "modele", usine: ParamsUsine) {
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const groupes = regrouper(data, mode);
   const rows = groupes
@@ -342,6 +494,7 @@ function printSimulation(data: SimulationData, mode: "jour" | "modele") {
     <table><thead><tr><th style="text-align:left">${mode === "jour" ? "Jour" : "Modèle/réf."}</th><th style="text-align:left">${mode === "jour" ? "Modèles" : "Client"}</th><th>Pièces</th><th>Prix vente</th><th>CA</th></tr></thead>
     <tbody>${rows}</tbody>
     <tfoot><tr><td style="text-align:left" colspan="2"><b>TOTAL</b></td><td><b>${data.totalPieces}</b></td><td>—</td><td><b>${eur.format(data.totalCa)} €</b></td></tr></tfoot></table>
+    ${blocBilanImpression(data, usine)}
     <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")} — GPAO DBS Fashion</div>`;
   const w = window.open("", "_blank", "width=1000,height=800");
   if (!w) return;
@@ -350,8 +503,29 @@ function printSimulation(data: SimulationData, mode: "jour" | "modele") {
     h1{font-size:17px;text-align:center;margin:0 0 4px}.psub{text-align:center;font-size:11px;color:#444;margin-bottom:12px}
     table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #555;padding:4px 6px;text-align:center}th{background:#e6e6e6}
     tfoot td{background:#f4f4f4}@page{size:A4 portrait;margin:10mm}
+    .bilan{margin-top:14px}.bilan h2{font-size:13px;margin:0 0 6px}.bilan td:first-child{text-align:left}.bilan .note{font-size:10px;color:#444;margin-top:4px}
   </style></head><body>${h}</body></html>`);
   w.document.close();
   w.focus();
   setTimeout(() => w.print(), 250);
+}
+
+/** Bloc « bilan coût » de l'impression — seulement si les paramètres usine sont renseignés. */
+function blocBilanImpression(data: SimulationData, usine: ParamsUsine): string {
+  if (!paramsComplets(usine)) return "";
+  const b = calculerBilan(data, usine);
+  const e = (x: number | null) => (x == null ? "—" : `${eur2.format(x)} €`);
+  const l = (k: string, v: string) => `<tr><td>${k}</td><td><b>${v}</b></td></tr>`;
+  return `<div class="bilan"><h2>BILAN COÛT DE LA PÉRIODE</h2><table><tbody>
+    ${l("Charges usine mensuelles", `${eur.format(usine.chargesMensuelles)} €`)}
+    ${l("Ouvrières directes × heures/mois", `${nb.format(usine.effectifDirect)} × ${nb.format(usine.heuresMois)} h = ${nb.format(heuresMensuellesUsine(usine))} h`)}
+    ${l("Coût horaire standard", `${e(b.coutHoraireStandard)} / h`)}
+    ${l(`Charges de la période (${b.jours} j, ${nb.format(Math.round(b.mois * 100) / 100)} mois)`, `${eur.format(b.chargesPeriode)} €`)}
+    ${l("Heures saisies GPAO / heures payées", `${nb.format(b.heuresSaisies)} h / ${nb.format(Math.round(b.heuresTheoriques))} h (${pct(b.tauxSaisie)})`)}
+    ${l("Coût horaire réel de la période", `${e(b.coutHoraireReel)} / h`)}
+    ${l("CA produit", `${eur.format(b.ca)} €`)}
+    ${l("Marge (CA − charges)", `${eur.format(b.marge)} € (${pct(b.tauxMarge)})`)}
+    ${l("Coût / pièce", e(b.coutPiece))}
+  </tbody></table>
+  <div class="note">Charges réparties au prorata du calendrier. Heures GPAO = cellules horaires réellement saisies (hors RI/ABS).</div></div>`;
 }

@@ -3,6 +3,7 @@ import { peutModifier } from "@/lib/domain/feux";
 import { getRoleModules } from "@/lib/services/permissions";
 import { listCatalogueFournitures } from "@/lib/services/preparation";
 import { CatalogueFournitures } from "./catalogue-client";
+import { NavMagfour } from "../nav-magfour";
 
 export default async function CataloguePage() {
   const user = await requireUser();
@@ -11,6 +12,7 @@ export default async function CataloguePage() {
   const peutSaisir = peutModifier("four", role) || !!modules.magfour;
   return (
     <div className="p-4">
+      <NavMagfour actif="/magfour/catalogue" />
       <CatalogueFournitures catalogue={catalogue} peutSaisir={peutSaisir} />
     </div>
   );

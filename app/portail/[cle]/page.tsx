@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { COULEUR_RENDEMENT, SEUIL_ALERTE, niveau } from "@/lib/domain/rendement";
+import { CLE_SEUIL_ALERTE, COULEUR_RENDEMENT, SEUIL_ALERTE_DEFAUT, niveau } from "@/lib/domain/rendement";
+import { getSetting } from "@/lib/services/permissions";
 import { rendementParCle } from "@/lib/services/portail";
 
 /* Portail rendement d'une ouvrière.
@@ -14,6 +15,7 @@ import { rendementParCle } from "@/lib/services/portail";
 export const dynamic = "force-dynamic";
 
 const nb = new Intl.NumberFormat("fr-FR");
+const dateCourte = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-").reverse().slice(0, 2).join("/") : iso);
 const dateFr = (iso: string) =>
   /^\d{4}-\d{2}-\d{2}$/.test(iso)
     ? new Date(`${iso}T00:00:00`).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })
@@ -25,7 +27,11 @@ export async function generateMetadata() {
 
 export default async function PortailPage({ params }: { params: Promise<{ cle: string }> }) {
   const { cle } = await params;
-  const r = await rendementParCle(cle);
+  const [r, SEUIL_ALERTE] = await Promise.all([
+    rendementParCle(cle),
+    // Le seuil d'alerte réglé pour l'atelier — le même que celui de l'écran TV.
+    getSetting<number>(CLE_SEUIL_ALERTE, SEUIL_ALERTE_DEFAUT),
+  ]);
   if (!r) notFound();
 
   const n = niveau(r.general);
@@ -58,13 +64,19 @@ export default async function PortailPage({ params }: { params: Promise<{ cle: s
             {/* rendement général */}
             <div className="rounded-2xl bg-white/10 px-5 py-6 text-center">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-white/60">
-                Rendement général
+                Mon rendement — 30 derniers jours
               </div>
               <div className="mt-1 text-6xl font-black tabular-nums" style={{ color: couleur }}>
                 {r.general === null ? "—" : `${r.general}%`}
               </div>
               <div className="mt-1 text-[12px] text-white/60">
-                moyenne sur {r.jours.length} journée{r.jours.length > 1 ? "s" : ""}
+                du {dateCourte(r.periode.from)} au {dateCourte(r.periode.to)} · {r.periode.jours} journée
+                {r.periode.jours > 1 ? "s" : ""} travaillée{r.periode.jours > 1 ? "s" : ""}
+              </div>
+              <div className="mt-3 flex justify-center gap-2 text-[12px]">
+                <span className="rounded-full bg-white/10 px-3 py-1">
+                  Ce mois-ci : <b>{r.mois.rendement === null ? "—" : `${r.mois.rendement}%`}</b>
+                </span>
               </div>
             </div>
 
@@ -139,8 +151,8 @@ export default async function PortailPage({ params }: { params: Promise<{ cle: s
                 })}
               </div>
               <div className="mt-3 flex gap-2">
-                <Chip label="Total pièces" valeur={nb.format(r.piecesTotal)} />
-                <Chip label="Total retouches" valeur={nb.format(r.retouchesTotal)} />
+                <Chip label="Pièces (30 jours)" valeur={nb.format(r.piecesTotal)} />
+                <Chip label="Retouches (30 jours)" valeur={nb.format(r.retouchesTotal)} />
               </div>
             </section>
           </>

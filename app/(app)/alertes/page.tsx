@@ -5,8 +5,10 @@ import {
   Boxes,
   Clock,
   Euro,
+  Factory,
   Layers,
   PencilRuler,
+  ShieldCheck,
   Truck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -18,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { getAlertes } from "@/lib/services/dashboard";
 
 const ICONS: Record<string, LucideIcon> = {
-  AlertCircle, TriangleAlert, Boxes, Clock, Euro, Layers, PencilRuler, Truck,
+  AlertCircle, TriangleAlert, Boxes, Clock, Euro, Factory, Layers, PencilRuler, ShieldCheck, Truck,
 };
 
 export default async function AlertesPage() {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Trash2 } from "lucide-react";
@@ -9,7 +9,7 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { prochainIdentifiant } from "@/lib/domain/tissu";
+import { ecartsReception, prochainIdentifiant } from "@/lib/domain/tissu";
 import type { ReceptionRow } from "@/lib/services/tissu";
 import { creerReception, supprimerReception, type SaisieLot } from "@/lib/actions/tissu";
 
@@ -41,6 +41,7 @@ export function ReceptionTissu({
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [fournisseur, setFournisseur] = useState("");
   const [client, setClient] = useState("");
+  const [blClient, setBlClient] = useState("");
   const [observations, setObservations] = useState("");
   const [lots, setLots] = useState<LigneLot[]>([lotVide()]);
 
@@ -59,19 +60,38 @@ export function ReceptionTissu({
     });
   }, [lots, identifiantsExistants]);
 
+  const num = (v?: string) => {
+    const n = Number(String(v ?? "").replace(",", "."));
+    return v && Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const ecarts = lots.map((l) =>
+    ecartsReception({
+      quantiteRecue: num(l.quantiteRecue) ?? 0,
+      quantiteAnnoncee: num(l.quantiteAnnoncee),
+      laize: num(l.laize),
+      laizeAnnoncee: num(l.laizeAnnoncee),
+      defauts: l.defauts ?? "",
+      unite: l.unite,
+    }),
+  );
+
   const setLot = (cle: number, champ: keyof SaisieLot, val: string) =>
     setLots((s) => s.map((l) => (l.cle === cle ? { ...l, [champ]: val } : l)));
 
   const enregistrer = () =>
     start(async () => {
-      const r = await creerReception({ date, fournisseur, client, observations, lots });
+      const r = await creerReception({ date, fournisseur, client, blClient, observations, lots });
       if (!r.ok) {
         toast.error(r.error);
         return;
       }
-      toast.success("Bon de réception créé");
+      if (ecarts.some((e) => e.aReclamer)) {
+        toast.warning("Réception enregistrée avec des écarts : imprimez la réclamation client avant la coupe.");
+        window.open(`/magtissu/reclamation/${r.receptionId}`, "_blank");
+      } else toast.success("Bon de réception créé");
       setFournisseur("");
       setClient("");
+      setBlClient("");
       setObservations("");
       setLots([lotVide()]);
       router.refresh();
@@ -89,7 +109,7 @@ export function ReceptionTissu({
         </Link>
       </div>
       <SectionPanel title="Nouveau bon de réception tissu">
-        <div className="grid gap-3 sm:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-5">
           <Champ label="Date de réception">
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-card" />
           </Champ>
@@ -111,6 +131,9 @@ export function ReceptionTissu({
               ))}
             </datalist>
           </Champ>
+          <Champ label="N° BL du client">
+            <Input value={blClient} onChange={(e) => setBlClient(e.target.value)} placeholder="Bon de livraison" className="bg-card" />
+          </Champ>
           <Champ label="Observations">
             <Input value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="Note libre" className="bg-card" />
           </Champ>
@@ -131,9 +154,11 @@ export function ReceptionTissu({
                   <th className="px-2 py-1.5 text-left">Identifiant lot</th>
                   <th className="px-2 py-1.5 text-left">Couleur</th>
                   <th className="px-2 py-1.5 text-left">Référence</th>
-                  <th className="px-2 py-1.5 text-center">Laize (cm)</th>
-                  <th className="px-2 py-1.5 text-center">Quantité</th>
+                  <th className="px-2 py-1.5 text-center" title="Métrage écrit sur le bon de livraison du client">Annoncé BL</th>
+                  <th className="px-2 py-1.5 text-center" title="Métrage mesuré à la réception : c'est lui qui entre en stock">Mesuré</th>
                   <th className="px-2 py-1.5 text-center">Unité</th>
+                  <th className="px-2 py-1.5 text-center">Laize annoncée</th>
+                  <th className="px-2 py-1.5 text-center">Laize réelle</th>
                   <th className="px-2 py-1.5 text-center">Rouleaux</th>
                   <th className="px-2 py-1.5 text-left">Saison</th>
                   <th className="w-8" />
@@ -141,60 +166,80 @@ export function ReceptionTissu({
               </thead>
               <tbody>
                 {lots.map((l, i) => (
-                  <tr key={l.cle} className="border-b align-top">
-                    <td className="px-2 py-1.5">
-                      <Input
-                        value={l.identifiant ?? ""}
-                        onChange={(e) => setLot(l.cle, "identifiant", e.target.value)}
-                        placeholder={apercuIds[i]}
-                        className="h-8 bg-card font-mono"
-                      />
-                      {!(l.identifiant ?? "").trim() && (
-                        <div className="mt-0.5 text-[10px] text-muted-foreground">auto : {apercuIds[i]}</div>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Input value={l.couleur ?? ""} onChange={(e) => setLot(l.cle, "couleur", e.target.value)} placeholder="Aubergine" className="h-8 bg-card" />
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Input value={l.reference ?? ""} onChange={(e) => setLot(l.cle, "reference", e.target.value)} placeholder="Réf." className="h-8 bg-card" />
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Input value={l.laize ?? ""} onChange={(e) => setLot(l.cle, "laize", e.target.value)} inputMode="decimal" className="h-8 bg-card text-center" />
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Input value={l.quantiteRecue ?? ""} onChange={(e) => setLot(l.cle, "quantiteRecue", e.target.value)} inputMode="decimal" placeholder="0" className="h-8 bg-card text-center font-semibold" />
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <select
-                        value={l.unite ?? "m"}
-                        onChange={(e) => setLot(l.cle, "unite", e.target.value)}
-                        className="h-8 w-full rounded-md border border-input bg-card px-1 text-xs"
-                      >
-                        {UNITES.map((u) => (
-                          <option key={u}>{u}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Input value={l.nbRouleaux ?? ""} onChange={(e) => setLot(l.cle, "nbRouleaux", e.target.value)} inputMode="numeric" className="h-8 bg-card text-center" />
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <Input value={l.saison ?? ""} onChange={(e) => setLot(l.cle, "saison", e.target.value)} placeholder="PE26" className="h-8 bg-card" />
-                    </td>
-                    <td className="px-2 py-1.5 text-center">
-                      {lots.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setLots((s) => s.filter((x) => x.cle !== l.cle))}
-                          className="rounded p-1 text-muted-foreground hover:bg-muted"
-                          title="Retirer ce lot"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+                  <Fragment key={l.cle}>
+                    <tr className="align-top">
+                      <td className="px-2 pt-1.5">
+                        <Input
+                          value={l.identifiant ?? ""}
+                          onChange={(e) => setLot(l.cle, "identifiant", e.target.value)}
+                          placeholder={apercuIds[i]}
+                          className="h-8 bg-card font-mono"
+                        />
+                        {!(l.identifiant ?? "").trim() && <div className="mt-0.5 text-[10px] text-muted-foreground">auto : {apercuIds[i]}</div>}
+                      </td>
+                      <td className="px-2 pt-1.5">
+                        <Input value={l.couleur ?? ""} onChange={(e) => setLot(l.cle, "couleur", e.target.value)} placeholder="Aubergine" className="h-8 bg-card" />
+                      </td>
+                      <td className="px-2 pt-1.5">
+                        <Input value={l.reference ?? ""} onChange={(e) => setLot(l.cle, "reference", e.target.value)} placeholder="Réf." className="h-8 bg-card" />
+                      </td>
+                      <td className="px-2 pt-1.5">
+                        <Input value={l.quantiteAnnoncee ?? ""} onChange={(e) => setLot(l.cle, "quantiteAnnoncee", e.target.value)} inputMode="decimal" placeholder="BL" className="h-8 bg-card text-center" />
+                      </td>
+                      <td className="px-2 pt-1.5">
+                        <Input value={l.quantiteRecue ?? ""} onChange={(e) => setLot(l.cle, "quantiteRecue", e.target.value)} inputMode="decimal" placeholder="0" className="h-8 bg-card text-center font-semibold" />
+                      </td>
+                      <td className="px-2 pt-1.5">
+                        <select value={l.unite ?? "m"} onChange={(e) => setLot(l.cle, "unite", e.target.value)} className="h-8 w-full rounded-md border border-input bg-card px-1 text-xs">
+                          {UNITES.map((u) => (
+                            <option key={u}>{u}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-2 pt-1.5">
+                        <Input value={l.laizeAnnoncee ?? ""} onChange={(e) => setLot(l.cle, "laizeAnnoncee", e.target.value)} inputMode="decimal" placeholder="cm" className="h-8 bg-card text-center" />
+                      </td>
+                      <td className="px-2 pt-1.5">
+                        <Input value={l.laize ?? ""} onChange={(e) => setLot(l.cle, "laize", e.target.value)} inputMode="decimal" placeholder="cm" className="h-8 bg-card text-center" />
+                      </td>
+                      <td className="px-2 pt-1.5">
+                        <Input value={l.nbRouleaux ?? ""} onChange={(e) => setLot(l.cle, "nbRouleaux", e.target.value)} inputMode="numeric" className="h-8 bg-card text-center" />
+                      </td>
+                      <td className="px-2 pt-1.5">
+                        <Input value={l.saison ?? ""} onChange={(e) => setLot(l.cle, "saison", e.target.value)} placeholder="PE26" className="h-8 bg-card" />
+                      </td>
+                      <td className="px-2 pt-1.5 text-center">
+                        {lots.length > 1 && (
+                          <button type="button" onClick={() => setLots((s) => s.filter((x) => x.cle !== l.cle))} className="rounded p-1 text-muted-foreground hover:bg-muted" title="Retirer ce lot">
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    <tr className="border-b">
+                      <td colSpan={11} className="px-2 pb-2 pt-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select value={l.controle ?? ""} onChange={(e) => setLot(l.cle, "controle", e.target.value)} className="h-8 rounded-md border border-input bg-card px-1 text-xs">
+                            <option value="">Contrôle : à faire</option>
+                            <option value="conforme">✓ Conforme</option>
+                            <option value="reserve">Accepté sous réserve</option>
+                            <option value="refuse">✗ Refusé</option>
+                          </select>
+                          <Input
+                            value={l.defauts ?? ""}
+                            onChange={(e) => setLot(l.cle, "defauts", e.target.value)}
+                            placeholder="Défauts constatés (trous, taches, nuance, lisière…)"
+                            className="h-8 min-w-[260px] flex-1 bg-card"
+                          />
+                          {ecarts[i].aReclamer ? (
+                            <span className="rounded-md bg-[var(--danger-l)] px-2 py-1 text-[11px] font-semibold text-[var(--danger-d)]">⚠ {ecarts[i].motifs[0]}</span>
+                          ) : ecarts[i].annonce != null ? (
+                            <span className="text-[11px] font-semibold text-success-foreground">✓ conforme au BL</span>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -202,7 +247,7 @@ export function ReceptionTissu({
 
           <div className="mt-3 flex items-center justify-end gap-2">
             <span className="text-[11px] text-muted-foreground">
-              Chaque lot devient un stock identifiable et traçable.
+              Le métrage MESURÉ entre en stock ; l&apos;écart avec le BL du client est à réclamer avant la coupe.
             </span>
             <Button disabled={pending} onClick={enregistrer}>
               {pending ? "Enregistrement…" : "Enregistrer la réception"}
@@ -224,6 +269,12 @@ export function ReceptionTissu({
                   <span className="text-xs text-muted-foreground">{dateFr(r.date)}</span>
                   {r.fournisseur && <span className="text-xs">· {r.fournisseur}</span>}
                   {r.client && <StatusBadge tone="info">{r.client}</StatusBadge>}
+                  {r.blClient && <span className="text-xs text-muted-foreground">BL {r.blClient}</span>}
+                  {r.lots.some((l) => l.ecarts.aReclamer) && (
+                    <Link href={`/magtissu/reclamation/${r.id}`} target="_blank" className="text-xs font-semibold text-[var(--danger-d)] underline">
+                      🧾 Réclamation client
+                    </Link>
+                  )}
                   <span className="ml-auto text-xs text-muted-foreground">{r.lots.length} lot(s)</span>
                   <button
                     type="button"

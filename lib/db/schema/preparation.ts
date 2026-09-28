@@ -91,47 +91,108 @@ export const commandeFournitureLigne = pgTable(
     qtePrevue: doublePrecision().notNull().default(0),
     qteRecue: doublePrecision().notNull().default(0),
     unite: text().notNull().default("pcs"),
+    /** client = fourni par le client (CM) | dbs = acheté par DBS (CMT). */
+    origine: text().notNull().default("client"),
+    /** Fournisseur, pour une ligne achetée par DBS (liste d'achat). */
+    fournisseur: text().notNull().default(""),
+    /** Ligne générée par la nomenclature du modèle : `qtePrevue` est alors
+     * calculée (qté/pièce × pièces × (1 + casse)), plus saisie à la main. */
+    nomenclatureId: integer().references(() => fournitureNomenclature.id, { onDelete: "set null" }),
     createdAt: timestamp().notNull().defaultNow(),
   },
   (t) => [index("commande_four_cmd_idx").on(t.commandeId)],
 );
 
-/** Tissus reçus d'une commande, un par matière.
+/** Nomenclature fournitures d'un MODÈLE : ce qu'il faut par pièce.
  *
- * Le tissu d'un modèle n'est pas toujours mono : un même vêtement peut mêler
- * plusieurs matières (tissu principal, doublure, thermocollant…), chacune avec
- * sa propre référence, sa laize et son métrage. Le champ 1:1 historique sur la
- * commande (`tissuRecu`, `tissuControle`) ne savait porter qu'une seule
- * matière ; dès qu'au moins une ligne existe ici, c'est elle qui fait foi pour
- * le magasin, l'inventaire et le feu tissu — comme les fournitures.
- *
- * La `laize` (largeur travaillable, en cm) est saisie par le magasin et lue
- * par la modéliste au moment du plan de coupe : c'est elle qui conditionne le
- * nombre de pièces par largeur de tracé. */
-export const commandeTissuLigne = pgTable(
-  "commande_tissu_ligne",
+ * La clé est la référence article (ou le nom du modèle sans référence),
+ * normalisée : toutes les commandes du même modèle partagent la même
+ * nomenclature, et leur « prévu » se calcule tout seul. */
+export const fournitureNomenclature = pgTable(
+  "fourniture_nomenclature",
   {
     id: serial().primaryKey(),
-    commandeId: integer()
+    /** Clé normalisée du modèle (voir lib/domain/fournitures.ts → cleModele). */
+    modeleCle: text().notNull(),
+    /** Libellé lisible (référence · modèle). */
+    modeleLabel: text().notNull().default(""),
+    designation: text().notNull().default(""),
+    qteParPiece: doublePrecision().notNull().default(0),
+    unite: text().notNull().default("pcs"),
+    /** % de casse / surplus ajouté au besoin. */
+    cassePct: doublePrecision().notNull().default(0),
+    origine: text().notNull().default("client"),
+    fournisseur: text().notNull().default(""),
+    ordre: integer().notNull().default(0),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [index("fourniture_nomenclature_cle_idx").on(t.modeleCle)],
+);
+
+/** Bon de réception de fournitures du client : UN bon peut livrer plusieurs
+ * commandes et plusieurs modèles. Chaque ligne crédite une ligne de
+ * fourniture d'une commande. */
+export const fournitureReception = pgTable("fourniture_reception", {
+  id: serial().primaryKey(),
+  numero: text().notNull().default(""),
+  date: date().notNull(),
+  client: text().notNull().default(""),
+  /** N° du bon de livraison du client. */
+  blClient: text().notNull().default(""),
+  note: text().notNull().default(""),
+  createdBy: text().notNull().default(""),
+  createdAt: timestamp().notNull().defaultNow(),
+});
+
+export const fournitureReceptionLigne = pgTable(
+  "fourniture_reception_ligne",
+  {
+    id: serial().primaryKey(),
+    receptionId: integer()
       .notNull()
-      .references(() => commande.id, { onDelete: "cascade" }),
-    /** Nom de la matière : « Tissu principal », « Doublure », « Thermocollant »… */
-    nom: text().notNull().default("Tissu principal"),
-    /** Référence fournisseur / rouleau. */
-    reference: text().notNull().default(""),
-    couleur: text().notNull().default(""),
-    /** Laize travaillable en cm — l'information que cherche la modéliste. */
-    laize: doublePrecision(),
-    /** Métrage attendu et métrage effectivement reçu (en mètres). */
-    metragePrevu: doublePrecision().notNull().default(0),
-    metrageRecu: doublePrecision().notNull().default(0),
-    /** "" | conforme | reserve | refuse — contrôle qualité de cette matière. */
-    controle: text().notNull().default(""),
+      .references(() => fournitureReception.id, { onDelete: "cascade" }),
+    ligneId: integer().references(() => commandeFournitureLigne.id, { onDelete: "set null" }),
+    commandeId: integer().references(() => commande.id, { onDelete: "set null" }),
+    /** Copie lisible (la ligne peut disparaître). */
+    designation: text().notNull().default(""),
+    qte: doublePrecision().notNull().default(0),
+    unite: text().notNull().default("pcs"),
+  },
+  (t) => [index("fourniture_reception_ligne_rec_idx").on(t.receptionId)],
+);
+
+/** Restes de fournitures par client — en quantités seulement (matière du
+ * client, pas de valeur). Un reste se réutilise sur une autre commande ou se
+ * rend au client. */
+export const fournitureReste = pgTable(
+  "fourniture_reste",
+  {
+    id: serial().primaryKey(),
+    client: text().notNull().default(""),
+    designation: text().notNull().default(""),
+    unite: text().notNull().default("pcs"),
+    qte: doublePrecision().notNull().default(0),
+    /** OF d'où vient le reste (lisible). */
+    origineOf: text().notNull().default(""),
+    /** en_stock | reutilise | rendu */
+    statut: text().notNull().default("en_stock"),
+    /** OF de réutilisation ou n° du bon de retour. */
+    destination: text().notNull().default(""),
+    date: date().notNull(),
+    dateSortie: date(),
     note: text().notNull().default(""),
     createdAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [index("commande_tissu_cmd_idx").on(t.commandeId)],
+  (t) => [index("fourniture_reste_client_idx").on(t.client)],
 );
+
+/* Le détail « tissus reçus d'une commande, un par matière » a vécu ici sous
+ * `commandeTissuLigne` (table `commande_tissu_ligne`). Remplacé pour de bon par
+ * le magasin tissu par LOTS (voir `./tissu.ts` : réception → lot → affectation
+ * à la commande → consommation) — supprimé en migration 0034, données déjà
+ * reprises en lots depuis la 0027. Le feu tissu et l'inventaire par commande
+ * lisent maintenant les affectations (`ligneTissuParCommandes` dans
+ * `lib/services/tissu.ts`). */
 
 /* ═══════════ PLAN DE COUPE (matelassage) ═══════════
  *

@@ -2,6 +2,8 @@
 
 import { useCallback, useState } from "react";
 import { cleNom } from "@/lib/domain/atelier";
+import * as rd from "@/lib/domain/rendement";
+import * as rp from "@/lib/domain/rendement-personne";
 
 /* ═══════════════════ TYPES ═══════════════════ */
 export type Ouvriere = {
@@ -77,14 +79,15 @@ export type GpaoState = {
   tvDayId?: number | null;
 };
 
-export const SEUIL_H = 85;
-export const SEUIL_B = 60;
+/* Échelle commune avec le portail QR (lib/domain/rendement). */
+export const SEUIL_H = rd.SEUIL_BON;
+export const SEUIL_B = rd.SEUIL_MOYEN;
 export const SEUIL_RET = 5; // retouche alerte si > 5 %
 
 /* SEUIL_B ne fait que colorer une cellule ; l'alerte, elle, désigne des
  * personnes nommément et déclenche une conversation en atelier. Les deux
  * chiffres n'ont pas la même portée et n'ont donc pas à être le même. */
-export const SEUIL_ALERTE_DEFAUT = 65;
+export const SEUIL_ALERTE_DEFAUT = rd.SEUIL_ALERTE_DEFAUT;
 /** Secondes d'affichage par chaîne avant rotation sur l'écran d'atelier. */
 export const TV_ROTATION_DEFAUT = 12;
 
@@ -208,31 +211,18 @@ export function nextDayOuvId(roster: Ouvriere[]): number {
 
 /** Clé d'identité d'une ouvrière à travers les chaînes et les journées.
  *
- * Le matricule (via la fiche personnel) fait foi ; à défaut, le nom normalisé.
- * C'est cette clé qui permet à l'historique de suivre quelqu'un qui change de
- * chaîne — l'identifiant de ligne, lui, change à chaque réaffectation. */
+ * UNE seule règle pour toute l'application (voir lib/domain/rendement-personne) :
+ * fiche portée par la ligne, sinon fiche de la ligne de chaîne recopiée, sinon
+ * fiche au nom identique s'il n'y en a qu'une, sinon le nom. Le portail QR, la
+ * carte QR, l'historique, le classement et les arrêts s'en servent tous. */
 export const ouvKey = (o: { personnelId?: number | null; nom: string }) =>
   o.personnelId != null ? `P:${o.personnelId}` : `N:${cleNom(o.nom)}`;
 
-/** Version de `ouvKey` qui sait aussi reconnaître une ouvrière non rattachée
- * dont le nom coïncide exactement avec une fiche du registre.
- *
- * Même prudence que `rapprocherParNom` : en cas d'homonyme au registre, on
- * refuse de trancher et on retombe sur la clé par nom. Sans cela, deux
- * personnes différentes finiraient dans le même historique. */
 export function makeOuvKey(s: GpaoState) {
-  const parNom = new Map<string, number | null>();
-  for (const p of s.personnes) {
-    const c = cleNom(p.nom);
-    if (!c) continue;
-    parNom.set(c, parNom.has(c) ? null : p.id);
-  }
-  return (o: { personnelId?: number | null; nom: string }) => {
-    if (o.personnelId != null) return `P:${o.personnelId}`;
-    const c = cleNom(o.nom);
-    const pid = parNom.get(c);
-    return pid != null ? `P:${pid}` : `N:${c}`;
-  };
+  const lignes = s.chaines.flatMap((c) => c.ouvrieres.map((o) => ({ id: o.id, nom: o.nom, personnelId: o.personnelId })));
+  const resoudre = rp.resolveurIdentite(s.personnes, lignes);
+  return (o: { id?: number; personnelId?: number | null; nom: string }) =>
+    resoudre({ id: o.id ?? 0, nom: o.nom, personnelId: o.personnelId });
 }
 
 /* ═══════════════════ FORMULES MÉTIER CONFECTION (v2) ═══════════════════
@@ -281,27 +271,21 @@ export const ouvObjH = (o: { sam: number }) => (o.sam > 0 ? 3600 / o.sam : 0);
 /** detail operations recorded for a worker in a given hour, if any */
 export const cellDetail = (j: Journee, ouvId: number, col: string): OpDetail[] | null =>
   j.opsDetail?.[ouvId]?.[col] ?? null;
+/* Les calculs par case horaire sont ceux du domaine (lib/domain/rendement) :
+ * écran de saisie, TV, historique et portail QR partagent le même code. */
+const brute = (j: Journee) => j as unknown as rd.JourneeBrute;
 /** SAM applied to a worker for a given hour (override or default) */
 export function ouvSamAt(j: Journee, o: Ouvriere, col: string) {
-  const m = j.opsSam?.[o.id]?.[col];
-  return m && m > 0 ? m : o.sam;
+  return rd.samHeure(brute(j), o, col);
 }
 export function ouvCellQte(j: Journee, ouvId: number, col: string) {
-  const dt = cellDetail(j, ouvId, col);
-  if (dt && dt.length) return dt.reduce((t, x) => t + (+x.qte || 0), 0);
-  const v = (j.ops[ouvId] || {})[col];
-  return typeof v === "number" ? v : 0;
+  return rd.qteHeure(brute(j), ouvId, col);
 }
 export function ouvCellEarned(j: Journee, o: Ouvriere, col: string) {
-  const dt = cellDetail(j, o.id, col);
-  if (dt && dt.length) return dt.reduce((t, x) => t + (+x.qte || 0) * (+x.sam || 0), 0);
-  const v = (j.ops[o.id] || {})[col];
-  return typeof v === "number" ? v * ouvSamAt(j, o, col) : 0;
+  return rd.gagneHeure(brute(j), o, col);
 }
 export function ouvCellWorked(j: Journee, ouvId: number, col: string) {
-  const dt = cellDetail(j, ouvId, col);
-  if (dt && dt.length) return true;
-  return typeof (j.ops[ouvId] || {})[col] === "number";
+  return rd.heureTravaillee(brute(j), ouvId, col);
 }
 export function ouvProd(j: Journee, ouvId: number) {
   let t = 0;
@@ -331,10 +315,9 @@ export function ouvObjAjuste(j: Journee, o: Ouvriere) {
   if (earned > 0 && prod > 0) return (prod * worked) / earned;
   return o.sam > 0 ? worked / o.sam : 0;
 }
+/** Rendement d'une ligne sur la journée — le chiffre de l'écran TV. */
 export function ouvRend(j: Journee, o: Ouvriere): number | null {
-  const worked = ouvWorked(j, o.id) * 3600;
-  if (worked <= 0) return null;
-  return Math.round((ouvEarned(j, o) / worked) * 100);
+  return rp.rendementDe(ouvEarned(j, o), ouvWorked(j, o.id));
 }
 export const ouvRet = (j: Journee, ouvId: number) => (j.ret ? +j.ret[ouvId] || 0 : 0);
 export function ouvRetPct(j: Journee, ouvId: number): number | null {
@@ -344,39 +327,47 @@ export function ouvRetPct(j: Journee, ouvId: number): number | null {
 }
 export const rcls = (r: number | null) => (r === null ? "" : r >= SEUIL_H ? "c-g" : r >= SEUIL_B ? "c-a" : "c-r");
 export const rbarCls = (r: number | null) => (r === null ? "" : r >= SEUIL_H ? "b-g" : r >= SEUIL_B ? "b-a" : "b-r");
-export const rcol = (r: number) => (r >= SEUIL_H ? "#19b27b" : r >= SEUIL_B ? "#c4861a" : "#e04545");
+export const rcol = (r: number) => rd.COULEUR_RENDEMENT[rd.niveau(r)!];
 export const retcol = (p: number | null) => (p === null ? "#aab" : p <= 2 ? "#19b27b" : p <= SEUIL_RET ? "#c4861a" : "#e04545");
 /** Une personne telle que l'historique la connaît, toutes chaînes confondues. */
 export type OuvriereConnue = { cle: string; nom: string; poste: string; sam: number; matricule: string };
 
-/** Recense tout le monde une seule fois : registre du personnel, effectifs de
- * chaîne et effectifs figés des journées, dédoublonnés par `ouvKey`.
- *
- * Une ouvrière passée de la chaîne 1 à la chaîne 3, ou saisie un seul jour en
- * renfort, apparaît une fois et une seule — c'est la liste que propose l'écran
- * Historique, et la raison pour laquelle il n'est plus lié à une chaîne. */
+/** Recense tout le monde une seule fois, avec la règle d'identité unique :
+ * registre du personnel, effectifs de chaîne et effectifs figés des journées.
+ * Une personne rattachée s'affiche sous le nom de sa fiche. */
 export function ouvrieresConnues(s: GpaoState): OuvriereConnue[] {
   const cleDe = makeOuvKey(s);
+  const fiche = new Map(s.personnes.map((p) => [`P:${p.id}`, p]));
   const par = new Map<string, OuvriereConnue>();
-  const add = (nom: string, poste: string, sam: number, cle: string, matricule: string) => {
+  const add = (nom: string, poste: string, sam: number, cle: string) => {
     if (!nom.trim()) return;
+    const f = fiche.get(cle);
     const vu = par.get(cle);
     if (!vu) {
-      par.set(cle, { cle, nom, poste, sam, matricule });
+      par.set(cle, { cle, nom: f?.nom ?? nom, poste: f?.fonction || poste, sam, matricule: f?.matricule ?? "" });
       return;
     }
-    // Déjà vue : on ne remplace rien, on comble seulement ce qui manque.
     if (!vu.poste && poste) vu.poste = poste;
     if (!vu.sam && sam) vu.sam = sam;
-    if (!vu.matricule && matricule) vu.matricule = matricule;
   };
 
-  for (const p of s.personnes) add(p.nom, p.fonction, 0, `P:${p.id}`, p.matricule);
-  for (const c of s.chaines) for (const o of c.ouvrieres) add(o.nom, o.poste, o.sam, cleDe(o), "");
-  for (const j of s.journees) for (const o of j.ouvrieres ?? []) add(o.nom, o.poste, o.sam, cleDe(o), "");
+  for (const p of s.personnes) add(p.nom, p.fonction, 0, `P:${p.id}`);
+  for (const c of s.chaines) for (const o of c.ouvrieres) add(o.nom, o.poste, o.sam, cleDe(o));
+  for (const j of s.journees) for (const o of j.ouvrieres ?? []) add(o.nom, o.poste, o.sam, cleDe(o));
 
   return [...par.values()].sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
 }
+
+/** Toutes les personnes, jour par jour, selon la règle unique — base commune
+ * de l'historique, du classement par seuil et des arrêts & retouches. */
+export function joursParPersonne(s: GpaoState) {
+  const cleDe = makeOuvKey(s);
+  return rp.regrouperParPersonne(
+    s.journees.map((j) => ({ journee: brute(j), lignes: dayOuvrieres(s, j), meta: j })),
+    (l) => cleDe(l),
+  );
+}
+
 export function cumulModele(s: GpaoState, mId: number) {
   let t = 0;
   for (const j of s.journees) if (j.modeleId === mId) t += chSortieTotal(j);

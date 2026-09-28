@@ -6,6 +6,7 @@ import { assertUser, userRole } from "@/lib/auth/server";
 import * as at from "@/lib/domain/atelier";
 import * as svc from "@/lib/services/atelier";
 import { journaliser } from "@/lib/services/activite";
+import { resynchroniserIdentites } from "@/lib/services/identite-ouvrieres";
 
 export type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 export type ImportResult = { ok: true; count: number } | { ok: false; error: string };
@@ -116,6 +117,7 @@ export async function creerPersonne(v: {
       matricule, nom, fonction: v.fonction?.trim() ?? "", atelier: v.atelier?.trim() ?? "",
       statut, dateEntree: v.dateEntree || null,
     });
+    await resynchroniserIdentites();
     await journaliser("creation", "Personnel", `${matricule} · ${nom}`);
     revalider();
     return ok();
@@ -148,6 +150,8 @@ export async function majPersonne(
     if (patch.dateEntree !== undefined) out.dateEntree = patch.dateEntree || null;
 
     await svc.majPersonne(id, out);
+    // Une personne = une fiche, partout (TV, historique, QR) : journées remises à jour.
+    await resynchroniserIdentites();
     await journaliser("modification", "Personnel", Object.keys(out).join(", "));
     revalider();
     return ok();
@@ -160,6 +164,8 @@ export async function supprimerPersonne(id: number): Promise<Result> {
   try {
     await exigerAtelier();
     await svc.supprimerPersonne(id);
+    // Une personne = une fiche, partout (TV, historique, QR) : journées remises à jour.
+    await resynchroniserIdentites();
     await journaliser("suppression", "Personnel", `id ${id}`);
     revalider();
     return ok();
@@ -210,6 +216,7 @@ export async function importerPersonnel(formData: FormData): Promise<Result<Bila
       return { ok: false, error: "Aucune ligne exploitable — la colonne « Nom » est obligatoire" };
 
     const bilan = await svc.importerPersonnel(lignes);
+    await resynchroniserIdentites();
     await journaliser(
       "import",
       "Personnel",
@@ -292,6 +299,7 @@ export async function appliquerFusion(liens: { nom: string; personnelId: number 
   try {
     await exigerAtelier();
     const bilan = await svc.appliquerFusion(liens);
+    await resynchroniserIdentites();
     await journaliser(
       "modification",
       "Personnel",
@@ -310,6 +318,8 @@ export async function rattacher(ouvriereId: number, personnelId: number | null):
   try {
     await exigerAtelier();
     await svc.rattacher(ouvriereId, personnelId);
+    // Une personne = une fiche, partout (TV, historique, QR) : journées remises à jour.
+    await resynchroniserIdentites();
     revalider();
     return ok();
   } catch (e) {
@@ -321,6 +331,7 @@ export async function rattacherAuto(): Promise<Result<{ lies: number; restants: 
   try {
     await exigerAtelier();
     const r = await svc.rattacherAuto();
+    await resynchroniserIdentites();
     await journaliser("modification", "Personnel", `rapprochement automatique : ${r.lies} lien(s)`);
     revalider();
     return ok(r);

@@ -16,6 +16,8 @@ import {
   majLigneFourniture,
   supprimerLigneFourniture,
 } from "@/lib/actions/preparation";
+import { appliquerNomenclature, mettreEnReste } from "@/lib/actions/fournitures";
+import { ORIGINES_FOURNITURE } from "@/lib/domain/fournitures";
 import { BandeauLectureSeule, BoutonAction, ChampServeur, type Droits } from "./ecran";
 
 const nb = new Intl.NumberFormat("fr-FR");
@@ -217,6 +219,17 @@ export function FicheNomen({ row, droits }: { row: PreparationRow; droits: Droit
           {Math.abs(ec) > 5 && " — écart important, la nomenclature mérite d'être révisée pour les prochaines commandes de ce modèle."}
         </div>
       )}
+      {/* La nomenclature est en deux parties : le tissu (ici, par commande —
+          c'est la conso du client) et les fournitures (par modèle, partagée
+          par toutes ses commandes). */}
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px]">
+        <Link href={`/magfour/nomenclature?q=${encodeURIComponent(row.refArticle || row.modele)}`} className="font-semibold text-brand hover:underline">
+          🔩 Nomenclature fournitures du modèle →
+        </Link>
+        <Link href={`/magtissu/bilan/${row.id}`} target="_blank" className="font-semibold text-brand hover:underline">
+          🖨 Bilan matière (conso réelle / conso client)
+        </Link>
+      </div>
     </div>
   );
 }
@@ -442,6 +455,16 @@ export function FicheFournitures({
         {droits.four && catalogue.length > 0 && (
           <PickerCatalogue commandeId={row.id} catalogue={catalogue} />
         )}
+        {/* Nomenclature du modèle : le prévu se calcule (qté/pièce × pièces
+            × casse) au lieu d'être saisi. */}
+        {droits.four && (
+          <BoutonAction onRun={() => appliquerNomenclature(row.id)} succes="Prévu recalculé depuis la nomenclature du modèle">
+            📋 Appliquer la nomenclature du modèle
+          </BoutonAction>
+        )}
+        <Link href={`/magfour/nomenclature?q=${encodeURIComponent(row.refArticle || row.modele)}`} className="text-[11px] font-semibold text-brand hover:underline">
+          Nomenclature de {row.refArticle || row.modele} →
+        </Link>
         <span className="text-[11px] text-muted-foreground">
           {detaille
             ? "Le détail ci-dessous fait foi et pilote le feu."
@@ -455,6 +478,7 @@ export function FicheFournitures({
             <thead>
               <tr className="border-b bg-muted/40 text-[10.5px] uppercase text-muted-foreground">
                 <th className="px-2 py-1.5 text-left">Désignation</th>
+                <th className="px-2 py-1.5 text-left">Origine</th>
                 <th className="px-2 py-1.5 text-center">Prévu</th>
                 <th className="px-2 py-1.5 text-center">Reçu</th>
                 <th className="px-2 py-1.5 text-center">Unité</th>
@@ -477,6 +501,25 @@ export function FicheFournitures({
                     </td>
                     <td className="px-2 py-1.5">
                       <ChampServeur
+                        valeur={l.origine === "dbs" ? "dbs" : "client"}
+                        type="select"
+                        options={ORIGINES_FOURNITURE.map((o) => ({ value: o.value, label: o.court }))}
+                        autorise={droits.four}
+                        onSave={(v) => majLigneFourniture(l.id, "origine", v)}
+                      />
+                      {l.origine === "dbs" && (
+                        <div className="mt-1">
+                          <ChampServeur
+                            valeur={l.fournisseur ?? ""}
+                            placeholder="Fournisseur"
+                            autorise={droits.four}
+                            onSave={(v) => majLigneFourniture(l.id, "fournisseur", v)}
+                          />
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <ChampServeur
                         valeur={String(l.qtePrevue)}
                         type="number"
                         step="0.01"
@@ -484,6 +527,11 @@ export function FicheFournitures({
                         autorise={droits.four}
                         onSave={(v) => majLigneFourniture(l.id, "qtePrevue", v)}
                       />
+                      {l.nomenclatureId != null && (
+                        <div className="mt-0.5 text-center text-[9.5px] text-muted-foreground" title="Calculé : qté/pièce × pièces × (1 + casse). Le corriger à la main détache la ligne de la nomenclature.">
+                          📋 nomenclature
+                        </div>
+                      )}
                     </td>
                     <td className="px-2 py-1.5">
                       <ChampServeur
@@ -506,6 +554,15 @@ export function FicheFournitures({
                     <td className="px-2 py-1.5 text-center">
                       {reste > 0 ? (
                         <StatusBadge tone="danger">{Number(reste.toFixed(2))}</StatusBadge>
+                      ) : reste < 0 ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <StatusBadge tone="info">+{Number((-reste).toFixed(2))} en trop</StatusBadge>
+                          {droits.four && (
+                            <BoutonAction size="xs" onRun={() => mettreEnReste(l.id)} succes="Excédent mis en restes client" confirmer="Sortir l'excédent vers les restes du client ?">
+                              → restes client
+                            </BoutonAction>
+                          )}
+                        </div>
                       ) : (
                         <StatusBadge tone="success">✓</StatusBadge>
                       )}

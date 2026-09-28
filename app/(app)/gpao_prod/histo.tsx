@@ -1,29 +1,30 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { appliquerIdentites, fusionnerFichesPersonnel, verifierIdentites } from "./actions";
+import type { BilanIdentites } from "@/lib/services/identite-ouvrieres";
 import {
   type GpaoState,
   SEUIL_B,
   SEUIL_H,
-  dayOuvrieres,
   findC,
   findM,
-  makeOuvKey,
+  joursParPersonne,
   ouvObjAjuste,
   ouvObjH,
-  ouvProd,
-  ouvRend,
-  ouvRet,
-  ouvRetPct,
   ouvrieresConnues,
-  ouvWorked,
   rcol,
   retcol,
   today,
 } from "./store";
+import { periodeGenerale, synthese, PERIODE_GENERALE_JOURS } from "@/lib/domain/rendement-personne";
 
 type HRow = {
   date: string;
+  /** Secondes standard gagnées : sert à la moyenne exacte de la période. */
+  gagne: number;
   chaine: string;
   modele: string;
   prod: number;
@@ -37,94 +38,68 @@ type HRow = {
 
 /* L'historique suit une PERSONNE, pas une ligne de chaîne.
  *
- * Chaque journée est interrogée avec son propre effectif, et l'ouvrière y est
- * retrouvée par sa clé d'identité (matricule via la fiche personnel, sinon nom
- * normalisé) — pas par son identifiant de ligne, qui change dès qu'elle est
- * réaffectée. C'est ce qui permet d'afficher « toutes chaînes » et de ne rien
- * perdre quand quelqu'un passe de la chaîne 1 à la chaîne 3. */
+ * Tout passe par la règle unique (joursParPersonne → lib/domain/
+ * rendement-personne) : même identité et même calcul que l'écran TV, la carte
+ * QR et le portail QR. Un jour = exactement le rendement affiché à la TV ; une
+ * période = Σ minutes gagnées ÷ Σ heures, arrondi une seule fois. */
 function computeHisto(state: GpaoState, cle: string, from: string, to: string) {
-  const cleDe = makeOuvKey(state);
-  const connues = ouvrieresConnues(state);
-  const info = connues.find((x) => x.cle === cle);
+  const info = ouvrieresConnues(state).find((x) => x.cle === cle);
   if (!info) return null;
+  const jours = (joursParPersonne(state).get(cle) ?? []).filter((j) => j.date >= from && j.date <= to);
 
-  const rows: HRow[] = [];
-  const jours = state.journees.slice().sort((a, b) => a.date.localeCompare(b.date));
-  for (const j of jours) {
-    if (j.date < from || j.date > to) continue;
-    const o = dayOuvrieres(state, j).find((x) => cleDe(x) === cle);
-    if (!o) continue;
-    const worked = ouvWorked(j, o.id);
-    const hasData = worked > 0 || (j.ops[o.id] && Object.keys(j.ops[o.id]).length > 0) || ouvRet(j, o.id) > 0;
-    if (!hasData) continue;
+  const rows: HRow[] = jours.map((jp) => {
+    const j = jp.meta;
     const c = findC(state, j.chaineId);
     const m = findM(state, j.modeleId);
-    rows.push({
-      date: j.date,
+    return {
+      date: jp.date,
+      gagne: jp.gagne,
       chaine: c?.nom ?? "?",
       modele: m ? `${m.nom} (${m.ref})` : "?",
-      prod: ouvProd(j, o.id),
-      obj: Math.round(ouvObjAjuste(j, o)),
-      rend: ouvRend(j, o),
-      heures: worked,
-      /* Le poste et le SAM sont ceux du jour, pas ceux d'aujourd'hui. */
-      ret: ouvRet(j, o.id),
-      retPct: ouvRetPct(j, o.id),
+      prod: jp.pieces,
+      obj: Math.round(jp.lignes.reduce((t, o) => t + ouvObjAjuste(j, o), 0)),
+      rend: jp.rendement,
+      heures: jp.heures,
+      ret: jp.retouches,
+      retPct: jp.pieces > 0 ? Math.round((jp.retouches / jp.pieces) * 1000) / 10 : null,
       jId: j.id,
-    });
-  }
-  return { ouv: info, from, to, rows };
+    };
+  });
+  const bilan = synthese(jours);
+  return { ouv: info, from, to, rows, bilan };
 }
 
-/* Recherche transversale (point 2) : toutes les ouvrières dont le rendement
- * MOYEN sur la période tombe dans [min, max]. Moyenne pondérée par les heures
- * travaillées (une journée d'une heure ne pèse pas comme une journée pleine). */
+/* Recherche transversale : toutes les personnes dont le rendement de la
+ * période tombe dans [min, max]. Même règle et même moyenne que l'historique
+ * et le QR : une personne = une ligne, un jour compté une fois. */
 function computeSeuil(state: GpaoState, from: string, to: string, min: number, max: number) {
-  const cleDe = makeOuvKey(state);
-  const connues = ouvrieresConnues(state);
-  const parCle = new Map<string, { nom: string; matricule: string; poste: string; earned: number; worked: number; jours: number; prod: number }>();
-
-  const jours = state.journees.filter((j) => j.date >= from && j.date <= to);
-  for (const j of jours) {
-    for (const o of dayOuvrieres(state, j)) {
-      const worked = ouvWorked(j, o.id);
-      const r = ouvRend(j, o);
-      if (worked <= 0 || r === null) continue;
-      const cle = cleDe(o);
-      const info = connues.find((x) => x.cle === cle);
-      const e = parCle.get(cle) ?? {
-        nom: info?.nom ?? o.nom,
+  const connues = new Map(ouvrieresConnues(state).map((o) => [o.cle, o]));
+  const rows = [...joursParPersonne(state).entries()]
+    .map(([cle, jours]) => {
+      const b = synthese(jours, { from, to });
+      const info = connues.get(cle);
+      const dernier = jours.filter((j) => j.date >= from && j.date <= to).at(-1)?.lignes[0];
+      return {
+        nom: info?.nom ?? dernier?.nom ?? cle,
         matricule: info?.matricule ?? "",
-        poste: info?.poste ?? o.poste,
-        earned: 0,
-        worked: 0,
-        jours: 0,
-        prod: 0,
+        poste: info?.poste || dernier?.poste || "",
+        worked: b.heures,
+        jours: b.jours,
+        prod: b.pieces,
+        rendMoyen: b.rendement,
       };
-      // rendement pondéré : on cumule (rend × heures) puis on divise par les heures.
-      e.earned += r * worked;
-      e.worked += worked;
-      e.jours += 1;
-      e.prod += ouvProd(j, o.id);
-      parCle.set(cle, e);
-    }
-  }
-
-  const rows = [...parCle.values()]
-    .map((e) => ({ ...e, rendMoyen: e.worked > 0 ? Math.round(e.earned / e.worked) : 0 }))
+    })
+    .filter((e): e is typeof e & { rendMoyen: number } => e.rendMoyen !== null)
     .filter((e) => e.rendMoyen >= min && e.rendMoyen <= max)
-    .sort((a, b) => b.rendMoyen - a.rendMoyen);
+    .sort((a, b) => b.rendMoyen - a.rendMoyen || a.nom.localeCompare(b.nom, "fr"));
   return { from, to, min, max, rows };
 }
 
 export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (id: number) => void }) {
   const connues = useMemo(() => ouvrieresConnues(state), [state]);
   const [cle, setCle] = useState<string>(() => connues[0]?.cle ?? "");
-  const defaultFrom = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
-  }, []);
+  // Même période par défaut que la carte et le portail QR (30 derniers jours).
+  const defaultFrom = useMemo(() => periodeGenerale(today()).from, []);
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(today());
   const [query, setQuery] = useState<{ cle: string; from: string; to: string } | null>(null);
@@ -144,6 +119,7 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
 
   return (
     <div className="page">
+      <PanneauIdentites />
       <h2 className="sec">🕓 Historique de rendement par ouvrière</h2>
       <div className="daybar" style={{ background: "#fff", color: "var(--txt)", border: "1px solid var(--border)" }}>
         <div className="fld" style={{ margin: 0, minWidth: 230 }}>
@@ -184,7 +160,10 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
       </div>
 
       {!query ? (
-        <div className="empty">Sélectionnez une ouvrière et une période, puis cliquez sur Afficher.</div>
+        <div className="empty">
+          Sélectionnez une ouvrière et une période, puis cliquez sur Afficher. Par défaut : les {PERIODE_GENERALE_JOURS}{" "}
+          derniers jours — la même période que le rendement de sa carte et de son portail QR.
+        </div>
       ) : !data ? (
         <div className="empty">Ouvrière introuvable.</div>
       ) : !data.rows.length ? (
@@ -310,23 +289,11 @@ function printSeuil(data: NonNullable<ReturnType<typeof computeSeuil>>) {
 }
 
 function HistoContent({ data, onOpenDay }: { data: NonNullable<ReturnType<typeof computeHisto>>; onOpenDay: (id: number) => void }) {
-  let tProd = 0;
-  let tRet = 0;
-  let earnedW = 0;
-  let workedW = 0;
-  let tH = 0;
-  for (const row of data.rows) {
-    tProd += row.prod;
-    tRet += row.ret;
-    tH += row.heures;
-    // Moyenne PONDÉRÉE par les heures (même définition que le QR et la recherche
-    // par seuil) : Σ(rendement × heures) ÷ Σ(heures).
-    if (row.rend !== null && row.heures > 0) {
-      earnedW += row.rend * row.heures;
-      workedW += row.heures;
-    }
-  }
-  const avgR = workedW > 0 ? Math.round(earnedW / workedW) : 0;
+  // Même calcul que le QR : Σ gagné ÷ Σ heures sur la période, arrondi une fois.
+  const tProd = data.bilan.pieces;
+  const tRet = data.bilan.retouches;
+  const tH = data.bilan.heures;
+  const avgR = data.bilan.rendement ?? 0;
   const retPctG = tProd > 0 ? Math.round((tRet / tProd) * 1000) / 10 : 0;
 
   return (
@@ -425,21 +392,11 @@ function HistoContent({ data, onOpenDay }: { data: NonNullable<ReturnType<typeof
 }
 
 function printHisto(data: NonNullable<ReturnType<typeof computeHisto>>) {
-  let tProd = 0;
-  let tRet = 0;
-  let sumR = 0;
-  let nR = 0;
-  let tH = 0;
-  for (const row of data.rows) {
-    tProd += row.prod;
-    tRet += row.ret;
-    tH += row.heures;
-    if (row.rend !== null) {
-      sumR += row.rend;
-      nR++;
-    }
-  }
-  const avgR = nR ? Math.round(sumR / nR) : 0;
+  // Identique à l'écran et au QR (moyenne pondérée par les heures).
+  const tProd = data.bilan.pieces;
+  const tRet = data.bilan.retouches;
+  const tH = data.bilan.heures;
+  const avgR = data.bilan.rendement ?? 0;
   const retPctG = tProd > 0 ? Math.round((tRet / tProd) * 1000) / 10 : 0;
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -480,4 +437,144 @@ function printHisto(data: NonNullable<ReturnType<typeof computeHisto>>) {
   w.document.close();
   w.focus();
   setTimeout(() => w.print(), 250);
+}
+
+/* ─────────── identités : une personne = une fiche ───────────
+ *
+ * Vérifier = bilan sans rien écrire. Fusionner = fiches en double réunies,
+ * journées reliées à la bonne fiche, journées anciennes figées. Après quoi TV,
+ * historique, classement et QR donnent le même chiffre. Admin + resp. */
+function PanneauIdentites() {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [bilan, setBilan] = useState<{ b: BilanIdentites; applique: boolean } | null>(null);
+
+  const verifier = () =>
+    start(async () => {
+      const r = await verifierIdentites();
+      if (!r.ok) return void toast.error(r.error);
+      setBilan({ b: r.bilan, applique: false });
+    });
+  const appliquer = () =>
+    start(async () => {
+      if (!confirm("Fusionner les fiches en double et relier toutes les journées à la bonne fiche ?")) return;
+      const r = await appliquerIdentites();
+      if (!r.ok) return void toast.error(r.error);
+      setBilan({ b: r.bilan, applique: true });
+      toast.success("Identités réparées — tous les écrans affichent désormais le même rendement");
+      router.refresh();
+    });
+
+  const fusionner = (gardeId: number, autres: number[], nom: string, matricule: string) =>
+    start(async () => {
+      if (!confirm(`Fusionner toutes les fiches « ${nom} » dans la fiche ${matricule} ?`)) return;
+      const r = await fusionnerFichesPersonnel(gardeId, autres);
+      if (!r.ok) return void toast.error(r.error);
+      setBilan({ b: r.bilan, applique: true });
+      toast.success(`${nom} : fiches fusionnées dans ${matricule}`);
+      router.refresh();
+    });
+
+  const b = bilan?.b;
+  const aFaire =
+    !!b &&
+    (b.fichesFusionnees.length > 0 || b.lignesChaineReliees > 0 || b.journeesCorrigees > 0 || b.journeesFigees > 0 || b.homonymes.length > 0);
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 13, padding: 14, marginBottom: 16 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+        <b style={{ fontSize: 14 }}>🧬 Identités des ouvrières</b>
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>
+          Une personne = une fiche : même rendement à la TV, dans l&apos;historique, le classement et le QR.
+        </span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn sm" disabled={pending} onClick={verifier}>
+            {pending ? "…" : "Vérifier"}
+          </button>
+          <button className="btn primary sm" disabled={pending || (!!bilan && !bilan.applique && !aFaire)} onClick={appliquer}>
+            Fusionner et réparer
+          </button>
+        </div>
+      </div>
+
+      {b && (
+        <div style={{ marginTop: 10, fontSize: 12.5 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6, color: bilan!.applique ? "#0d7a52" : "var(--navy)" }}>
+            {bilan!.applique
+              ? aFaire
+                ? "✅ Réparation appliquée :"
+                : "✅ Réparation appliquée — toutes les identités sont cohérentes."
+              : aFaire
+                ? "À corriger :"
+                : "✅ Rien à corriger — toutes les identités sont cohérentes."}
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
+            {b.fichesFusionnees.length > 0 && (
+              <li>
+                <b>{b.fichesFusionnees.length}</b> personne(s) en double fusionnée(s) :{" "}
+                {b.fichesFusionnees
+                  .map((f) => `${f.garde.nom} [${f.garde.matricule}] ← ${f.absorbees.map((a) => a.matricule).join(", ")}`)
+                  .join(" · ")}
+              </li>
+            )}
+            {b.journeesCorrigees > 0 && (
+              <li>
+                <b>{b.journeesCorrigees}</b> journée(s) reliée(s) à la bonne fiche ({b.lignesJourReliees} ligne(s))
+              </li>
+            )}
+            {b.journeesFigees > 0 && (
+              <li>
+                <b>{b.journeesFigees}</b> journée(s) ancienne(s) dont l&apos;équipe est désormais mémorisée
+              </li>
+            )}
+            {b.lignesChaineReliees > 0 && (
+              <li>
+                <b>{b.lignesChaineReliees}</b> ouvrière(s) de chaîne reliée(s) à leur fiche
+              </li>
+            )}
+            {b.homonymes.length > 0 && (
+              <li style={{ color: "#9a6c0a" }}>
+                ⚠ Même nom sous plusieurs vrais matricules — s&apos;il s&apos;agit de la même personne, choisissez la
+                fiche à garder :
+                {b.homonymes.map((h) => (
+                  <div key={h.nom} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "4px 0 2px", color: "var(--txt)" }}>
+                    <b>{h.nom}</b>
+                    {h.fiches.map((f) => (
+                      <button
+                        key={f.id}
+                        className="btn sm"
+                        disabled={pending}
+                        title={`Garder la fiche ${f.matricule} et y fusionner ${h.fiches.filter((x) => x.id !== f.id).map((x) => x.matricule).join(", ")}`}
+                        onClick={() => fusionner(f.id, h.fiches.filter((x) => x.id !== f.id).map((x) => x.id), h.nom, f.matricule)}
+                      >
+                        Garder [{f.matricule}] · {f.journees} j
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </li>
+            )}
+            {b.doublonsJour.length > 0 && (
+              <li style={{ color: "#9a6c0a" }}>
+                ⚠ Même personne sur deux lignes d&apos;une journée ({b.doublonsJour.length}) :{" "}
+                {b.doublonsJour.slice(0, 8).map((d) => `${d.nom} le ${d.date}`).join(" · ")}
+                {b.doublonsJour.length > 8 ? " …" : ""}
+              </li>
+            )}
+            {b.sansFiche.length > 0 && (
+              <li style={{ color: "var(--muted)" }}>
+                Sans fiche au registre (pas de QR possible) : {b.sansFiche.slice(0, 12).join(", ")}
+                {b.sansFiche.length > 12 ? ` … (+${b.sansFiche.length - 12})` : ""} — à relier dans Personnel
+              </li>
+            )}
+            {b.saisiesOrphelines > 0 && (
+              <li style={{ color: "var(--muted)" }}>
+                {b.saisiesOrphelines} saisie(s) d&apos;une ouvrière supprimée depuis — conservées, sans nom
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }

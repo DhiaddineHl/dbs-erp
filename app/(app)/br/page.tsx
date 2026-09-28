@@ -1,13 +1,7 @@
-import { requireUser, userRole } from "@/lib/auth/server";
-import { listBr, listCommandesAval } from "@/lib/services/aval";
-import { BrClient } from "./br-client";
+import { redirect } from "next/navigation";
 
-const PRODUCTION = ["admin", "resp", "chef", "magasin"];
-
-export default async function BrPage() {
-  const user = await requireUser();
-  const role = userRole(user);
-  const [brs, commandes] = await Promise.all([listBr(), listCommandesAval({ archived: false })]);
-
-  return <BrClient brs={brs} commandes={commandes} peutSaisir={PRODUCTION.includes(role)} />;
+/* « Réception ST » est désormais un onglet du Magasin produits finis :
+ * l'ancienne adresse y mène directement (favoris, liens déjà partagés). */
+export default function BrPage() {
+  redirect("/magasin?onglet=receptions");
 }

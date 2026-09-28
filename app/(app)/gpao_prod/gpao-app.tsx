@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import "./gpao.css";
 import * as gpao from "./actions";
@@ -59,12 +59,15 @@ import { ArretsModal } from "./arrets";
 import { HistoView } from "./histo";
 import { GardeRobeView } from "./garde-robe";
 import { SimulationView } from "./simulation";
+import { RentabiliteView } from "./rentabilite";
+import { coutHoraireStandard, type ParamsUsine } from "@/lib/domain/cout-usine";
+import { prixPlancher } from "@/lib/domain/rentabilite";
 import { EquilibragePanel } from "./equilibrage-panel";
 import { ArretsRetouchesView } from "./arrets-retouches";
 import { TvMode } from "./tv-mode";
 import { imprimerFicheModele, imprimerResumeProduction } from "./impressions";
 
-type View = "jours" | "jour" | "chaines" | "modeles" | "cumul" | "histo" | "garderobe" | "simulation" | "arrets";
+type View = "jours" | "jour" | "chaines" | "modeles" | "cumul" | "histo" | "garderobe" | "simulation" | "arrets" | "rentabilite";
 
 /** Map a DB journée row (objManuel is nullable) to the client Journee shape. */
 function normJournee(row: Record<string, unknown>): Journee {
@@ -265,7 +268,9 @@ export default function GpaoApp({
     if (editId != null) {
       const o = roster.find((x) => x.id === editId);
       if (!o) return;
-      Object.assign(o, data, { personnelId: o.personnelId ?? lierAuRegistre(data.nom) });
+      // Même nom → même fiche ; nom changé → c'est une autre personne, on relie le nouveau nom.
+      const memePersonne = cleNom(o.nom) === cleNom(data.nom);
+      Object.assign(o, data, { personnelId: memePersonne ? (o.personnelId ?? lierAuRegistre(data.nom)) : lierAuRegistre(data.nom) });
       cibleId = editId;
     } else {
       cibleId = nextDayOuvId(roster);
@@ -440,7 +445,10 @@ export default function GpaoApp({
       if (!c) return;
       if (editId) {
         const o = c.ouvrieres.find((x) => x.id === editId);
-        if (o) Object.assign(o, data);
+        if (o) {
+          const memePersonne = cleNom(o.nom) === cleNom(data.nom) && o.personnelId != null;
+          Object.assign(o, data, memePersonne ? {} : { personnelId: res.personne.personnelId });
+        }
       } else {
         c.ouvrieres.push({ id: res.id, ...data, personnelId: res.personne.personnelId });
       }
@@ -583,6 +591,7 @@ export default function GpaoApp({
     { id: "garderobe", label: "👗 Garde-robe" },
     { id: "arrets", label: "🛠 Arrêts & retouches" },
     { id: "simulation", label: "🧮 Simulation" },
+    { id: "rentabilite", label: "💰 Rentabilité" },
   ];
 
   const journee = currentDayId !== null ? findJ(state, currentDayId) : null;
@@ -704,6 +713,8 @@ export default function GpaoApp({
       {view === "arrets" && <ArretsRetouchesView state={state} />}
 
       {view === "simulation" && <SimulationView />}
+
+      {view === "rentabilite" && <RentabiliteView state={state} />}
 
       {/* modals */}
       {newDay && <NewDayModal state={state} onClose={() => setNewDay(false)} onCreate={createDay} />}
@@ -1621,6 +1632,15 @@ function ModelesView({
   onEdit: (m: Modele) => void;
   onDelete: (id: number) => void;
 }) {
+  /* Prix plancher de chaque modèle : SAM ÷ rendement cible × coût standard de
+   * l'heure usine, puis marge cible — réglés dans Simulation / Rentabilité. */
+  const [usine, setUsine] = useState<ParamsUsine | null>(null);
+  useEffect(() => {
+    gpao.lireParamsUsine().then((r) => r.ok && setUsine(r.params));
+  }, []);
+  const tauxH = usine ? coutHoraireStandard(usine) : null;
+  const eur2 = (x: number) => x.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   return (
     <div className="page">
       <h2 className="sec">
@@ -1669,6 +1689,29 @@ function ModelesView({
                   </div>
                   <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>{pct}% de la commande réalisée</div>
                 </div>
+                {(() => {
+                  if (!usine || tauxH == null) return null;
+                  const pp = prixPlancher({
+                    samSec: m.sam,
+                    coutHoraire: tauxH,
+                    rendement: usine.rendementCible / 100,
+                    marge: usine.margeCible / 100,
+                  });
+                  if (!pp) return null;
+                  return (
+                    <div
+                      title={`${eur2(pp.minutesSam)} min SAM ÷ ${usine.rendementCible} % = ${eur2(pp.minutesPayees)} min payées × ${eur2(tauxH)} €/h, puis ${usine.margeCible} % de marge sur le prix`}
+                      style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, background: "#f5f7fc", borderRadius: 8, padding: "5px 8px" }}
+                    >
+                      <span>
+                        Coût <b>{eur2(pp.cout)} €</b>
+                      </span>
+                      <span>
+                        Prix plancher <b style={{ color: "#1d59ad" }}>{eur2(pp.prix)} €</b>
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}

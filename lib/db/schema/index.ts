@@ -10,4 +10,3 @@ export * from "./aval";
 export * from "./facturation";
 export * from "./finance";
 export * from "./gpao";
-export * from "./modules";
