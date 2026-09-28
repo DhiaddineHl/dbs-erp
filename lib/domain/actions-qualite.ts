@@ -44,12 +44,24 @@ const cle = (s: string) =>
     .toLowerCase()
     .trim();
 
+/** Codes utilisés par l'ancien PilotPro (« main_oeuvre », « matiere »…). */
+const CODES_5M: Record<string, (typeof CAUSES_5M)[number]> = {
+  main_oeuvre: "Main d'œuvre",
+  "main oeuvre": "Main d'œuvre",
+  "main-d'oeuvre": "Main d'œuvre",
+  mo: "Main d'œuvre",
+  machine: "Machine",
+  matiere: "Matière",
+  methode: "Méthode",
+  milieu: "Milieu",
+};
+
 /** Rattache un texte libre à l'une des 5M (« main d'oeuvre », « MATIERE »…),
  * ou "" s'il n'en est pas une — c'est alors une cause rédigée, pas une famille. */
 export function cause5mDepuisTexte(texte: string): string {
   const k = cle(texte);
   if (!k) return "";
-  return CAUSES_5M.find((c) => cle(c) === k) ?? "";
+  return CAUSES_5M.find((c) => cle(c) === k) ?? CODES_5M[k] ?? CODES_5M[k.replace(/_/g, " ")] ?? "";
 }
 
 /** Statut d'une ancienne fiche QRQC (Ouvert / En cours / Résolu). */

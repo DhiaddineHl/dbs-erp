@@ -30,6 +30,7 @@ describe("reprise des anciennes fiches", () => {
     assert.equal(cause5mDepuisTexte("main d'oeuvre"), "Main d'œuvre");
     assert.equal(cause5mDepuisTexte("MATIERE"), "Matière");
     assert.equal(cause5mDepuisTexte("Aiguille émoussée"), "");
+    assert.equal(cause5mDepuisTexte("main_oeuvre"), "Main d'œuvre"); // code de l'ancien PilotPro
   });
   it("statuts QRQC et plan → workflow unique", () => {
     assert.equal(statutDepuisQrqc("Résolu"), "cloture");
