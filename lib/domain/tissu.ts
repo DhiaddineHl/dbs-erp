@@ -12,7 +12,7 @@
 
 export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "brand";
 
-export type MouvementFait = { sens: string; quantite: number };
+export type MouvementFait = { sens: string; quantite: number; id?: number; annuleId?: number | null };
 export type AffectationFait = { quantite: number };
 
 export type BilanLot = {
@@ -35,11 +35,16 @@ export function bilanLot(recu: number, affectations: AffectationFait[], mouvemen
   let retours = 0;
   let ajust = 0;
   let rendu = 0;
+  /* Les annulations neutralisent un mouvement sans l'effacer ; consommation,
+   * chute, mise en stock et déplacement ne touchent pas au stock (la sortie
+   * l'a déjà décompté). Le retour fournisseur sort du stock comme un rendu. */
+  const annules = new Set(mouvements.filter((m) => m.sens === "annulation" && m.annuleId != null).map((m) => m.annuleId));
   for (const m of mouvements) {
+    if (m.sens === "annulation" || (m.id != null && annules.has(m.id))) continue;
     const q = m.quantite || 0;
     if (m.sens === "sortie") sorties += q;
     else if (m.sens === "retour") retours += q;
-    else if (m.sens === "rendu") rendu += q;
+    else if (m.sens === "rendu" || m.sens === "retour_fournisseur") rendu += q;
     else if (m.sens === "ajustement") ajust += q; // déjà signé à l'écriture
   }
   const consomme = Math.max(0, sorties - retours);

@@ -81,7 +81,8 @@ export default async function BilanMatierePage({ params }: { params: Promise<{ i
             <th className="py-1.5 pl-2 text-left">Lot</th>
             <th className="py-1.5 text-left">Référence · couleur</th>
             <th className="py-1.5 text-right">Reçu (lot dédié) / réservé</th>
-            <th className="py-1.5 text-right">Consommé</th>
+            <th className="py-1.5 text-right">Sorti (net des retours)</th>
+            <th className="py-1.5 text-right">dont déclaré coupe : conso / chute</th>
             <th className="py-1.5 text-right">Rendu</th>
             <th className="py-1.5 pr-2 text-right">Encore en stock (lot)</th>
           </tr>
@@ -89,7 +90,7 @@ export default async function BilanMatierePage({ params }: { params: Promise<{ i
         <tbody>
           {d.lots.length === 0 ? (
             <tr>
-              <td colSpan={6} className="py-4 text-center text-neutral-500">
+              <td colSpan={7} className="py-4 text-center text-neutral-500">
                 Aucun lot affecté à cette commande dans le magasin tissu.
               </td>
             </tr>
@@ -103,6 +104,9 @@ export default async function BilanMatierePage({ params }: { params: Promise<{ i
                   <div className="text-[10px] text-neutral-500">{l.exclusif ? "lot dédié à la commande" : "part réservée d'un lot partagé"}</div>
                 </td>
                 <td className="py-1.5 text-right tabular-nums">{nbFr.format(l.consomme)}</td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {l.consoDeclaree || l.chuteDeclaree ? `${nbFr.format(l.consoDeclaree)} / ${nbFr.format(l.chuteDeclaree)}` : "—"}
+                </td>
                 <td className="py-1.5 text-right tabular-nums">{nbFr.format(l.rendu)}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{nbFr.format(l.resteLot)}</td>
               </tr>

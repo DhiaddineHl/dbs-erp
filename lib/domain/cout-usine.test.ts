@@ -9,7 +9,7 @@ import {
   type ParamsUsine,
 } from "./cout-usine";
 
-const DBS: ParamsUsine = { chargesMensuelles: 44_000, effectifDirect: 45, heuresMois: 195, rendementCible: 80, margeCible: 15, minutesRetouche: 0 };
+const DBS: ParamsUsine = { chargesMensuelles: 44_000, effectifDirect: 45, heuresMois: 195, joursOuvresMois: 26, rendementCible: 80, margeCible: 15, minutesRetouche: 0 };
 const proche = (a: number | null, b: number, eps = 0.005) => assert.ok(a != null && Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 
 describe("coût horaire standard", () => {
@@ -68,12 +68,37 @@ describe("bilan de période", () => {
   });
 });
 
+describe("charges au prorata des jours RÉELLEMENT travaillés", () => {
+  // Cas de l'écran : du 1er au 29/09, 19 jours avec saisie GPAO.
+  const b = bilanCoutUsine(DBS, { from: "2026-09-01", to: "2026-09-29", heuresSaisies: 4_449, ca: 33_033, pieces: 4_157, joursTravailles: 19 });
+  it("19 jours travaillés sur 26 → 19/26 de mois, pas 29 jours calendaires", () => {
+    assert.equal(b.base, "travailles");
+    assert.equal(b.jours, 29);
+    assert.equal(b.joursTravailles, 19);
+    proche(b.mois, 19 / 26);
+    proche(b.chargesPeriode, (44_000 * 19) / 26, 0.01);
+  });
+  it("heures payées = effectif × heures/jour × jours travaillés", () => {
+    proche(b.heuresTheoriques, 45 * (195 / 26) * 19, 0.01);
+    proche(b.tauxSaisie, 4_449 / (45 * (195 / 26) * 19));
+  });
+  it("aucun jour travaillé → aucune charge imputée", () => {
+    const z = bilanCoutUsine(DBS, { from: "2026-09-01", to: "2026-09-07", heuresSaisies: 0, ca: 0, pieces: 0, joursTravailles: 0 });
+    assert.equal(z.chargesPeriode, 0);
+  });
+  it("jours ouvrés du mois réglables (5 jours / semaine = 22)", () => {
+    const c = bilanCoutUsine({ ...DBS, joursOuvresMois: 22 }, { from: "2026-09-01", to: "2026-09-29", heuresSaisies: 1, ca: 0, pieces: 0, joursTravailles: 11 });
+    proche(c.chargesPeriode, 22_000, 0.01);
+  });
+});
+
 describe("normaliserParams", () => {
   it("accepte la virgule décimale et écarte le reste", () => {
     assert.deepEqual(normaliserParams({ chargesMensuelles: "44000,5", effectifDirect: 45, heuresMois: "abc" }), {
       chargesMensuelles: 44000.5,
       effectifDirect: 45,
       heuresMois: 0,
+      joursOuvresMois: 26,
       rendementCible: 80,
       margeCible: 15,
       minutesRetouche: 0,
@@ -82,6 +107,7 @@ describe("normaliserParams", () => {
       chargesMensuelles: 0,
       effectifDirect: 0,
       heuresMois: 0,
+      joursOuvresMois: 26,
       rendementCible: 80,
       margeCible: 15,
       minutesRetouche: 0,
@@ -92,5 +118,7 @@ describe("normaliserParams", () => {
     assert.equal(p.rendementCible, 1);
     assert.equal(p.margeCible, 90);
     assert.equal(p.minutesRetouche, 4.5);
+    assert.equal(normaliserParams({ joursOuvresMois: 40 }).joursOuvresMois, 31);
+    assert.equal(normaliserParams({}).joursOuvresMois, 26);
   });
 });

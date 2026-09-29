@@ -3,6 +3,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { client, commande, tissuMouvement } from "@/lib/db/schema";
 import * as tx from "@/lib/domain/tissu";
+import * as rl from "@/lib/domain/rouleau";
 import { listPreparation } from "@/lib/services/preparation";
 import { listLots, type LotRow } from "@/lib/services/tissu";
 
@@ -54,7 +55,10 @@ export async function vueMatiereCommandes(): Promise<{ commandes: MatiereCommand
   const [prepa, lots, mvts] = await Promise.all([
     listPreparation(),
     listLots(),
-    db.select({ commandeId: tissuMouvement.commandeId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite }).from(tissuMouvement),
+    db
+      .select({ id: tissuMouvement.id, commandeId: tissuMouvement.commandeId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId })
+      .from(tissuMouvement)
+      .then(rl.mouvementsEffectifs),
   ]);
   const consoParCommande = new Map<number, number>();
   for (const m of mvts) {
@@ -122,7 +126,7 @@ export async function vueMatiereCommandes(): Promise<{ commandes: MatiereCommand
 
 export type BilanMatiereCommande = {
   commande: { id: number; of: string; modele: string; refArticle: string; couleur: string; client: string; saison: string; qte: number; coupeQte: number; produit: number; consoTheo: number | null; chutePct: number | null };
-  lots: { identifiant: string; couleur: string; reference: string; unite: string; affecte: number; recu: number; consomme: number; rendu: number; resteLot: number; controle: string; exclusif: boolean }[];
+  lots: { identifiant: string; couleur: string; reference: string; unite: string; affecte: number; recu: number; consomme: number; rendu: number; resteLot: number; controle: string; exclusif: boolean; consoDeclaree: number; chuteDeclaree: number }[];
   bilan: tx.BilanMatiere;
 };
 
@@ -145,11 +149,16 @@ export async function bilanMatiereCommande(commandeId: number): Promise<BilanMat
     const exclusif = l.affectations.every((a) => a.commandeId === commandeId);
     let consomme = 0;
     let rendu = 0;
+    let consoDeclaree = 0;
+    let chuteDeclaree = 0;
     for (const m of l.mouvements) {
+      if (m.annule || m.sens === "annulation") continue;
       if (!exclusif && m.commandeId !== commandeId) continue;
       if (m.sens === "sortie") consomme += m.quantite;
       else if (m.sens === "retour") consomme -= m.quantite;
-      else if (m.sens === "rendu") rendu += m.quantite;
+      else if (m.sens === "rendu" || m.sens === "retour_fournisseur") rendu += m.quantite;
+      else if (m.sens === "consommation") consoDeclaree += m.quantite;
+      else if (m.sens === "chute") chuteDeclaree += m.quantite;
     }
     return {
       identifiant: l.identifiant, couleur: l.couleur, reference: l.reference, unite: l.unite,
@@ -157,6 +166,8 @@ export async function bilanMatiereCommande(commandeId: number): Promise<BilanMat
       recu: Math.round((exclusif ? l.bilan.recu : affecte) * 100) / 100,
       consomme: Math.round(Math.max(0, consomme) * 100) / 100,
       rendu: Math.round(rendu * 100) / 100, resteLot: l.bilan.disponible, controle: l.controle, exclusif,
+      consoDeclaree: Math.round(consoDeclaree * 100) / 100,
+      chuteDeclaree: Math.round(chuteDeclaree * 100) / 100,
     };
   });
   const pieces = c.coupeQte > 0 ? c.coupeQte : c.produit;
@@ -217,21 +228,27 @@ export type BonRetourTissu = {
   date: string;
   par: string;
   client: string;
-  lignes: { identifiant: string; reference: string; couleur: string; saison: string; quantite: number; unite: string; of: string }[];
+  /** rendu = reliquat rendu au client · retour_fournisseur = renvoi au fournisseur */
+  genre: "rendu" | "retour_fournisseur";
+  fournisseur: string;
+  motif: string;
+  lignes: { identifiant: string; rouleau: string; reference: string; couleur: string; saison: string; quantite: number; unite: string; of: string }[];
 };
 
 export async function bonRetourTissu(numero: string): Promise<BonRetourTissu | null> {
   const mvts = await db
     .select()
     .from(tissuMouvement)
-    .where(and(eq(tissuMouvement.sens, "rendu"), eq(tissuMouvement.motif, numero)))
+    .where(and(inArray(tissuMouvement.sens, ["rendu", "retour_fournisseur"]), eq(tissuMouvement.motif, numero)))
     .orderBy(asc(tissuMouvement.id));
   if (!mvts.length) return null;
   const lots = new Map((await listLots()).map((l) => [l.id, l]));
+  const codeRouleau = new Map([...lots.values()].flatMap((l) => l.rouleaux.map((r) => [r.id, r.code] as const)));
   const lignes = mvts.map((m) => {
     const l = lots.get(m.lotId);
     return {
-      identifiant: l?.identifiant ?? "?", reference: l?.reference ?? "", couleur: l?.couleur ?? "", saison: l?.saison ?? "",
+      identifiant: l?.identifiant ?? "?", rouleau: m.rouleauId != null ? (codeRouleau.get(m.rouleauId) ?? "") : "",
+      reference: l?.reference ?? "", couleur: l?.couleur ?? "", saison: l?.saison ?? "",
       quantite: m.quantite, unite: l?.unite ?? "m", of: m.commandeLabel,
     };
   });
@@ -241,13 +258,19 @@ export async function bonRetourTissu(numero: string): Promise<BonRetourTissu | n
     date: mvts[0].createdAt.toISOString().slice(0, 10),
     par: mvts[0].createdBy,
     client: premier?.client ?? "",
+    genre: mvts[0].sens === "retour_fournisseur" ? "retour_fournisseur" : "rendu",
+    fournisseur: premier?.fournisseur ?? "",
+    motif: mvts[0].valeurApres,
     lignes,
   };
 }
 
 /** Numéros des bons de retour déjà émis (les plus récents d'abord). */
 export async function bonsRetourTissu(): Promise<{ numero: string; date: string; lignes: number }[]> {
-  const mvts = await db.select({ motif: tissuMouvement.motif, createdAt: tissuMouvement.createdAt }).from(tissuMouvement).where(eq(tissuMouvement.sens, "rendu"));
+  const mvts = await db
+    .select({ motif: tissuMouvement.motif, createdAt: tissuMouvement.createdAt })
+    .from(tissuMouvement)
+    .where(inArray(tissuMouvement.sens, ["rendu", "retour_fournisseur"]));
   const m = new Map<string, { numero: string; date: string; lignes: number }>();
   for (const x of mvts) {
     const e = m.get(x.motif) ?? { numero: x.motif, date: x.createdAt.toISOString().slice(0, 10), lignes: 0 };

@@ -112,6 +112,16 @@ export function QrOuvClient({
           </SectionPanel>
         )}
 
+        <SectionPanel title="QR Saisie production — tablette de l'agent de méthode" icon="📱">
+          <p className="text-xs text-muted-foreground">
+            Un seul QR : la tablette ouvre la saisie heure par heure des chaînes (pièces par ouvrière, sortie de chaîne, RI/ABS,
+            retouches, arrêts, changement de poste). La saisie arrive directement dans GPAO Production.
+          </p>
+          <a href="/gpao_prod/qr-saisie" target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-semibold text-brand hover:underline">
+            🖨 Afficher / imprimer le QR saisie
+          </a>
+        </SectionPanel>
+
         <SectionPanel title="QR Direction — suivi des chaînes" icon="📊">
           {direction ? (
             <div className="flex flex-wrap items-center gap-5">

@@ -10,6 +10,7 @@ import {
   tissuAffectation,
   tissuLot,
   tissuMouvement,
+  tissuRouleau,
 } from "@/lib/db/schema";
 import * as biz from "@/lib/domain/commande";
 import * as pc from "@/lib/domain/plan-coupe";
@@ -465,6 +466,13 @@ export async function consommerDepuisPlan(
 
     const [lot] = await t.select().from(tissuLot).where(eq(tissuLot.id, m.lotId));
     if (!lot) return { ok: false, error: "Lot introuvable au magasin." };
+    // Lot suivi par rouleau : le tissu sort rouleau par rouleau (scan), et la
+    // coupe déclare sa consommation sur chaque rouleau. Une sortie globale en
+    // plus compterait deux fois le même métrage.
+    const [unRouleau] = await t.select({ id: tissuRouleau.id }).from(tissuRouleau).where(eq(tissuRouleau.lotId, lot.id)).limit(1);
+    if (unRouleau) {
+      return { ok: false, error: `${lot.identifiant} est suivi par rouleau : sortez et déclarez la consommation rouleau par rouleau (scan QR).` };
+    }
 
     const [c] = await t
       .select({ of: commande.ofNumber, modele: commande.modele })

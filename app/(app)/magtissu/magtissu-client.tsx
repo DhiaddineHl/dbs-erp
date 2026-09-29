@@ -13,6 +13,9 @@ import { dashboardTissu, totauxRouleaux, type GroupeReliquats, type RouleauContr
 import type { LotRow } from "@/lib/services/tissu";
 import type { MatiereCommandeRow } from "@/lib/services/matiere-tissu";
 import * as A from "@/lib/actions/tissu";
+import { SENS, type SensRouleau } from "@/lib/domain/rouleau";
+import type { RouleauRow } from "@/lib/services/rouleaux";
+import { KpisRouleaux, OngletRouleaux, RouleauxDuLot, type IndicateursAffiches } from "./rouleaux-ui";
 
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso || "—");
@@ -24,7 +27,7 @@ const dateHeure = (iso: string) => {
 };
 
 type Choix = { id: number; label: string };
-export type OngletTissu = "commandes" | "lots" | "reliquats" | "dashboard";
+export type OngletTissu = "commandes" | "lots" | "rouleaux" | "reliquats" | "dashboard";
 
 const CONTROLES = [
   { value: "", label: "Non contrôlé", tone: "neutral" as const },
@@ -56,7 +59,11 @@ export function MagasinTissu({
   peutSaisir,
   ongletInitial,
   rechercheInitiale,
+  rouleaux,
+  indicateursRouleaux,
 }: {
+  rouleaux: RouleauRow[];
+  indicateursRouleaux: IndicateursAffiches;
   lots: LotRow[];
   parCommande: MatiereCommandeRow[];
   reliquats: GroupeReliquats[];
@@ -97,6 +104,15 @@ export function MagasinTissu({
         >
           🏷 Étiquettes QR des lots
         </Link>
+        <Link href="/m/tissu" target="_blank" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-[11px] font-semibold hover:bg-muted">
+          📱 Scanner un rouleau
+        </Link>
+        <Link href="/magtissu/emplacements" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-[11px] font-semibold hover:bg-muted">
+          📍 Emplacements
+        </Link>
+        <Link href="/magtissu/inventaires" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-2.5 text-[11px] font-semibold hover:bg-muted">
+          📋 Inventaires par scan
+        </Link>
       </div>
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
@@ -105,6 +121,12 @@ export function MagasinTissu({
         <Kpi label="Lots à réclamer (écart BL)" val={String(aReclamer)} tone={aReclamer ? "danger" : "success"} onClick={() => setOnglet("lots")} />
         <Kpi label="Lots non contrôlés" val={String(nonControles)} tone={nonControles ? "warning" : "success"} onClick={() => setOnglet("lots")} />
         <Kpi label="Reliquats à rendre" val={String(nbReliquats)} tone={nbReliquats ? "info" : "neutral"} onClick={() => setOnglet("reliquats")} />
+        <Kpi
+          label="Rouleaux à réceptionner (scan)"
+          val={String(indicateursRouleaux.enAttente)}
+          tone={indicateursRouleaux.enAttente ? "warning" : "neutral"}
+          onClick={() => setOnglet("rouleaux")}
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-1 text-xs">
@@ -112,6 +134,7 @@ export function MagasinTissu({
           [
             ["commandes", "Besoin par commande"],
             ["lots", "Lots en magasin"],
+            ["rouleaux", "Rouleaux (QR)"],
             ["reliquats", "Reliquats client"],
             ["dashboard", "Tableau de bord"],
           ] as const
@@ -120,11 +143,13 @@ export function MagasinTissu({
             {l}
           </button>
         ))}
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="OF, client, lot, couleur…" className="ml-auto h-8 w-56 bg-card" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="OF, client, lot, couleur, R-2026-…" className="ml-auto h-8 w-56 bg-card" />
       </div>
 
       {onglet === "dashboard" ? (
-        <Dashboard d={d} />
+        <Dashboard d={d} rouleaux={indicateursRouleaux} />
+      ) : onglet === "rouleaux" ? (
+        <OngletRouleaux rouleaux={rouleaux} indicateurs={indicateursRouleaux} q={q} peutSaisir={peutSaisir} />
       ) : onglet === "commandes" ? (
         <OngletCommandes rows={parCommande} q={q} peutSaisir={peutSaisir} />
       ) : onglet === "reliquats" ? (
@@ -321,6 +346,7 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
   const run = useRunner();
   const [ouvert, setOuvert] = useState(false);
   const b = l.bilan;
+  const codeRouleau = new Map(l.rouleaux.map((r) => [r.id, r.code]));
   const ctl = controleDe(l.controle);
   return (
     <div>
@@ -388,8 +414,11 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
             ) : (
               <div className="mt-2 text-[11px] text-muted-foreground">Saisissez le métrage annoncé sur le BL client pour contrôler l&apos;écart.</div>
             )}
-            <FicheRouleaux lot={l} actif={peutSaisir} />
+            {l.rouleaux.length === 0 && <FicheRouleaux lot={l} actif={peutSaisir} />}
           </div>
+
+          {/* ── rouleaux physiques (QR) ── */}
+          <RouleauxDuLot lot={l} peutSaisir={peutSaisir} />
 
           {/* ── descriptif ── */}
           {peutSaisir && (
@@ -443,7 +472,7 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
             {peutSaisir && <FormAffecter lotId={l.id} libre={b.libre} unite={l.unite} commandes={commandes} />}
           </div>
 
-          {peutSaisir && (
+          {peutSaisir && l.rouleaux.length === 0 && (
             <div className="grid gap-3 sm:grid-cols-2">
               <FormSortie lotId={l.id} dispo={b.disponible} unite={l.unite} commandes={commandes} />
               <FormAjuster lotId={l.id} unite={l.unite} />
@@ -457,15 +486,20 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
             ) : (
               <div className="max-h-52 space-y-0.5 overflow-y-auto text-[11px]">
                 {l.mouvements.map((m) => (
-                  <div key={m.id} className="flex items-center gap-2">
+                  <div key={m.id} className={`flex items-center gap-2 ${m.annule ? "text-muted-foreground line-through" : ""}`}>
                     <span className="w-20 shrink-0 text-muted-foreground">{dateHeure(m.date)}</span>
                     <SensBadge sens={m.sens} />
+                    {m.rouleauId != null && (
+                      <Link href={`/magtissu/rouleaux/${codeRouleau.get(m.rouleauId) ?? ""}`} className="font-mono text-[10px] text-brand hover:underline">
+                        {codeRouleau.get(m.rouleauId)}
+                      </Link>
+                    )}
                     <span className="font-semibold tabular-nums">
-                      {q2.format(m.quantite)} {l.unite}
+                      {m.sens === "deplacement" ? `${m.valeurAvant || "—"} → ${m.valeurApres}` : m.sens === "annulation" ? "" : `${q2.format(m.quantite)} ${l.unite}`}
                     </span>
                     <span className="flex-1 truncate text-muted-foreground">
                       {m.commandeLabel && `→ ${m.commandeLabel} `}
-                      {m.sens === "rendu" ? (
+                      {m.sens === "rendu" || m.sens === "retour_fournisseur" ? (
                         <Link href={`/magtissu/retour/${encodeURIComponent(m.motif)}`} target="_blank" className="underline">
                           {m.motif}
                         </Link>
@@ -474,8 +508,15 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
                       )}
                       {m.createdBy && ` · ${m.createdBy}`}
                     </span>
-                    {peutSaisir && m.sens !== "entree" && (
-                      <button onClick={() => run(() => A.supprimerMouvement(m.id), "Mouvement supprimé")} className="rounded p-0.5 text-muted-foreground hover:bg-muted">
+                    {peutSaisir && ANNULABLES.has(m.sens) && !m.annule && (
+                      <button
+                        title="Annuler (le mouvement reste visible, barré)"
+                        onClick={() => {
+                          const motif = prompt(`Annuler ce mouvement ? Il restera dans l'historique, barré.\nMotif (obligatoire) :`);
+                          if (motif?.trim()) run(() => A.annulerMouvement(m.id, motif), "Mouvement annulé");
+                        }}
+                        className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+                      >
                         <Trash2 className="size-3" />
                       </button>
                     )}
@@ -495,7 +536,7 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
               <Link href={`/magtissu/etiquettes?ids=${l.id}`} target="_blank" className="font-semibold text-brand hover:underline">
                 🏷 Étiquette QR
               </Link>
-              {peutSaisir && b.consomme <= 0 && b.affecte <= 0 && (
+              {peutSaisir && b.consomme <= 0 && b.affecte <= 0 && l.rouleaux.every((r) => !r.valide) && (
                 <button onClick={() => run(() => A.supprimerLot(l.id), "Lot supprimé", `Supprimer le lot ${l.identifiant} ?`)} className="text-[var(--danger-d)] hover:underline">
                   Supprimer ce lot
                 </button>
@@ -508,12 +549,14 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
   );
 }
 
-/** Contrôle rouleau par rouleau : n°, métrage étiqueté, mesuré, laize, défauts. */
+/** Contrôle rouleau par rouleau d'un lot SANS rouleaux étiquetés : n°,
+ * métrage étiqueté, mesuré, laize, défauts. Sert ensuite à pré-remplir
+ * « Découper en rouleaux ». */
 function FicheRouleaux({ lot: l, actif }: { lot: LotRow; actif: boolean }) {
   const run = useRunner();
-  const [ouvert, setOuvert] = useState(l.rouleaux.length > 0);
+  const [ouvert, setOuvert] = useState(l.ficheRouleaux.length > 0);
   const [lignes, setLignes] = useState<{ n: string; annonce: string; mesure: string; laize: string; defauts: string }[]>(
-    l.rouleaux.map((r) => ({ n: r.n, annonce: r.annonce?.toString() ?? "", mesure: r.mesure?.toString() ?? "", laize: r.laize?.toString() ?? "", defauts: r.defauts })),
+    l.ficheRouleaux.map((r) => ({ n: r.n, annonce: r.annonce?.toString() ?? "", mesure: r.mesure?.toString() ?? "", laize: r.laize?.toString() ?? "", defauts: r.defauts })),
   );
   const tot = totauxRouleaux(
     lignes.map((r) => ({ n: r.n, annonce: r.annonce ? Number(r.annonce.replace(",", ".")) : null, mesure: r.mesure ? Number(r.mesure.replace(",", ".")) : null, laize: null, defauts: "" })) as RouleauControle[],
@@ -709,9 +752,16 @@ function OngletReliquats({
 
 /* ═══════════ tableau de bord ═══════════ */
 
-function Dashboard({ d }: { d: ReturnType<typeof dashboardTissu> }) {
+function Dashboard({ d, rouleaux }: { d: ReturnType<typeof dashboardTissu>; rouleaux: IndicateursAffiches }) {
   return (
     <div className="space-y-3">
+      {rouleaux.total > 0 && (
+        <>
+          <div className="text-[11px] font-bold uppercase text-muted-foreground">Rouleaux étiquetés ({rouleaux.total})</div>
+          <KpisRouleaux i={rouleaux} />
+          <div className="text-[11px] font-bold uppercase text-muted-foreground">Lots</div>
+        </>
+      )}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
         <Kpi label="Lots en magasin" val={String(d.nbLots)} />
         <Kpi label="Tissu reçu (total)" val={`${q2.format(d.totalRecu)} m`} />
@@ -761,16 +811,13 @@ function Kpi({
   );
 }
 
+/** Mouvements annulables : ceux qui changent une quantité (pas l'entrée de
+ * réception, ni un rangement, ni une annulation). */
+const ANNULABLES = new Set(["sortie", "retour", "consommation", "chute", "rendu", "retour_fournisseur", "ajustement"]);
+
 function SensBadge({ sens }: { sens: string }) {
-  const map: Record<string, { l: string; t: "success" | "danger" | "info" | "warning" | "neutral" | "purple" }> = {
-    entree: { l: "Entrée", t: "success" },
-    sortie: { l: "Sortie", t: "danger" },
-    retour: { l: "Retour", t: "info" },
-    rendu: { l: "Rendu client", t: "purple" },
-    ajustement: { l: "Ajust.", t: "warning" },
-  };
-  const m = map[sens] ?? { l: sens, t: "neutral" as const };
-  return <StatusBadge tone={m.t}>{m.l}</StatusBadge>;
+  const m = SENS[sens as SensRouleau] ?? { label: sens, tone: "neutral" as const };
+  return <StatusBadge tone={m.tone}>{sens === "entree" ? "Entrée" : m.label}</StatusBadge>;
 }
 
 function FormAffecter({ lotId, libre, unite, commandes }: { lotId: number; libre: number; unite: string; commandes: Choix[] }) {

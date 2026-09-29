@@ -2,21 +2,10 @@
 
 import { useState } from "react";
 import type { Journee, Ouvriere, Arret } from "./store";
+import { MOTIFS_ARRET } from "@/lib/domain/saisie-gpao";
 
-/** Motifs proposés (doivent rester alignés avec MOTIFS_ARRET de gpao-app). */
-const MOTIFS = [
-  "Panne machine",
-  "Attente pièces / alimentation",
-  "Manque de fil",
-  "Manque fourniture",
-  "Changement de poste",
-  "Réglage machine",
-  "Problème qualité / retouche",
-  "Coupure électricité",
-  "Formation",
-  "Absence pièce coupée",
-  "Autre",
-];
+/** Motifs proposés : liste commune au bureau et à la tablette. */
+const MOTIFS = MOTIFS_ARRET;
 
 const fmt = (sec: number) => {
   if (sec < 60) return `${sec} s`;

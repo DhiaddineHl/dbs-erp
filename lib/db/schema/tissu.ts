@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { date, doublePrecision, index, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, boolean, date, doublePrecision, index, integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { commande } from "./commande";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -33,6 +33,8 @@ export const tissuReception = pgTable(
     client: text().notNull().default(""),
     /** N° du bon de livraison du client : la réception se contrôle contre lui. */
     blClient: text().notNull().default(""),
+    /** Commande fournisseur / client d'origine (référence libre). */
+    commandeFournisseur: text().notNull().default(""),
     observations: text().notNull().default(""),
     /** Pièces jointes (photos du bon, du rouleau…) : hash fichier séparés par des virgules. */
     piecesJointes: text().notNull().default(""),
@@ -70,6 +72,9 @@ export const tissuLot = pgTable(
     couleur: text().notNull().default(""),
     composition: text().notNull().default(""),
     saison: text().notNull().default(""),
+    /** N° de lot du fournisseur (bain de teinture…), tel qu'imprimé sur ses étiquettes. */
+    lotFournisseur: text().notNull().default(""),
+    codeCouleur: text().notNull().default(""),
     /** Laize travaillable (cm) — lue par la modéliste au plan de coupe. */
     laize: doublePrecision(),
     /** Quantité reçue et son unité (m, kg…). Figée = l'entrée physique. */
@@ -131,6 +136,13 @@ export const tissuAffectation = pgTable(
  *   retour        → retour de reste au stock (rare, ex. sur-sortie corrigée)
  *   rendu         → reliquat rendu au client (sort du stock, n'est PAS une
  *                   consommation) — motif = n° du bon de retour
+ *   retour_fournisseur → renvoi au fournisseur (sort du stock) — bon RTF-
+ *   consommation / chute → ce que la coupe a fait du tissu SORTI : ne
+ *                   touchent pas au stock (déjà décompté par la sortie)
+ *   mise_en_stock → validation de la réception d'un rouleau (trace)
+ *   deplacement   → changement d'emplacement (quantité 0, avant → après)
+ *   annulation    → contre-passation d'un mouvement (annule_id) : l'original
+ *                   reste dans l'historique, il n'est plus compté
  *   ajustement    → correction d'inventaire physique (± selon quantite) */
 export const tissuMouvement = pgTable(
   "tissu_mouvement",
@@ -147,10 +159,104 @@ export const tissuMouvement = pgTable(
     commandeId: integer().references(() => commande.id, { onDelete: "set null" }),
     commandeLabel: text().notNull().default(""),
     motif: text().notNull().default(""),
+    /** Rouleau physique concerné (null = mouvement au niveau du lot). */
+    rouleauId: integer().references((): AnyPgColumn => tissuRouleau.id, { onDelete: "cascade" }),
+    /** Destination d'une sortie : coupe | atelier | soustraitant | autre. */
+    destination: text().notNull().default(""),
+    /** Correction / déplacement : valeur d'avant et d'après (lisible). */
+    valeurAvant: text().notNull().default(""),
+    valeurApres: text().notNull().default(""),
+    /** Annulation : le mouvement annulé (l'original reste, jamais effacé). */
+    annuleId: integer().references((): AnyPgColumn => tissuMouvement.id, { onDelete: "set null" }),
     createdBy: text().notNull().default(""),
     createdAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [index("tissu_mouvement_lot_idx").on(t.lotId)],
+  (t) => [index("tissu_mouvement_lot_idx").on(t.lotId), index("tissu_mouvement_rouleau_idx").on(t.rouleauId)],
+);
+
+/* ═══════════ ROULEAUX PHYSIQUES ═══════════
+ *
+ * Un rouleau = un objet physique, un code permanent (R-AAAA-NNNNNN) et une
+ * étiquette QR. Il appartient à un lot (même réception, même référence /
+ * couleur / lot fournisseur) : le lot reste l'unité d'affectation aux
+ * commandes, le rouleau l'unité de mouvement physique.
+ *
+ * Son métrage initial est FIGÉ (un déclencheur SQL l'interdit en écriture) :
+ * tout ce qui arrive ensuite est un mouvement de `tissu_mouvement`. */
+
+export const tissuEmplacement = pgTable("tissu_emplacement", {
+  id: serial().primaryKey(),
+  /** Code unique : A03-12 */
+  code: text().notNull().unique(),
+  zone: text().notNull().default(""),
+  rayon: text().notNull().default(""),
+  libelle: text().notNull().default(""),
+  actif: boolean().notNull().default(true),
+  createdAt: timestamp().notNull().defaultNow(),
+});
+
+export const tissuRouleau = pgTable(
+  "tissu_rouleau",
+  {
+    id: serial().primaryKey(),
+    /** R-2026-000145 — unique, permanent, jamais modifiable. */
+    code: text().notNull().unique(),
+    lotId: integer()
+      .notNull()
+      .references(() => tissuLot.id, { onDelete: "cascade" }),
+    /** Métrage mesuré à la réception : figé. */
+    metrageInitial: doublePrecision().notNull(),
+    /** Métrage étiqueté par le fournisseur (contrôle), facultatif. */
+    metrageAnnonce: doublePrecision(),
+    laize: doublePrecision(),
+    poids: doublePrecision(),
+    /** en_attente | en_stock | sorti | epuise | rendu | retourne — tenu à jour par le service. */
+    statut: text().notNull().default("en_attente"),
+    emplacementId: integer().references(() => tissuEmplacement.id, { onDelete: "set null" }),
+    observations: text().notNull().default(""),
+    valideLe: timestamp(),
+    validePar: text().notNull().default(""),
+    createdBy: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [index("tissu_rouleau_lot_idx").on(t.lotId), index("tissu_rouleau_statut_idx").on(t.statut)],
+);
+
+/** Inventaire par scan : une session, puis un scan par rouleau trouvé. */
+export const tissuInventaire = pgTable("tissu_inventaire", {
+  id: serial().primaryKey(),
+  numero: text().notNull().unique(),
+  /** ouvert | clos */
+  statut: text().notNull().default("ouvert"),
+  /** Zone inventoriée ("" = tout le magasin). */
+  zone: text().notNull().default(""),
+  note: text().notNull().default(""),
+  ouvertPar: text().notNull().default(""),
+  closPar: text().notNull().default(""),
+  closLe: timestamp(),
+  /** Résultat FIGÉ à la clôture (trouvés, manquants, écarts…) : le stock
+   * bouge ensuite, l'inventaire clos doit rester ce qu'il a constaté. */
+  resultat: jsonb(),
+  createdAt: timestamp().notNull().defaultNow(),
+});
+
+export const tissuInventaireScan = pgTable(
+  "tissu_inventaire_scan",
+  {
+    id: serial().primaryKey(),
+    inventaireId: integer()
+      .notNull()
+      .references(() => tissuInventaire.id, { onDelete: "cascade" }),
+    /** Code lu, tel quel (un code inconnu est gardé : « trouvé non enregistré »). */
+    code: text().notNull(),
+    rouleauId: integer().references(() => tissuRouleau.id, { onDelete: "set null" }),
+    /** Métrage mesuré sur place (facultatif). */
+    metrageConstate: doublePrecision(),
+    emplacementCode: text().notNull().default(""),
+    par: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [unique("tissu_inventaire_scan_unique").on(t.inventaireId, t.code)],
 );
 
 export const tissuReceptionRelations = relations(tissuReception, ({ many }) => ({
@@ -160,6 +266,11 @@ export const tissuLotRelations = relations(tissuLot, ({ one, many }) => ({
   reception: one(tissuReception, { fields: [tissuLot.receptionId], references: [tissuReception.id] }),
   affectations: many(tissuAffectation),
   mouvements: many(tissuMouvement),
+  rouleaux: many(tissuRouleau),
+}));
+export const tissuRouleauRelations = relations(tissuRouleau, ({ one }) => ({
+  lot: one(tissuLot, { fields: [tissuRouleau.lotId], references: [tissuLot.id] }),
+  emplacement: one(tissuEmplacement, { fields: [tissuRouleau.emplacementId], references: [tissuEmplacement.id] }),
 }));
 export const tissuAffectationRelations = relations(tissuAffectation, ({ one }) => ({
   lot: one(tissuLot, { fields: [tissuAffectation.lotId], references: [tissuLot.id] }),

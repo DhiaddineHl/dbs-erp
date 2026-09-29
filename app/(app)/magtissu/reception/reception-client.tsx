@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ecartsReception, prochainIdentifiant } from "@/lib/domain/tissu";
 import type { ReceptionRow } from "@/lib/services/tissu";
-import { creerReception, supprimerReception, type SaisieLot } from "@/lib/actions/tissu";
+import { creerReception, supprimerReception, type SaisieLot, type SaisieRouleau } from "@/lib/actions/tissu";
 
 const UNITES = ["m", "kg", "pcs", "rouleau"];
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
@@ -43,6 +43,7 @@ export function ReceptionTissu({
   const [client, setClient] = useState("");
   const [blClient, setBlClient] = useState("");
   const [observations, setObservations] = useState("");
+  const [commandeFournisseur, setCommandeFournisseur] = useState("");
   const [lots, setLots] = useState<LigneLot[]>([lotVide()]);
 
   // Aperçu des identifiants qui seront attribués (couleur → AUBER-01…), en
@@ -64,9 +65,12 @@ export function ReceptionTissu({
     const n = Number(String(v ?? "").replace(",", "."));
     return v && Number.isFinite(n) && n > 0 ? n : null;
   };
+  /** Lot saisi rouleau par rouleau : le mesuré est la somme des rouleaux. */
+  const sommeRouleaux = (l: LigneLot) => Math.round((l.rouleaux ?? []).reduce((s, r) => s + (num(r.metrage) ?? 0), 0) * 100) / 100;
+  const mesure = (l: LigneLot) => ((l.rouleaux ?? []).length ? sommeRouleaux(l) : (num(l.quantiteRecue) ?? 0));
   const ecarts = lots.map((l) =>
     ecartsReception({
-      quantiteRecue: num(l.quantiteRecue) ?? 0,
+      quantiteRecue: mesure(l),
       quantiteAnnoncee: num(l.quantiteAnnoncee),
       laize: num(l.laize),
       laizeAnnoncee: num(l.laizeAnnoncee),
@@ -75,15 +79,22 @@ export function ReceptionTissu({
     }),
   );
 
-  const setLot = (cle: number, champ: keyof SaisieLot, val: string) =>
+  const setLot = (cle: number, champ: Exclude<keyof SaisieLot, "rouleaux">, val: string) =>
     setLots((s) => s.map((l) => (l.cle === cle ? { ...l, [champ]: val } : l)));
+  const setRouleaux = (cle: number, f: (r: SaisieRouleau[]) => SaisieRouleau[]) =>
+    setLots((s) => s.map((l) => (l.cle === cle ? { ...l, rouleaux: f(l.rouleaux ?? []) } : l)));
 
   const enregistrer = () =>
     start(async () => {
-      const r = await creerReception({ date, fournisseur, client, blClient, observations, lots });
+      const r = await creerReception({ date, fournisseur, client, blClient, observations, commandeFournisseur, lots });
       if (!r.ok) {
         toast.error(r.error);
         return;
+      }
+      if (r.rouleauIds.length) {
+        // « Imprimer toutes les étiquettes » : une par rouleau, tout de suite.
+        window.open(`/magtissu/etiquettes/rouleaux?reception=${r.receptionId}`, "_blank");
+        toast.success(`${r.rouleauIds.length} rouleau(x) créés « en attente » : collez les étiquettes puis scannez-les au magasin.`);
       }
       if (ecarts.some((e) => e.aReclamer)) {
         toast.warning("Réception enregistrée avec des écarts : imprimez la réclamation client avant la coupe.");
@@ -93,6 +104,7 @@ export function ReceptionTissu({
       setClient("");
       setBlClient("");
       setObservations("");
+      setCommandeFournisseur("");
       setLots([lotVide()]);
       router.refresh();
     });
@@ -109,7 +121,7 @@ export function ReceptionTissu({
         </Link>
       </div>
       <SectionPanel title="Nouveau bon de réception tissu">
-        <div className="grid gap-3 sm:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-6">
           <Champ label="Date de réception">
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-card" />
           </Champ>
@@ -133,6 +145,9 @@ export function ReceptionTissu({
           </Champ>
           <Champ label="N° BL du client">
             <Input value={blClient} onChange={(e) => setBlClient(e.target.value)} placeholder="Bon de livraison" className="bg-card" />
+          </Champ>
+          <Champ label="Commande fournisseur">
+            <Input value={commandeFournisseur} onChange={(e) => setCommandeFournisseur(e.target.value)} placeholder="N° commande / PO" className="bg-card" />
           </Champ>
           <Champ label="Observations">
             <Input value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="Note libre" className="bg-card" />
@@ -187,7 +202,13 @@ export function ReceptionTissu({
                         <Input value={l.quantiteAnnoncee ?? ""} onChange={(e) => setLot(l.cle, "quantiteAnnoncee", e.target.value)} inputMode="decimal" placeholder="BL" className="h-8 bg-card text-center" />
                       </td>
                       <td className="px-2 pt-1.5">
-                        <Input value={l.quantiteRecue ?? ""} onChange={(e) => setLot(l.cle, "quantiteRecue", e.target.value)} inputMode="decimal" placeholder="0" className="h-8 bg-card text-center font-semibold" />
+                        {(l.rouleaux ?? []).length ? (
+                          <div className="flex h-8 items-center justify-center rounded-md border bg-muted/40 font-semibold tabular-nums" title="Somme des rouleaux">
+                            {q2.format(sommeRouleaux(l))}
+                          </div>
+                        ) : (
+                          <Input value={l.quantiteRecue ?? ""} onChange={(e) => setLot(l.cle, "quantiteRecue", e.target.value)} inputMode="decimal" placeholder="0" className="h-8 bg-card text-center font-semibold" />
+                        )}
                       </td>
                       <td className="px-2 pt-1.5">
                         <select value={l.unite ?? "m"} onChange={(e) => setLot(l.cle, "unite", e.target.value)} className="h-8 w-full rounded-md border border-input bg-card px-1 text-xs">
@@ -203,7 +224,11 @@ export function ReceptionTissu({
                         <Input value={l.laize ?? ""} onChange={(e) => setLot(l.cle, "laize", e.target.value)} inputMode="decimal" placeholder="cm" className="h-8 bg-card text-center" />
                       </td>
                       <td className="px-2 pt-1.5">
-                        <Input value={l.nbRouleaux ?? ""} onChange={(e) => setLot(l.cle, "nbRouleaux", e.target.value)} inputMode="numeric" className="h-8 bg-card text-center" />
+                        {(l.rouleaux ?? []).length ? (
+                          <div className="flex h-8 items-center justify-center rounded-md border bg-muted/40 font-semibold">{(l.rouleaux ?? []).length}</div>
+                        ) : (
+                          <Input value={l.nbRouleaux ?? ""} onChange={(e) => setLot(l.cle, "nbRouleaux", e.target.value)} inputMode="numeric" className="h-8 bg-card text-center" />
+                        )}
                       </td>
                       <td className="px-2 pt-1.5">
                         <Input value={l.saison ?? ""} onChange={(e) => setLot(l.cle, "saison", e.target.value)} placeholder="PE26" className="h-8 bg-card" />
@@ -231,12 +256,20 @@ export function ReceptionTissu({
                             placeholder="Défauts constatés (trous, taches, nuance, lisière…)"
                             className="h-8 min-w-[260px] flex-1 bg-card"
                           />
+                          <Input value={l.lotFournisseur ?? ""} onChange={(e) => setLot(l.cle, "lotFournisseur", e.target.value)} placeholder="Lot fournisseur" className="h-8 w-36 bg-card" />
+                          <Input value={l.codeCouleur ?? ""} onChange={(e) => setLot(l.cle, "codeCouleur", e.target.value)} placeholder="Code couleur" className="h-8 w-32 bg-card" />
                           {ecarts[i].aReclamer ? (
                             <span className="rounded-md bg-[var(--danger-l)] px-2 py-1 text-[11px] font-semibold text-[var(--danger-d)]">⚠ {ecarts[i].motifs[0]}</span>
                           ) : ecarts[i].annonce != null ? (
                             <span className="text-[11px] font-semibold text-success-foreground">✓ conforme au BL</span>
                           ) : null}
                         </div>
+                        <SaisieRouleaux
+                          rouleaux={l.rouleaux ?? []}
+                          unite={l.unite ?? "m"}
+                          laize={l.laize ?? ""}
+                          onChange={(f) => setRouleaux(l.cle, f)}
+                        />
                       </td>
                     </tr>
                   </Fragment>
@@ -247,7 +280,8 @@ export function ReceptionTissu({
 
           <div className="mt-3 flex items-center justify-end gap-2">
             <span className="text-[11px] text-muted-foreground">
-              Le métrage MESURÉ entre en stock ; l&apos;écart avec le BL du client est à réclamer avant la coupe.
+              Le métrage MESURÉ entre en stock ; l&apos;écart avec le BL du client est à réclamer avant la coupe. Chaque rouleau saisi
+              reçoit son ID et son étiquette QR.
             </span>
             <Button disabled={pending} onClick={enregistrer}>
               {pending ? "Enregistrement…" : "Enregistrer la réception"}
@@ -273,6 +307,11 @@ export function ReceptionTissu({
                   {r.lots.some((l) => l.ecarts.aReclamer) && (
                     <Link href={`/magtissu/reclamation/${r.id}`} target="_blank" className="text-xs font-semibold text-[var(--danger-d)] underline">
                       🧾 Réclamation client
+                    </Link>
+                  )}
+                  {r.lots.some((l) => l.rouleaux.length > 0) && (
+                    <Link href={`/magtissu/etiquettes/rouleaux?reception=${r.id}`} target="_blank" className="text-xs font-semibold text-brand underline">
+                      🏷 Imprimer toutes les étiquettes ({r.lots.reduce((n, l) => n + l.rouleaux.length, 0)})
                     </Link>
                   )}
                   <span className="ml-auto text-xs text-muted-foreground">{r.lots.length} lot(s)</span>
@@ -319,6 +358,84 @@ function Champ({ label, children }: { label: string; children: React.ReactNode }
     <div className="flex flex-col gap-1">
       <label className="text-[11px] font-bold uppercase text-muted-foreground">{label}</label>
       {children}
+    </div>
+  );
+}
+
+/** Rouleaux physiques d'un lot, à la réception : un rouleau par ligne. Entrée
+ * sur la dernière ligne en ajoute une (saisie rapide au clavier). */
+function SaisieRouleaux({
+  rouleaux,
+  unite,
+  laize,
+  onChange,
+}: {
+  rouleaux: SaisieRouleau[];
+  unite: string;
+  laize: string;
+  onChange: (f: (r: SaisieRouleau[]) => SaisieRouleau[]) => void;
+}) {
+  const vide = (): SaisieRouleau => ({ metrage: "", annonce: "", laize, poids: "", observations: "" });
+  if (!rouleaux.length) {
+    return (
+      <button type="button" onClick={() => onChange(() => [vide()])} className="mt-1.5 text-[11px] font-semibold text-brand hover:underline">
+        + Saisir les rouleaux un par un (étiquette QR par rouleau)
+      </button>
+    );
+  }
+  const set = (i: number, k: keyof SaisieRouleau, v: string) => onChange((s) => s.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  return (
+    <div className="mt-2 rounded-md border bg-muted/20 p-2">
+      <div className="mb-1 text-[10.5px] font-bold uppercase text-muted-foreground">Rouleaux ({rouleaux.length})</div>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-[10px] uppercase text-muted-foreground">
+            <th className="w-8 text-left">#</th>
+            <th className="text-left">Mesuré ({unite})</th>
+            <th className="text-left">Étiquette fourn. ({unite})</th>
+            <th className="text-left">Laize (cm)</th>
+            <th className="text-left">Poids (kg)</th>
+            <th className="text-left">Observations / défauts</th>
+            <th className="w-6" />
+          </tr>
+        </thead>
+        <tbody>
+          {rouleaux.map((r, i) => (
+            <tr key={i}>
+              <td className="text-muted-foreground">{i + 1}</td>
+              {(["metrage", "annonce", "laize", "poids", "observations"] as const).map((k) => (
+                <td key={k} className="py-0.5 pr-1">
+                  <Input
+                    value={r[k] ?? ""}
+                    onChange={(e) => set(i, k, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && i === rouleaux.length - 1) {
+                        e.preventDefault();
+                        onChange((s) => [...s, vide()]);
+                      }
+                    }}
+                    inputMode={k === "observations" ? "text" : "decimal"}
+                    className={`h-7 bg-card ${k === "metrage" ? "font-semibold" : ""}`}
+                  />
+                </td>
+              ))}
+              <td>
+                <button type="button" onClick={() => onChange((s) => s.filter((_, j) => j !== i))} className="rounded p-0.5 text-muted-foreground hover:bg-muted">
+                  <Trash2 className="size-3" />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-1 flex gap-2">
+        <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => onChange((s) => [...s, vide()])}>
+          + Rouleau
+        </Button>
+        <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => onChange((s) => [...s, ...Array.from({ length: 5 }, vide)])}>
+          + 5 rouleaux
+        </Button>
+      </div>
     </div>
   );
 }

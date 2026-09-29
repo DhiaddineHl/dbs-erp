@@ -14,7 +14,7 @@ import {
 const proche = (a: number | null | undefined, b: number, eps = 0.01) =>
   assert.ok(a != null && Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 
-const DBS: ParamsUsine = { chargesMensuelles: 44_000, effectifDirect: 45, heuresMois: 195, rendementCible: 80, margeCible: 15, minutesRetouche: 0 };
+const DBS: ParamsUsine = { chargesMensuelles: 44_000, effectifDirect: 45, heuresMois: 195, joursOuvresMois: 26, rendementCible: 80, margeCible: 15, minutesRetouche: 0 };
 const H = 44_000 / 8_775; // ≈ 5,014 €/h
 
 const modele = (o: Partial<ProductionModele>): ProductionModele => ({

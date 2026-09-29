@@ -160,7 +160,7 @@ export function SimulationView() {
           <div className="cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12, marginTop: 12 }}>
             <Kpi label="Pièces produites" val={nb.format(data.totalPieces)} />
             <Kpi label="CA produit" val={`${eur.format(data.totalCa)} €`} accent />
-            <Kpi label="Jours de production" val={String(new Set(data.lignes.map((l) => l.date)).size)} />
+            <Kpi label="Jours travaillés (avec saisie)" val={String(data.joursTravailles.length)} />
             {data.piecesSansPrix > 0 && (
               <Kpi label="Pièces sans prix (hors CA)" val={nb.format(data.piecesSansPrix)} warn />
             )}
@@ -168,7 +168,7 @@ export function SimulationView() {
 
           {/* Bilan coût : charges usine réparties sur la période ÷ heures GPAO saisies. */}
           <BilanCoutPanel
-            key={`${usine.chargesMensuelles}|${usine.effectifDirect}|${usine.heuresMois}`}
+            key={`${usine.chargesMensuelles}|${usine.effectifDirect}|${usine.heuresMois}|${usine.joursOuvresMois}`}
             data={data}
             params={usine}
             modifiable={usineModifiable}
@@ -296,10 +296,18 @@ function periodeEffective(data: SimulationData): { from: string; to: string } {
 
 function calculerBilan(data: SimulationData, p: ParamsUsine): BilanCoutUsine {
   const { from, to } = periodeEffective(data);
-  return bilanCoutUsine(p, { from, to, heuresSaisies: data.heuresTravaillees, ca: data.totalCa, pieces: data.totalPieces });
+  // Charges au prorata des jours RÉELLEMENT travaillés (au moins une saisie).
+  return bilanCoutUsine(p, {
+    from,
+    to,
+    heuresSaisies: data.heuresTravaillees,
+    ca: data.totalCa,
+    pieces: data.totalPieces,
+    joursTravailles: data.joursTravailles.length,
+  });
 }
 
-type ChampCout = "chargesMensuelles" | "effectifDirect" | "heuresMois";
+type ChampCout = "chargesMensuelles" | "effectifDirect" | "heuresMois" | "joursOuvresMois";
 
 const pct = (x: number | null) => (x == null ? "—" : `${Math.round(x * 100)} %`);
 
@@ -307,7 +315,8 @@ const pct = (x: number | null) => (x == null ? "—" : `${Math.round(x * 100)} %
  *
  * Les ouvrières directes paient toute l'usine : le coût standard d'une heure
  * est charges mensuelles ÷ (effectif direct × heures/mois). Sur la période, les
- * charges sont réparties au prorata du calendrier, puis divisées par les heures
+ * charges sont réparties au prorata des JOURS TRAVAILLÉS (jours avec saisie
+ * GPAO ÷ jours ouvrés du mois), puis divisées par les heures
  * RÉELLEMENT saisies en GPAO — coût horaire réel. La marge est CA − charges de
  * la période : elle reste juste même quand la saisie GPAO est incomplète. */
 function BilanCoutPanel({
@@ -327,6 +336,7 @@ function BilanCoutPanel({
     chargesMensuelles: params.chargesMensuelles ? String(params.chargesMensuelles) : "",
     effectifDirect: params.effectifDirect ? String(params.effectifDirect) : "",
     heuresMois: params.heuresMois ? String(params.heuresMois) : "",
+    joursOuvresMois: String(params.joursOuvresMois || 26),
   }));
 
   const num = (v: string) => {
@@ -339,9 +349,13 @@ function BilanCoutPanel({
     chargesMensuelles: num(edit.chargesMensuelles),
     effectifDirect: num(edit.effectifDirect),
     heuresMois: num(edit.heuresMois),
+    joursOuvresMois: Math.min(31, num(edit.joursOuvresMois)) || 26,
   };
   const modifie =
-    p.chargesMensuelles !== params.chargesMensuelles || p.effectifDirect !== params.effectifDirect || p.heuresMois !== params.heuresMois;
+    p.chargesMensuelles !== params.chargesMensuelles ||
+    p.effectifDirect !== params.effectifDirect ||
+    p.heuresMois !== params.heuresMois ||
+    p.joursOuvresMois !== params.joursOuvresMois;
   const complet = paramsComplets(p);
   const b = complet ? calculerBilan(data, p) : null;
   const { from, to } = periodeEffective(data);
@@ -368,6 +382,7 @@ function BilanCoutPanel({
         {champ("chargesMensuelles", "Charges usine / mois (€)", "ex: 44000", 110)}
         {champ("effectifDirect", "Ouvrières directes", "ex: 45", 70)}
         {champ("heuresMois", "Heures / mois / ouvrière", "ex: 195", 70)}
+        {champ("joursOuvresMois", "Jours travaillés / mois", "26", 50)}
         {modifiable ? (
           <button className="btn primary sm" disabled={!modifie || !complet} onClick={() => onEnregistrer(p)}>
             Enregistrer
@@ -394,12 +409,16 @@ function BilanCoutPanel({
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 10 }}>
             <Kpi label="CA produit" val={`${eur.format(b.ca)} €`} accent />
-            <Kpi label={`Charges période (${nb.format(Math.round(b.mois * 100) / 100)} mois)`} val={`${eur.format(b.chargesPeriode)} €`} warn />
+            <Kpi
+              label={`Charges période (${b.joursTravailles} j travaillés ÷ ${nb.format(p.joursOuvresMois)})`}
+              val={`${eur.format(b.chargesPeriode)} €`}
+              warn
+            />
             <Kpi label="Marge (CA − charges)" val={`${eur.format(b.marge)} €`} accent={b.marge >= 0} warn={b.marge < 0} />
             <Kpi label="Taux de marge" val={pct(b.tauxMarge)} accent={(b.tauxMarge ?? 0) >= 0} warn={(b.tauxMarge ?? 0) < 0} />
             <Kpi label="Coût / pièce" val={b.coutPiece == null ? "—" : `${eur2.format(b.coutPiece)} €`} />
             <Kpi label="Heures saisies GPAO" val={`${nb.format(b.heuresSaisies)} h`} />
-            <Kpi label="Heures payées (théorie)" val={`${nb.format(Math.round(b.heuresTheoriques))} h`} />
+            <Kpi label={`Heures payées (${b.joursTravailles} j travaillés)`} val={`${nb.format(Math.round(b.heuresTheoriques))} h`} />
             <Kpi label="Taux de saisie GPAO" val={pct(b.tauxSaisie)} warn={(b.tauxSaisie ?? 1) < 0.9} />
             <Kpi label="Coût horaire standard" val={b.coutHoraireStandard == null ? "—" : `${eur2.format(b.coutHoraireStandard)} €`} />
             <Kpi
@@ -424,10 +443,25 @@ function BilanCoutPanel({
           )}
         </>
       )}
+      {complet && b && (
+        <div style={{ fontSize: 12, marginTop: 8, color: "var(--txt)" }}>
+          Charges de la période : {eur.format(p.chargesMensuelles)} € × {b.joursTravailles} jours travaillés ÷ {nb.format(p.joursOuvresMois)} jours
+          travaillés par mois = <b>{eur.format(b.chargesPeriode)} €</b> (soit {eur.format(p.chargesMensuelles / p.joursOuvresMois)} € par jour
+          travaillé). Heures payées : {nb.format(p.effectifDirect)} ouvrières × {nb.format(Math.round((p.heuresMois / p.joursOuvresMois) * 100) / 100)} h/jour ×{" "}
+          {b.joursTravailles} jours.
+        </div>
+      )}
       <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-        Période du {dateFr(from)} au {dateFr(to)}{b ? ` (${b.jours} jours)` : ""}. Charges réparties au prorata du calendrier ;
-        heures GPAO = cellules horaires réellement saisies (hors RI/ABS). La marge ne dépend pas de la qualité de saisie :
-        CA − charges de la période.
+        Période du {dateFr(from)} au {dateFr(to)} ({b ? b.jours : "—"} jours calendaires, dont <b>{data.joursTravailles.length} travaillés</b>
+        ). Un jour compte s&apos;il a au moins une saisie GPAO (sortie de chaîne ou heure d&apos;ouvrière) : dimanches, fériés et jours
+        chômés ne portent pas de charges.
+        {data.joursOuvertsVides.length > 0 && (
+          <>
+            {" "}
+            Journées ouvertes mais jamais saisies, exclues : {data.joursOuvertsVides.map(dateFr).join(", ")}.
+          </>
+        )}{" "}
+        Heures GPAO = cellules horaires réellement saisies (hors RI/ABS).
       </div>
     </div>
   );
@@ -520,12 +554,12 @@ function blocBilanImpression(data: SimulationData, usine: ParamsUsine): string {
     ${l("Charges usine mensuelles", `${eur.format(usine.chargesMensuelles)} €`)}
     ${l("Ouvrières directes × heures/mois", `${nb.format(usine.effectifDirect)} × ${nb.format(usine.heuresMois)} h = ${nb.format(heuresMensuellesUsine(usine))} h`)}
     ${l("Coût horaire standard", `${e(b.coutHoraireStandard)} / h`)}
-    ${l(`Charges de la période (${b.jours} j, ${nb.format(Math.round(b.mois * 100) / 100)} mois)`, `${eur.format(b.chargesPeriode)} €`)}
+    ${l(`Charges de la période (${b.joursTravailles} j travaillés ÷ ${nb.format(usine.joursOuvresMois)} j/mois)`, `${eur.format(b.chargesPeriode)} €`)}
     ${l("Heures saisies GPAO / heures payées", `${nb.format(b.heuresSaisies)} h / ${nb.format(Math.round(b.heuresTheoriques))} h (${pct(b.tauxSaisie)})`)}
     ${l("Coût horaire réel de la période", `${e(b.coutHoraireReel)} / h`)}
     ${l("CA produit", `${eur.format(b.ca)} €`)}
     ${l("Marge (CA − charges)", `${eur.format(b.marge)} € (${pct(b.tauxMarge)})`)}
     ${l("Coût / pièce", e(b.coutPiece))}
   </tbody></table>
-  <div class="note">Charges réparties au prorata du calendrier. Heures GPAO = cellules horaires réellement saisies (hors RI/ABS).</div></div>`;
+  <div class="note">Charges au prorata des jours réellement travaillés (${b.joursTravailles} jours avec saisie GPAO sur ${b.jours} jours calendaires) : dimanches, fériés et jours sans saisie exclus. Heures GPAO = cellules horaires réellement saisies (hors RI/ABS).</div></div>`;
 }

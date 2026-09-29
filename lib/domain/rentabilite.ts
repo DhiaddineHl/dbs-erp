@@ -309,7 +309,8 @@ export function rapportRentabilite(input: {
   const pieces = input.modeles.reduce((s, m) => s + m.pieces, 0);
   const ca = input.modeles.reduce((s, m) => s + (m.prixVente != null ? m.pieces * m.prixVente : 0), 0);
   const heuresStandard = input.modeles.reduce((s, m) => s + (m.pieces * m.samSec) / 3600, 0);
-  const bilan = bilanCoutUsine(p, { from: input.from, to: input.to, heuresSaisies, ca, pieces });
+  // Charges au prorata des jours réellement travaillés (au moins une saisie).
+  const bilan = bilanCoutUsine(p, { from: input.from, to: input.to, heuresSaisies, ca, pieces, joursTravailles: input.jours.length });
   const standard = coutHoraireStandard(p);
   const rendementCible = p.rendementCible / 100;
   const modeles = analyserModeles(input.modeles, {

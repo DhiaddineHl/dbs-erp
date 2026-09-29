@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import "./gpao.css";
 import * as gpao from "./actions";
+import { relireJournee, saisirProduction } from "@/lib/actions/saisie-gpao";
+import type { Saisie } from "@/lib/domain/saisie-gpao";
 import {
   type Chaine,
   type GpaoState,
@@ -125,7 +127,7 @@ export default function GpaoApp({
     const arrets = { ...(j.arrets || {}) };
     if (liste.length) arrets[ouvId] = liste;
     else delete arrets[ouvId];
-    patchDay(j.id, { arrets });
+    saisir(j.id, [{ type: "arrets", ouvId, liste }], { arrets });
   };
   const [importOuv, setImportOuv] = useState<number | null>(null);
 
@@ -167,6 +169,53 @@ export default function GpaoApp({
     persistDay(id, patch);
   };
 
+  /* ─────────── saisie de production : case par case ───────────
+     La tablette de l'agent de méthode écrit dans la même journée. On n'envoie
+     donc plus la matrice entière (qui écrasait ses cases) mais la seule case
+     modifiée ; le serveur l'applique sur la version à jour et renvoie la
+     journée complète — saisies de la tablette comprises. */
+  const enVol = useRef(0);
+  const saisir = (id: number, saisies: Saisie[], optimiste: Partial<Journee>) => {
+    mutate((s) => {
+      const j = findJ(s, id);
+      if (j) Object.assign(j, optimiste);
+    });
+    enVol.current++;
+    void saisirProduction(id, saisies).then((res) => {
+      enVol.current--;
+      if (!res.ok) {
+        toast("⚠ " + res.error);
+        void relireJournee(id).then((r) => r.ok && remplacerJournee(r.journee));
+        return;
+      }
+      markSaved();
+      // Une réponse plus ancienne ne doit pas effacer une frappe encore en vol.
+      if (enVol.current === 0) remplacerJournee(res.journee);
+    });
+  };
+  const remplacerJournee = (row: Record<string, unknown>) => {
+    const nj = normJournee(row);
+    mutate((s) => {
+      const i = s.journees.findIndex((x) => x.id === nj.id);
+      if (i >= 0) s.journees[i] = nj;
+    });
+  };
+
+  /* La journée ouverte se relit toute seule : ce que l'agent tape sur la
+   * tablette apparaît ici sans recharger la page. */
+  useEffect(() => {
+    if (view !== "jour" || currentDayId == null) return;
+    const id = currentDayId;
+    const t = setInterval(() => {
+      if (enVol.current > 0 || document.hidden) return;
+      void relireJournee(id).then((r) => {
+        if (r.ok && enVol.current === 0) remplacerJournee(r.journee);
+      });
+    }, 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, currentDayId]);
+
   /* ─────────── data ops ─────────── */
   const createDay = async (d: { date: string; chaineId: number; modeleId: number; effectif: number; nbHeures: number }) => {
     const res = await gpao.createDay(d);
@@ -192,37 +241,44 @@ export default function GpaoApp({
     if (!j || j.cloture) return;
     const sortie = { ...j.sortie };
     const v = val.trim();
+    let valeur: number | null = null;
     if (v === "") delete sortie[col];
     else {
       const n = parseFloat(v.replace(",", "."));
-      sortie[col] = isNaN(n) ? 0 : n;
+      valeur = isNaN(n) ? 0 : n;
+      sortie[col] = valeur;
     }
-    patchDay(j.id, { sortie });
+    if ((j.sortie[col] ?? null) === valeur) return;
+    saisir(j.id, [{ type: "sortie", col, valeur }], { sortie });
   };
   const setOp = (ouvId: number, col: string, val: string) => {
     const j = currentDayId != null ? findJ(state, currentDayId) : null;
     if (!j || j.cloture) return;
     const ops = { ...j.ops, [ouvId]: { ...(j.ops[ouvId] || {}) } };
     const v = val.trim().toUpperCase();
+    let valeur: number | "RI" | "ABS" | null = null;
     if (v === "") delete ops[ouvId][col];
-    else if (v === "RI" || v === "ABS") ops[ouvId][col] = v;
+    else if (v === "RI" || v === "ABS") valeur = ops[ouvId][col] = v;
     else {
       const n = parseFloat(v.replace(",", "."));
-      ops[ouvId][col] = isNaN(n) ? 0 : n;
+      valeur = ops[ouvId][col] = isNaN(n) ? 0 : n;
     }
-    patchDay(j.id, { ops });
+    if ((j.ops[ouvId]?.[col] ?? null) === valeur) return;
+    saisir(j.id, [{ type: "op", ouvId, col, valeur }], { ops });
   };
   const setRet = (ouvId: number, val: string) => {
     const j = currentDayId != null ? findJ(state, currentDayId) : null;
     if (!j || j.cloture) return;
     const ret = { ...(j.ret || {}) };
     const v = val.trim();
+    let valeur: number | null = null;
     if (v === "") delete ret[ouvId];
     else {
       const n = parseFloat(v.replace(",", "."));
-      ret[ouvId] = isNaN(n) ? 0 : n;
+      valeur = ret[ouvId] = isNaN(n) ? 0 : n;
     }
-    patchDay(j.id, { ret });
+    if ((j.ret?.[ouvId] ?? null) === valeur) return;
+    saisir(j.id, [{ type: "ret", ouvId, valeur }], { ret });
   };
   const setObjManuel = (val: string) => {
     const j = currentDayId != null ? findJ(state, currentDayId) : null;
@@ -237,7 +293,7 @@ export default function GpaoApp({
     const j = currentDayId != null ? findJ(state, currentDayId) : null;
     if (!j) return;
     const nowClosed = !j.cloture;
-    patchDay(j.id, { cloture: nowClosed });
+    saisir(j.id, [{ type: "cloture", valeur: nowClosed }], { cloture: nowClosed });
     toast(nowClosed ? "✓ Journée clôturée" : "🔓 Journée réouverte");
   };
   /* ─────────── effectif du jour ───────────
@@ -314,13 +370,14 @@ export default function GpaoApp({
       delete out[ouvId];
       return out;
     };
-    patchDay(j.id, {
+    saisir(j.id, [{ type: "retirerOuvriere", ouvId }], {
       ouvrieres: roster,
       ops: sansOuv(j.ops),
       ret: sansOuv(j.ret),
       opsSam: sansOuv(j.opsSam),
       opsPoste: sansOuv(j.opsPoste),
       opsDetail: sansOuv(j.opsDetail),
+      arrets: sansOuv(j.arrets),
     });
     toast("🗑 Retirée de cette journée");
   };
@@ -374,7 +431,14 @@ export default function GpaoApp({
     else delete opsPoste[ouvId];
     if (Object.keys(result.dt).length) opsDetail[ouvId] = result.dt;
     else delete opsDetail[ouvId];
-    patchDay(j.id, { ops, opsSam, opsPoste, opsDetail });
+    // Même contenu, exprimé heure par heure pour le serveur.
+    const o = findDayOuv(state, j, ouvId);
+    const heures: Record<string, { poste: string; sam: number; qte: number }[]> = {};
+    for (const [hour, qte] of Object.entries(result.ops)) {
+      if (qte === null) continue;
+      heures[hour] = result.dt[hour] ?? [{ poste: result.pm[hour] ?? o?.poste ?? "", sam: result.sm[hour] ?? o?.sam ?? 0, qte }];
+    }
+    saisir(j.id, [{ type: "postesJour", ouvId, heures }], { ops, opsSam, opsPoste, opsDetail });
     setPosteHeureOuv(null);
     toast("✅ Opérations par heure enregistrées");
 
@@ -396,7 +460,7 @@ export default function GpaoApp({
     delete opsSam[ouvId];
     delete opsPoste[ouvId];
     delete opsDetail[ouvId];
-    patchDay(j.id, { opsSam, opsPoste, opsDetail });
+    saisir(j.id, [{ type: "postesReset", ouvId }], { opsSam, opsPoste, opsDetail });
     setPosteHeureOuv(null);
     toast("Réinitialisé");
   };
@@ -604,6 +668,16 @@ export default function GpaoApp({
         <span className="tag">AGENT DE MÉTHODE — DBS FASHION</span>
         <div className="right">
           <span className="saved">{savedAt}</span>
+          <a
+            className="btn sm"
+            href="/gpao_prod/qr-saisie"
+            target="_blank"
+            rel="noreferrer"
+            title="QR à scanner avec la tablette : saisie de production heure par heure en chaîne"
+            style={{ background: "#1a2540", color: "#fff", borderColor: "#2a3f6e" }}
+          >
+            📱 QR saisie tablette
+          </a>
           <button
             className="btn green sm"
             onClick={() => {
@@ -1238,6 +1312,7 @@ function JourDetail({
                 return (
                   <td key={cn}>
                     <input
+                      key={`s-${cn}-${sv ?? ""}`}
                       className={`hcell out ${scls}`}
                       defaultValue={sv === undefined ? "" : sv}
                       placeholder="·"
@@ -1389,6 +1464,7 @@ function JourDetail({
                   </td>
                   <td>
                     <input
+                      key={`r-${o.id}-${ret}`}
                       className="hcell ret"
                       defaultValue={ret || ""}
                       placeholder="·"

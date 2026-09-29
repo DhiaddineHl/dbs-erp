@@ -114,6 +114,11 @@ export type SimulationData = {
   /** Heures réellement travaillées sur la période (cellules horaires saisies,
    * hors RI/ABS), pour le bilan coût. */
   heuresTravaillees: number;
+  /** Jours avec au moins une saisie (sortie ou heure d'ouvrière) : seuls ces
+   * jours portent des charges dans le bilan. */
+  joursTravailles: string[];
+  /** Jours où une journée GPAO a été ouverte mais jamais saisie (exclus). */
+  joursOuvertsVides: string[];
 };
 
 export const sommeSortie = (sortie: Record<string, number> | null | undefined): number => {
@@ -170,12 +175,17 @@ export async function simulationGpao(from: string, to: string): Promise<Simulati
   let totalCa = 0;
   let piecesSansPrix = 0;
   let heuresTravaillees = 0;
+  const travailles = new Set<string>();
+  const ouverts = new Set<string>();
 
   for (const j of journees) {
     const d = j.date;
     if ((from && d < from) || (to && d > to)) continue;
     const pieces = sommeSortie(j.sortie);
-    heuresTravaillees += heuresJournee(j);
+    const heures = heuresJournee(j);
+    heuresTravaillees += heures;
+    ouverts.add(d);
+    if (pieces > 0 || heures > 0) travailles.add(d);
     if (pieces <= 0) continue;
     const m = parModele.get(j.modeleId);
     const prixCommande = m?.commandeId != null ? (prixParCommande.get(m.commandeId) ?? null) : null;
@@ -208,6 +218,8 @@ export async function simulationGpao(from: string, to: string): Promise<Simulati
     totalCa: Math.round(totalCa * 100) / 100,
     piecesSansPrix,
     heuresTravaillees: Math.round(heuresTravaillees * 10) / 10,
+    joursTravailles: [...travailles].sort(),
+    joursOuvertsVides: [...ouverts].filter((d) => !travailles.has(d)).sort(),
   };
 }
 
@@ -409,6 +421,23 @@ export async function ouvrieresDeChaine(chaineId: number): Promise<JourneeOuvrie
 }
 
 /* ─────────── journée writes ─────────── */
+
+/** Crée une journée de production : colonnes horaires et effectif FIGÉ de la
+ * chaîne. Seul point de création — écran du bureau comme tablette. */
+export async function creerJournee(input: { date: string; chaineId: number; modeleId: number; effectif: number; nbHeures: number }) {
+  /* Les heures peuvent être décimales (8,5 h), mais on ne peut pas afficher
+   * une demi-colonne de saisie horaire : le nombre de colonnes suit l'arrondi
+   * SUPÉRIEUR (une journée de 8,5 h a 9 cases, la dernière partielle), tandis
+   * que nbHeures garde sa valeur exacte pour le calcul du rendement. */
+  const nbHeures = input.nbHeures > 0 ? input.nbHeures : 8;
+  const nbCols = Math.max(1, Math.ceil(nbHeures));
+  const cols = Array.from({ length: nbCols }, (_, i) => `H${i + 1}`);
+  /* L'effectif est figé ici, une fois pour toutes : la journée gardera cette
+   * liste même si la chaîne change demain. */
+  const ouvrieres = await ouvrieresDeChaine(input.chaineId);
+  return insertJournee({ ...input, nbHeures, cols, ouvrieres, sortie: {}, ops: {}, cloture: false });
+}
+
 export async function insertJournee(input: typeof journee.$inferInsert) {
   const [row] = await db.insert(journee).values(input).returning();
   return row;

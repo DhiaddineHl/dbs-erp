@@ -1,8 +1,9 @@
 import "server-only";
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { commande, tissuAffectation, tissuLot, tissuMouvement, tissuReception } from "@/lib/db/schema";
+import { commande, tissuAffectation, tissuEmplacement, tissuLot, tissuMouvement, tissuReception, tissuRouleau } from "@/lib/db/schema";
 import * as tx from "@/lib/domain/tissu";
+import * as rl from "@/lib/domain/rouleau";
 import type { LigneTissu } from "@/lib/domain/feux";
 
 /* Magasin tissu — lecture. Toute la lecture passe par les mouvements et les
@@ -17,6 +18,27 @@ export type MouvementRow = {
   motif: string;
   createdBy: string;
   date: string;
+  rouleauId: number | null;
+  destination: string;
+  valeurAvant: string;
+  valeurApres: string;
+  annuleId: number | null;
+  /** Neutralisé par une annulation (reste affiché, n'est plus compté). */
+  annule: boolean;
+};
+
+/** Un rouleau physique du lot (voir lib/services/rouleaux.ts pour la fiche). */
+export type RouleauLot = {
+  id: number;
+  code: string;
+  statut: string;
+  metrageInitial: number;
+  laize: number | null;
+  poids: number | null;
+  emplacement: string;
+  observations: string;
+  valide: boolean;
+  bilan: rl.BilanRouleau;
 };
 
 export type AffectationRow = {
@@ -51,13 +73,20 @@ export type LotRow = {
   quantiteAnnoncee: number | null;
   laizeAnnoncee: number | null;
   defauts: string;
-  rouleaux: tx.RouleauControle[];
+  /** Ancienne fiche de contrôle rouleau (JSON, migration 0036) — remplacée par
+   * les vrais rouleaux ; ne sert plus qu'à pré-remplir « Découper en rouleaux ». */
+  ficheRouleaux: tx.RouleauControle[];
   /** Écarts contre le BL client : manque, laize, défauts → réclamation. */
   ecarts: tx.EcartsReception;
+  lotFournisseur: string;
+  codeCouleur: string;
+  commandeFournisseur: string;
   bilan: tx.BilanLot;
   statut: tx.StatutLot;
   affectations: AffectationRow[];
   mouvements: MouvementRow[];
+  /** Rouleaux physiques (vide = lot suivi en bloc, sans étiquette par rouleau). */
+  rouleaux: RouleauLot[];
 };
 
 export type ReceptionRow = {
@@ -113,6 +142,9 @@ export async function listLots(): Promise<LotRow[]> {
       fournisseur: tissuReception.fournisseur,
       client: tissuReception.client,
       blClient: tissuReception.blClient,
+      commandeFournisseur: tissuReception.commandeFournisseur,
+      lotFournisseur: tissuLot.lotFournisseur,
+      codeCouleur: tissuLot.codeCouleur,
     })
     .from(tissuLot)
     .leftJoin(tissuReception, eq(tissuLot.receptionId, tissuReception.id))
@@ -121,12 +153,21 @@ export async function listLots(): Promise<LotRow[]> {
   if (lots.length === 0) return [];
   const ids = lots.map((l) => l.id);
 
-  const [affs, mvts] = await Promise.all([
+  const [affs, mvts, rouleaux] = await Promise.all([
     db.select().from(tissuAffectation).where(inArray(tissuAffectation.lotId, ids)).orderBy(asc(tissuAffectation.id)),
     db.select().from(tissuMouvement).where(inArray(tissuMouvement.lotId, ids)).orderBy(desc(tissuMouvement.id)),
+    db
+      .select({ r: tissuRouleau, emplacement: tissuEmplacement.code })
+      .from(tissuRouleau)
+      .leftJoin(tissuEmplacement, eq(tissuRouleau.emplacementId, tissuEmplacement.id))
+      .where(inArray(tissuRouleau.lotId, ids))
+      .orderBy(asc(tissuRouleau.id)),
   ]);
   const parAff = groupBy(affs, (a) => a.lotId);
   const parMvt = groupBy(mvts, (m) => m.lotId);
+  const parRouleauMvt = groupBy(mvts.filter((m) => m.rouleauId != null), (m) => m.rouleauId!);
+  const parRouleau = groupBy(rouleaux, (x) => x.r.lotId);
+  const annules = new Set(mvts.filter((m) => m.sens === "annulation" && m.annuleId != null).map((m) => m.annuleId!));
 
   return lots.map((l) => {
     const a = parAff.get(l.id) ?? [];
@@ -151,11 +192,20 @@ export async function listLots(): Promise<LotRow[]> {
       note: l.note,
       client: l.client ?? "",
       blClient: l.blClient ?? "",
+      commandeFournisseur: l.commandeFournisseur ?? "",
+      lotFournisseur: l.lotFournisseur,
+      codeCouleur: l.codeCouleur,
       quantiteAnnoncee: l.quantiteAnnoncee,
       laizeAnnoncee: l.laizeAnnoncee,
       defauts: l.defauts,
-      rouleaux: l.rouleaux ?? [],
-      ecarts: tx.ecartsReception({ ...l, rouleaux: l.rouleaux ?? [] }),
+      ficheRouleaux: l.rouleaux ?? [],
+      /* Contrôle par rouleau : les vrais rouleaux font foi dès qu'ils existent. */
+      ecarts: tx.ecartsReception({
+        ...l,
+        rouleaux: (parRouleau.get(l.id) ?? []).length
+          ? (parRouleau.get(l.id) ?? []).map(({ r }) => ({ n: r.code, annonce: r.metrageAnnonce, mesure: r.metrageInitial, laize: r.laize, defauts: r.observations }))
+          : (l.rouleaux ?? []),
+      }),
       bilan,
       statut: tx.statutLot(bilan),
       affectations: a.map((x) => ({
@@ -175,6 +225,24 @@ export async function listLots(): Promise<LotRow[]> {
         motif: x.motif,
         createdBy: x.createdBy,
         date: iso(x.createdAt),
+        rouleauId: x.rouleauId,
+        destination: x.destination,
+        valeurAvant: x.valeurAvant,
+        valeurApres: x.valeurApres,
+        annuleId: x.annuleId,
+        annule: annules.has(x.id),
+      })),
+      rouleaux: (parRouleau.get(l.id) ?? []).map(({ r, emplacement }) => ({
+        id: r.id,
+        code: r.code,
+        statut: r.statut,
+        metrageInitial: r.metrageInitial,
+        laize: r.laize,
+        poids: r.poids,
+        emplacement: emplacement ?? "",
+        observations: r.observations,
+        valide: r.valideLe != null,
+        bilan: rl.bilanRouleau(r.metrageInitial, parRouleauMvt.get(r.id) ?? []),
       })),
     };
   });
@@ -223,10 +291,12 @@ export async function lotsDeCommande(commandeId: number): Promise<LotDeCommande[
     .leftJoin(tissuLot, eq(tissuAffectation.lotId, tissuLot.id))
     .where(eq(tissuAffectation.commandeId, commandeId));
 
-  const mvts = await db
-    .select({ lotId: tissuMouvement.lotId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite })
-    .from(tissuMouvement)
-    .where(eq(tissuMouvement.commandeId, commandeId));
+  const mvts = rl.mouvementsEffectifs(
+    await db
+      .select({ id: tissuMouvement.id, lotId: tissuMouvement.lotId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId })
+      .from(tissuMouvement)
+      .where(eq(tissuMouvement.commandeId, commandeId)),
+  );
 
   const consoParLot = new Map<number, number>();
   for (const m of mvts) {
@@ -273,8 +343,9 @@ export async function couvertureTissuParCommande(): Promise<Map<number, Couvertu
       .from(tissuAffectation)
       .leftJoin(tissuLot, eq(tissuAffectation.lotId, tissuLot.id)),
     db
-      .select({ commandeId: tissuMouvement.commandeId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite })
-      .from(tissuMouvement),
+      .select({ id: tissuMouvement.id, commandeId: tissuMouvement.commandeId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId })
+      .from(tissuMouvement)
+      .then(rl.mouvementsEffectifs),
   ]);
 
   const out = new Map<number, CouvertureTissuCommande>();

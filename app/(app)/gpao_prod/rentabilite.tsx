@@ -239,7 +239,7 @@ function Rapport({ r, state }: { r: Rapport; state: GpaoState }) {
     <>
       <div className="kpis" style={{ marginTop: 4 }}>
         <Kpi l="CA produit" v={e0(b.ca)} s={`${nb.format(b.pieces)} pièces`} c="g" />
-        <Kpi l="Charges de la période" v={e0(b.chargesPeriode)} s={`${b.jours} j · ${nb1.format(b.mois)} mois`} c="a" />
+        <Kpi l="Charges de la période" v={e0(b.chargesPeriode)} s={`${b.joursTravailles} j travaillés / ${b.jours} j · ${nb1.format(b.mois)} mois`} c="a" />
         <Kpi l="Marge" v={e0(b.marge)} s={`${pct(b.tauxMarge)} du CA`} c={b.marge >= 0 ? "g" : "r"} />
         <Kpi
           l="Rendement global"
@@ -657,7 +657,7 @@ function imprimerTableauDeBord(r: Rapport) {
   <table><thead>${tete}</thead><tbody>${meilleurs.map(ligneM).join("") || `<tr><td colspan="8">—</td></tr>`}</tbody></table>
   <div class="note">Coût horaire standard = ${e0(r.params.chargesMensuelles)} ÷ (${nb.format(r.params.effectifDirect)} ouvrières × ${nb.format(
     r.params.heuresMois,
-  )} h). Charges de la période au prorata du calendrier ; coût d'un modèle = ses heures saisies × coût horaire réel. Prix plancher = SAM ÷ rendement cible (${
+  )} h). Charges de la période au prorata des jours réellement travaillés (jours avec saisie GPAO ÷ jours travaillés par mois) ; coût d'un modèle = ses heures saisies × coût horaire réel. Prix plancher = SAM ÷ rendement cible (${
     r.params.rendementCible
   } %) × coût standard, marge ${r.params.margeCible} % sur le prix de vente.</div>
   <div class="sig"><div>Responsable production</div><div>Direction</div></div>

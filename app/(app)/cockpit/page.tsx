@@ -184,7 +184,7 @@ export default async function CockpitPage() {
               <div className="mt-3">
                 <Progress value={Math.min(100, Math.round(pm.couverture * 100))} className="h-2" />
                 <div className="mt-1 text-[11px] text-muted-foreground">
-                  CA produit / charges de l&apos;usine à date (prorata calendrier). 100 % = point mort atteint.
+                  CA produit / charges de l&apos;usine à date (au prorata des jours travaillés). 100 % = point mort atteint.
                 </div>
               </div>
             )}
