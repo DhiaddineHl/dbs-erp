@@ -3,6 +3,7 @@ import { Topbar } from "@/components/layout/topbar";
 import { requireUser, userRole } from "@/lib/auth/server";
 import { getRoleModules, listRoles } from "@/lib/services/permissions";
 import { compteursMenu } from "@/lib/services/compteurs-menu";
+import { VeilleMessagerie } from "@/components/messagerie/veille";
 
 export default async function AppLayout({
   children,
@@ -28,6 +29,7 @@ export default async function AppLayout({
         <Topbar user={{ name: user.name, email: user.email, role, roleLabel }} />
       </div>
       <main className="app-main min-h-0 overflow-y-auto px-7 py-6">{children}</main>
+      <VeilleMessagerie />
     </div>
   );
 }

@@ -71,7 +71,10 @@ export function CommandesClient({
   peutSupprimer,
   peutFacturer,
   mode = "commandes",
+  rechercheInitiale = "",
 }: {
+  /** Recherche pré-remplie (lien « /commandes?q=OF-… », ex. depuis la messagerie). */
+  rechercheInitiale?: string;
   commandes: CommandeRow[];
   clients: Choix[];
   faconniers: Choix[];
@@ -85,7 +88,7 @@ export function CommandesClient({
   const [pending, start] = useTransition();
 
   /* ─── filtres ─── */
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(rechercheInitiale);
   const [statut, setStatut] = useState("");
   const [client, setClient] = useState("");
   const [assigne, setAssigne] = useState("");

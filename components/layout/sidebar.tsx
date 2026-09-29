@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV_STRUCTURE, entreeAutorisee } from "@/lib/nav";
 import { cn } from "@/lib/utils";
+import { useNonLus } from "@/components/messagerie/etat";
 
 const STAGE_COLOR: Record<number, string> = {
   1: "var(--s1)",
@@ -23,6 +24,9 @@ export function Sidebar({
   badges?: Record<string, number>;
 }) {
   const pathname = usePathname();
+  // Messagerie : pastille en direct (relevée par la veille), pas au chargement de page.
+  const nonLus = useNonLus();
+  const pastille = (id: string) => (id === "messagerie" ? nonLus : (badges[id] ?? 0));
 
   // Filter nav by the authenticated role's module permissions (loaded from DB
   // in the (app) layout). Admin receives an all-true map. `masque` retire le
@@ -77,9 +81,14 @@ export function Sidebar({
                 >
                   <Icon className="size-[18px] shrink-0" />
                   <span className="truncate">{item.label}</span>
-                  {badges[item.id] ? (
-                    <span className="ml-auto min-w-[18px] rounded-full bg-[var(--danger)] px-1.5 py-px text-center text-[9px] font-bold text-white">
-                      {badges[item.id]}
+                  {pastille(item.id) ? (
+                    <span
+                      className={cn(
+                        "ml-auto min-w-[18px] rounded-full px-1.5 py-px text-center text-[9px] font-bold text-white",
+                        item.id === "messagerie" ? "bg-emerald-600" : "bg-[var(--danger)]",
+                      )}
+                    >
+                      {pastille(item.id)}
                     </span>
                   ) : null}
                 </Link>

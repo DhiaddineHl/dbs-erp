@@ -21,10 +21,16 @@ export type FichierEnregistre = { hash: string; mime: string; taille: number; de
  * suivi d'un échec en base laisse un objet que personne ne cite — inerte, et
  * réutilisé tel quel au prochain envoi du même contenu. L'inverse laisserait
  * une ligne qui promet des octets absents, donc une vignette morte. */
-export async function enregistrerFichier(data: Buffer, mime: string): Promise<FichierEnregistre> {
+export async function enregistrerFichier(
+  data: Buffer,
+  mime: string,
+  /** La messagerie accepte plus de formats (Excel, Word) et de plus gros fichiers. */
+  regles: { mimes?: Set<string>; max?: number; libelle?: string } = {},
+): Promise<FichierEnregistre> {
+  const max = regles.max ?? TAILLE_MAX;
   if (!data.length) throw new Error("Fichier vide");
-  if (data.length > TAILLE_MAX) throw new Error("Fichier trop volumineux (4 Mo maximum)");
-  if (!MIMES_AUTORISES.has(mime)) throw new Error("Format non accepté (JPEG, PNG, WebP ou PDF)");
+  if (data.length > max) throw new Error(`Fichier trop volumineux (${Math.round(max / 1024 / 1024)} Mo maximum)`);
+  if (!(regles.mimes ?? MIMES_AUTORISES).has(mime)) throw new Error(`Format non accepté (${regles.libelle ?? "JPEG, PNG, WebP ou PDF"})`);
 
   const hash = createHash("sha256").update(data).digest("hex");
   const [existant] = await db.select({ hash: fichier.hash }).from(fichier).where(eq(fichier.hash, hash));

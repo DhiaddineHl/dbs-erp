@@ -5,6 +5,7 @@ import { and, asc, eq, inArray, isNull, like, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   commande,
+  faconnier,
   tissuEmplacement,
   tissuInventaire,
   tissuInventaireScan,
@@ -173,42 +174,154 @@ export async function validerReceptionRouleaux(input: { receptionId: number; emp
 
 /* ─────────── sortie / retour / consommation ─────────── */
 
-/** Sortie du magasin : diminue le stock du rouleau (et donc du lot). */
+/* ─────────── sortie : où va le tissu (interne ou sous-traitant) ─────────── */
+
+type LieuSortie = {
+  destination: string;
+  commandeId: number | null;
+  /** Obligatoire quand la destination est « soustraitant ». */
+  faconnierId?: number | null;
+  motif?: string;
+};
+
+/** Contrôle le lieu de sortie et renvoie le sous-traitant retenu (nom recopié). */
+async function verifierLieu(ex: Executeur, l: LieuSortie): Promise<{ faconnierId: number | null; faconnierNom: string }> {
+  if (!rl.DESTINATIONS.some((d) => d.value === l.destination)) throw new Error("Choisissez où part le tissu (coupe interne, sous-traitant…).");
+  if (!l.commandeId && l.destination !== "autre") throw new Error("Choisissez le modèle / la commande (OF) : c'est elle qui portera ce tissu.");
+  if (l.destination === "autre" && !l.commandeId && !(l.motif ?? "").trim()) throw new Error("Sortie sans commande : précisez le motif.");
+  if (l.destination !== "soustraitant") return { faconnierId: null, faconnierNom: "" };
+  if (!l.faconnierId) throw new Error("Choisissez le sous-traitant chez qui part le tissu.");
+  const [f] = await ex.select({ id: faconnier.id, nom: faconnier.nom }).from(faconnier).where(eq(faconnier.id, l.faconnierId));
+  if (!f) throw new Error("Sous-traitant introuvable.");
+  if (!rl.estSousTraitant(f.nom)) throw new Error(`« ${f.nom} » est l'atelier interne : choisissez « Coupe interne ».`);
+  return { faconnierId: f.id, faconnierNom: f.nom };
+}
+
+/** Écrit la sortie d'UN rouleau (verrouillé). q = null → tout le disponible. */
+async function ecrireSortie(
+  t: Tx,
+  par: string,
+  code: string,
+  q: number | null,
+  l: LieuSortie & { faconnierId: number | null; faconnierNom: string; label: string; bon?: string },
+) {
+  const { r, bilan, valide } = await verrouiller(t, code);
+  const quantite = q ?? bilan.disponible;
+  const refus = rl.refusSortie(valide, bilan, quantite);
+  if (refus) throw new Error(`${r.code} : ${refus}`);
+  const [lot] = await t.select({ controle: tissuLot.controle }).from(tissuLot).where(eq(tissuLot.id, r.lotId));
+  if (lot?.controle === "refuse") throw new Error(`${r.code} : lot refusé au contrôle, levez le refus avant de le couper.`);
+  await t.insert(tissuMouvement).values({
+    lotId: r.lotId, rouleauId: r.id, sens: "sortie", quantite, destination: l.destination,
+    faconnierId: l.faconnierId, faconnierNom: l.faconnierNom, bon: l.bon ?? "",
+    commandeId: l.commandeId, commandeLabel: l.label,
+    motif: (l.motif ?? "").trim() || `Sortie ${rl.lieuSortie(l)}`,
+    valeurAvant: String(bilan.disponible), valeurApres: String(r2(bilan.disponible - quantite)), createdBy: par,
+  });
+  const s = await recalculerStatut(t, r.id);
+  return { code: r.code, quantite, reste: s?.bilan.disponible ?? 0 };
+}
+
+/** Sortie du magasin : diminue le stock du rouleau (et donc du lot). Le tissu
+ * part pour un modèle (commande), en coupe interne ou chez un sous-traitant. */
 export async function sortirRouleau(input: {
   code: string;
   quantite: string;
   destination: string;
   commandeId: number | null;
+  faconnierId?: number | null;
   motif?: string;
 }): Promise<Result<{ code: string; reste: number }>> {
   try {
     const a = await auteurTissu();
     const q = positif(input.quantite);
-    if (!rl.DESTINATIONS.some((d) => d.value === input.destination)) return { ok: false, error: "Choisissez la destination." };
-    if (!input.commandeId && input.destination !== "autre") {
-      return { ok: false, error: "Choisissez la commande (OF) : c'est elle qui portera cette consommation." };
-    }
-    if (input.destination === "autre" && !input.commandeId && !(input.motif ?? "").trim()) {
-      return { ok: false, error: "Sortie sans commande : précisez le motif." };
-    }
     const res = await db.transaction(async (t) => {
-      const { r, bilan, valide } = await verrouiller(t, input.code);
-      const refus = rl.refusSortie(valide, bilan, q);
-      if (refus) throw new Error(refus);
-      const [lot] = await t.select({ controle: tissuLot.controle }).from(tissuLot).where(eq(tissuLot.id, r.lotId));
-      if (lot?.controle === "refuse") throw new Error("Lot refusé au contrôle : levez le refus avant de le couper.");
+      const st = await verifierLieu(t, input);
       const label = await libelleCommande(t, input.commandeId);
-      await t.insert(tissuMouvement).values({
-        lotId: r.lotId, rouleauId: r.id, sens: "sortie", quantite: q, destination: input.destination,
-        commandeId: input.commandeId, commandeLabel: label,
-        motif: (input.motif ?? "").trim() || `Sortie ${rl.destinationLabel(input.destination).toLowerCase()}`,
-        valeurAvant: String(bilan.disponible), valeurApres: String(r2(bilan.disponible - q)), createdBy: a.name,
-      });
-      const s = await recalculerStatut(t, r.id);
-      return { code: r.code, reste: s?.bilan.disponible ?? 0 };
+      return ecrireSortie(t, a.name, input.code, q, { ...input, ...st, label });
     });
     revalider(res.code);
+    return { ok: true, code: res.code, reste: res.reste };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+async function prochainNumeroBon(ex: Executeur): Promise<string> {
+  // Deux sorties groupées en même temps ne prennent pas le même numéro.
+  await ex.execute(sql`select pg_advisory_xact_lock(hashtext('tissu_bon_sortie'))`);
+  const prefixe = `BST-${new Date().getFullYear()}-`;
+  const rows = await ex.select({ bon: tissuMouvement.bon }).from(tissuMouvement).where(like(tissuMouvement.bon, `${prefixe}%`));
+  let max = 0;
+  for (const r of rows) {
+    const n = parseInt(r.bon.slice(prefixe.length), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${prefixe}${String(max + 1).padStart(3, "0")}`;
+}
+
+/** Sortie GROUPÉE : plusieurs rouleaux pour un même modèle et un même lieu
+ * (en général un sous-traitant), sur un bon numéroté BST-AAAA-NNN. Tout ou
+ * rien : si un rouleau est refusé, aucun ne sort. Quantité vide = rouleau entier. */
+export async function sortieGroupee(input: {
+  rouleaux: { code: string; quantite?: string }[];
+  destination: string;
+  commandeId: number | null;
+  faconnierId?: number | null;
+  motif?: string;
+}): Promise<Result<{ numero: string; n: number; metrage: number }>> {
+  try {
+    const a = await auteurTissu();
+    if (!input.rouleaux?.length) return { ok: false, error: "Scannez au moins un rouleau." };
+    const codes = input.rouleaux.map((x) => rl.lireScan(x.code)?.code ?? x.code);
+    if (new Set(codes).size !== codes.length) return { ok: false, error: "Un rouleau est scanné deux fois." };
+    const res = await db.transaction(async (t) => {
+      const st = await verifierLieu(t, input);
+      const label = await libelleCommande(t, input.commandeId);
+      const numero = await prochainNumeroBon(t);
+      let metrage = 0;
+      for (const x of input.rouleaux) {
+        const q = x.quantite ? positif(x.quantite) : null;
+        const s = await ecrireSortie(t, a.name, x.code, q, { ...input, ...st, label, bon: numero, motif: input.motif || numero });
+        metrage += s.quantite;
+      }
+      return { numero, n: input.rouleaux.length, metrage: r2(metrage) };
+    });
+    revalider();
     return { ok: true, ...res };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Contrôle d'un rouleau AVANT de l'ajouter à une sortie groupée (scan). */
+export async function verifierPourSortie(scan: string): Promise<Result<{ code: string; disponible: number; lot: string; tissu: string; unite: string }>> {
+  try {
+    await auteurTissu();
+    const lu = rl.lireScan(scan);
+    if (!lu || lu.type !== "rouleau") return { ok: false, error: "Ce n'est pas un code rouleau (R-AAAA-NNNNNN)." };
+    const [r] = await db
+      .select({ r: tissuRouleau, lot: tissuLot })
+      .from(tissuRouleau)
+      .innerJoin(tissuLot, eq(tissuRouleau.lotId, tissuLot.id))
+      .where(eq(tissuRouleau.code, lu.code));
+    if (!r) return { ok: false, error: `Rouleau ${lu.code} inconnu : il n'a pas été enregistré à la réception.` };
+    const ms = await db
+      .select({ id: tissuMouvement.id, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId })
+      .from(tissuMouvement)
+      .where(eq(tissuMouvement.rouleauId, r.r.id));
+    const b = rl.bilanRouleau(r.r.metrageInitial, ms);
+    const refus = rl.refusSortie(r.r.valideLe != null, b, b.disponible || 1);
+    if (refus || b.disponible <= 0.001) return { ok: false, error: `${lu.code} : ${refus ?? "rouleau vide (plus rien en stock)."}` };
+    if (r.lot.controle === "refuse") return { ok: false, error: `${lu.code} : lot refusé au contrôle.` };
+    return {
+      ok: true,
+      code: lu.code,
+      disponible: b.disponible,
+      lot: r.lot.identifiant,
+      tissu: [r.lot.reference, r.lot.couleur].filter(Boolean).join(" · "),
+      unite: r.lot.unite,
+    };
   } catch (e) {
     return fail(e);
   }

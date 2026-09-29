@@ -26,7 +26,10 @@ export default async function ScanTissuPage() {
       <Entete utilisateur={user.name} titre="Magasin tissu" />
       <h1 className="mb-3 text-3xl font-black">Scanner un rouleau</h1>
       <ScanAccueil />
-      <div className="mt-6 grid grid-cols-2 gap-2">
+      <Link href="/m/tissu/sortie" className="mt-4 block rounded-2xl bg-amber-500 px-4 py-4 text-center text-lg font-extrabold text-white shadow-sm">
+        🚚 Sortie groupée (sous-traitant / coupe)
+      </Link>
+      <div className="mt-3 grid grid-cols-2 gap-2">
         <Link href="/m/tissu/inventaire" className="rounded-2xl bg-white px-4 py-4 text-center font-bold shadow-sm">
           📋 Inventaire
         </Link>

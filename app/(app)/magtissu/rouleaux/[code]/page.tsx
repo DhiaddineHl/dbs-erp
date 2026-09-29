@@ -6,7 +6,7 @@ import { lireScan, statutLabel } from "@/lib/domain/rouleau";
 import { getRoleModules } from "@/lib/services/permissions";
 import { qrSvg } from "@/lib/atelier/qr";
 import { basePortail } from "@/lib/services/portail";
-import { commandesPourSortie, getRouleau, listEmplacements } from "@/lib/services/rouleaux";
+import { commandesPourSortie, getRouleau, listEmplacements, sousTraitants } from "@/lib/services/rouleaux";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ActionsRouleau } from "@/app/m/tissu/r/[code]/actions-rouleau";
@@ -25,7 +25,13 @@ export default async function FicheRouleauPage({ params }: { params: Promise<{ c
   const fiche = await getRouleau(lireScan(brut)?.code ?? brut);
   if (!fiche) notFound();
   const { rouleau: r, mouvements } = fiche;
-  const [modules, commandes, emplacements, base] = await Promise.all([getRoleModules(role), commandesPourSortie(r.lot.id), listEmplacements(), basePortail()]);
+  const [modules, commandes, emplacements, base, soustraitants] = await Promise.all([
+    getRoleModules(role),
+    commandesPourSortie(r.lot.id),
+    listEmplacements(),
+    basePortail(),
+    sousTraitants(),
+  ]);
   const peutSaisir = peutModifier("tissu", role) || modules.magtissu === true;
   const svg = await qrSvg(`${base.replace(/\/+$/, "")}/r/${r.code}`, 140);
   const st = statutLabel(r.statut);
@@ -41,6 +47,11 @@ export default async function FicheRouleauPage({ params }: { params: Promise<{ c
         <h1 className="font-mono text-xl font-black">{r.code}</h1>
         <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
         <StatusBadge tone="neutral">📍 {r.emplacement || "non rangé"}</StatusBadge>
+        {r.chez && (
+          <StatusBadge tone="warning">
+            🚚 {q2.format(b.enCoupe)} {u} {r.chez}
+          </StatusBadge>
+        )}
         <Link href={`/magtissu/etiquettes/rouleaux?ids=${r.id}`} target="_blank" className="ml-auto rounded-md border px-2.5 py-1.5 text-[11px] font-semibold hover:bg-muted">
           🏷 Imprimer l&apos;étiquette
         </Link>
@@ -108,6 +119,7 @@ export default async function FicheRouleauPage({ params }: { params: Promise<{ c
           <ActionsRouleau
             rouleau={r}
             commandes={commandes}
+            sousTraitants={soustraitants}
             emplacements={emplacements.filter((e) => e.actif).map((e) => ({ code: e.code, libelle: e.libelle, zone: e.zone }))}
             peutSaisir={peutSaisir}
           />

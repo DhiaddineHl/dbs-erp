@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { accesTissuPage } from "@/lib/auth/tissu";
-import { destinationLabel, lireScan, sensLabel, statutLabel } from "@/lib/domain/rouleau";
-import { commandesPourSortie, getRouleau, listEmplacements } from "@/lib/services/rouleaux";
+import { lieuSortie, lireScan, sensLabel, statutLabel } from "@/lib/domain/rouleau";
+import { commandesPourSortie, getRouleau, listEmplacements, sousTraitants } from "@/lib/services/rouleaux";
 import { Cadre, Entete, Info, TONS_STATUT, nb } from "../../ui";
 import { ActionsRouleau } from "./actions-rouleau";
 
@@ -26,7 +26,7 @@ export default async function RouleauMobilePage({ params }: { params: Promise<{ 
   const fiche = await getRouleau(code);
   if (!fiche) notFound();
   const { rouleau: r, mouvements } = fiche;
-  const [commandes, emplacements] = await Promise.all([commandesPourSortie(r.lot.id), listEmplacements()]);
+  const [commandes, emplacements, soustraitants] = await Promise.all([commandesPourSortie(r.lot.id), listEmplacements(), sousTraitants()]);
   const st = statutLabel(r.statut);
   const b = r.bilan;
   const u = r.lot.unite;
@@ -46,6 +46,7 @@ export default async function RouleauMobilePage({ params }: { params: Promise<{ 
       <div className="mt-2 flex flex-wrap gap-1.5">
         <span className={`rounded-full px-3 py-1 text-xs font-bold ${TONS_STATUT[r.statut] ?? "bg-slate-200"}`}>{st.label}</span>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-bold">📍 {r.emplacement || "non rangé"}</span>
+        {r.chez && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">🚚 {nb.format(b.enCoupe)} {u} {r.chez}</span>}
         {r.lot.controle === "refuse" && <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-900">Lot refusé</span>}
       </div>
 
@@ -64,6 +65,7 @@ export default async function RouleauMobilePage({ params }: { params: Promise<{ 
       <ActionsRouleau
         rouleau={r}
         commandes={commandes}
+        sousTraitants={soustraitants}
         emplacements={emplacements.filter((e) => e.actif).map((e) => ({ code: e.code, libelle: e.libelle, zone: e.zone }))}
         peutSaisir={peutSaisir}
       />
@@ -81,7 +83,8 @@ export default async function RouleauMobilePage({ params }: { params: Promise<{ 
               </div>
               <div className="text-xs text-slate-500">
                 {dateHeure(m.date)} · {m.par || "—"}
-                {m.destination ? ` · ${destinationLabel(m.destination)}` : ""}
+                {m.destination ? ` · ${lieuSortie(m)}` : ""}
+                {m.bon ? ` · ${m.bon}` : ""}
                 {m.commandeLabel ? ` · ${m.commandeLabel}` : ""}
                 {m.motif ? ` · ${m.motif}` : ""}
                 {m.sens === "retour_fournisseur" && m.valeurApres ? ` (${m.valeurApres})` : ""}

@@ -29,6 +29,7 @@ import {
   ShieldOff,
   ListChecks,
   Settings,
+  MessageCircle,
 } from "lucide-react";
 
 export type NavItem = {
@@ -60,6 +61,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
     label: "Pilotage",
     items: [
       { id: "cockpit", label: "Cockpit", href: "/cockpit", icon: Target },
+      { id: "messagerie", label: "Messagerie", href: "/messagerie", icon: MessageCircle },
       { id: "alertes", label: "Alertes", href: "/alertes", icon: AlertCircle },
       { id: "stats", label: "Statistiques", href: "/stats", icon: TrendingUp },
       { id: "tracabilite", label: "Traçabilité", href: "/tracabilite", icon: SearchCheck },
@@ -147,6 +149,7 @@ export const PAGE_META: Record<
 
 const SUBTITLES: Record<string, string> = {
   cockpit: "Vue d'ensemble",
+  messagerie: "Messages à l'équipe, discussions et groupes",
   alertes: "Détection automatique des anomalies",
   stats: "Analyses CA, marges, performance",
   clients: "Répertoire clients — base de la facturation",

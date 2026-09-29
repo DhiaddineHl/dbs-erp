@@ -15,9 +15,12 @@ const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 1
  * Quatre formats :
  *   - thermique 100 × 50 mm : imprimante d'étiquettes, une étiquette par page ;
  *   - standard  70 × 37 mm  : imprimante d'étiquettes, une par page ;
- *   - A4 × 4 (105 × 148 mm) : planche 2 × 2 (format A6), grande étiquette
- *     lisible de loin, pour les rouleaux en rayonnage ;
- *   - A4 24 étiquettes      : planche 3 × 8 de 70 × 37 mm (imprimante bureau).
+ *   - A4 × 4                : planche 2 × 2, grande étiquette lisible de loin ;
+ *   - A4 24 étiquettes      : planche 3 × 8 (imprimante bureau).
+ * Planches A4 : marges de la feuille DBS = 10 mm en haut et en bas, 4 mm à
+ * gauche et à droite → zone utile 202 × 277 mm, partagée à parts égales :
+ *   × 4  → 2 × 2 étiquettes de 101 × 138,5 mm ;
+ *   × 24 → 3 × 8 étiquettes de 67,3 × 34,6 mm.
  * Les planches sont découpées page par page : une page ne déborde jamais sur
  * la suivante, quel que soit le nombre de rouleaux. */
 
@@ -25,10 +28,17 @@ type Format = "thermique" | "standard" | "a4x4" | "a4";
 const FORMATS: { value: Format; label: string }[] = [
   { value: "thermique", label: "Thermique 100 × 50 mm" },
   { value: "standard", label: "Standard 70 × 37 mm" },
-  { value: "a4x4", label: "A4 — 4 étiquettes 105 × 148 mm" },
-  { value: "a4", label: "Planche A4 — 24 étiquettes" },
+  { value: "a4x4", label: "A4 — 4 étiquettes (101 × 138,5 mm)" },
+  { value: "a4", label: "Planche A4 — 24 étiquettes (67,3 × 34,6 mm)" },
 ];
 const PAR_PLANCHE: Partial<Record<Format, number>> = { a4x4: 4, a4: 24 };
+
+/* Marges de la feuille A4 (imprimante / planche d'étiquettes). */
+const MARGE_HAUT_BAS = 10; // mm
+const MARGE_COTES = 4; // mm
+const UTILE_L = 210 - 2 * MARGE_COTES; // 202 mm
+const UTILE_H = 297 - 2 * MARGE_HAUT_BAS; // 277 mm
+const mm = (n: number) => `${Math.floor(n * 1000) / 1000}mm`;
 
 function parPages<T>(liste: T[], n: number): T[][] {
   const pages: T[][] = [];
@@ -81,12 +91,15 @@ export default async function EtiquettesRouleauxPage({
         .f-thermique .etq { width: 100mm; height: 50mm; padding: 2.5mm 3mm; break-after: page; page-break-after: always }
         .f-standard .etq { width: 70mm; height: 37mm; padding: 1.5mm 2mm; break-after: page; page-break-after: always }
         .f-thermique .etq:last-child, .f-standard .etq:last-child { break-after: auto; page-break-after: auto }
-        .planche { box-sizing: border-box; width: 210mm; height: 296mm; overflow: hidden; display: grid; break-after: page; page-break-after: always }
+        .planche { box-sizing: border-box; width: 210mm; height: 296.5mm; overflow: hidden; display: grid; padding: ${MARGE_HAUT_BAS}mm ${MARGE_COTES}mm 0; break-after: page; page-break-after: always }
         .planche:last-child { break-after: auto; page-break-after: auto }
-        .f-a4 .planche { grid-template-columns: repeat(3, 70mm); grid-template-rows: repeat(8, 37mm); padding-top: 0.5mm }
-        .f-a4 .etq { width: 70mm; height: 37mm; padding: 1.5mm 2mm }
-        .f-a4x4 .planche { grid-template-columns: repeat(2, 105mm); grid-template-rows: repeat(2, 148mm) }
-        .f-a4x4 .etq { width: 105mm; height: 148mm; padding: 6mm }
+        .qr-petite { width: 33mm; height: 33mm }
+        .f-a4 .planche { grid-template-columns: repeat(3, ${mm(UTILE_L / 3)}); grid-template-rows: repeat(8, ${mm(UTILE_H / 8)}) }
+        .f-a4 .etq { width: ${mm(UTILE_L / 3)}; height: ${mm(UTILE_H / 8)}; padding: 1.5mm 2mm }
+        .f-a4 .qr-petite { width: 30mm; height: 30mm }
+        .f-a4x4 .planche { grid-template-columns: repeat(2, ${mm(UTILE_L / 2)}); grid-template-rows: repeat(2, ${mm(UTILE_H / 2)}) }
+        .f-a4x4 .etq { width: ${mm(UTILE_L / 2)}; height: ${mm(UTILE_H / 2)}; padding: 4mm 5mm }
+        .qr-a6 { width: 62mm; height: 62mm }
         @media screen {
           .etq { outline: 1px dashed #bbb; margin: 0 auto 6px }
           .planche .etq { margin: 0 }
@@ -109,7 +122,8 @@ export default async function EtiquettesRouleauxPage({
           ← Magasin tissu
         </Link>
         <span className="w-full text-xs text-neutral-500">
-          Réglez l&apos;impression sur « Marges : aucune » et « Échelle : 100 % ». Une étiquette = un rouleau, pour toujours.
+          Réglez l&apos;impression sur « Marges : aucune » et « Échelle : 100 % » : les marges de la feuille A4 (10 mm haut et bas, 4 mm
+          côtés) sont déjà prévues dans la mise en page. Une étiquette = un rouleau, pour toujours.
         </span>
       </div>
 
@@ -168,7 +182,7 @@ function Grande({ r, svg }: { r: RouleauRow; svg: string }) {
 function Petite({ r, svg }: { r: RouleauRow; svg: string }) {
   return (
     <div className="etq flex gap-[1.5mm]">
-      <div className="h-[33mm] w-[33mm] shrink-0" dangerouslySetInnerHTML={{ __html: svg }} />
+      <div className="qr-petite shrink-0" dangerouslySetInnerHTML={{ __html: svg }} />
       <div className="flex min-w-0 flex-1 flex-col text-[6.5pt] leading-[1.2]">
         <div className="text-[6pt] font-bold tracking-[0.15em]">DBS FASHION</div>
         <div className="font-mono text-[8.5pt] font-black leading-tight">{r.code}</div>
@@ -184,7 +198,7 @@ function Petite({ r, svg }: { r: RouleauRow; svg: string }) {
   );
 }
 
-/** 105 × 148 mm (4 par A4) : grande étiquette, QR 78 mm, lisible de loin. */
+/** 101 × 138,5 mm (4 par A4, marges de la feuille déduites) : QR 62 mm. */
 function A6({ r, svg }: { r: RouleauRow; svg: string }) {
   const lignes: [string, string][] = [
     ["Tissu", r.lot.reference || "—"],
@@ -204,7 +218,7 @@ function A6({ r, svg }: { r: RouleauRow; svg: string }) {
         <span className="text-[8pt]">Rouleau tissu</span>
       </div>
       <div className="mt-[2mm] text-center font-mono text-[21pt] font-black leading-none">{r.code}</div>
-      <div className="mx-auto my-[2.5mm] h-[70mm] w-[70mm]" dangerouslySetInnerHTML={{ __html: svg }} />
+      <div className="qr-a6 mx-auto my-[2mm]" dangerouslySetInnerHTML={{ __html: svg }} />
       <table className="w-full text-[9pt] leading-[1.3]">
         <tbody>
           {lignes.map(([l, v]) => (

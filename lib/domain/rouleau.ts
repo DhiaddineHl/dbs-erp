@@ -1,4 +1,5 @@
 import type { Tone } from "@/components/shared/status-badge";
+import { estSousTraitee } from "./commande";
 
 /* Rouleau physique de tissu — logique pure (testable sans base).
  *
@@ -44,12 +45,22 @@ export const SENS: Record<SensRouleau, { label: string; tone: Tone }> = {
 export const sensLabel = (s: string) => SENS[s as SensRouleau]?.label ?? s;
 
 export const DESTINATIONS = [
-  { value: "coupe", label: "Coupe" },
-  { value: "atelier", label: "Atelier" },
+  { value: "coupe", label: "Coupe interne" },
   { value: "soustraitant", label: "Sous-traitant" },
+  { value: "atelier", label: "Atelier" },
   { value: "autre", label: "Autre" },
 ] as const;
 export const destinationLabel = (v: string) => DESTINATIONS.find((d) => d.value === v)?.label ?? v;
+
+/** Un façonnier nommé « DBS » ou « interne » n'est pas un sous-traitant
+ * (même règle que les commandes : lib/domain/commande → estSousTraitee). */
+export const estSousTraitant = (nom: string) => estSousTraitee({ faconnier: nom });
+
+/** Où se trouve le tissu sorti : « Coupe interne », « chez <sous-traitant> »… */
+export function lieuSortie(m: { destination: string; faconnierNom?: string }): string {
+  if (m.destination === "soustraitant") return m.faconnierNom ? `chez ${m.faconnierNom}` : "chez un sous-traitant";
+  return destinationLabel(m.destination);
+}
 
 export type StatutRouleau = "en_attente" | "en_stock" | "sorti" | "epuise" | "rendu" | "retourne";
 export const STATUTS_ROULEAU: Record<StatutRouleau, { label: string; tone: Tone }> = {
@@ -178,6 +189,7 @@ type RouleauCherchable = {
   statut: string;
   emplacement: string;
   derniereCommande: string;
+  chez?: string;
   lot: { identifiant: string; reference: string; couleur: string; codeCouleur: string; lotFournisseur: string; saison: string };
   reception: { numero: string; fournisseur: string; client: string; blClient: string; commandeFournisseur: string };
   commandes: { label: string }[];
@@ -201,7 +213,7 @@ export function filtrerRouleaux<T extends RouleauCherchable>(rouleaux: T[], f: F
     const texte = [
       r.code, r.lot.identifiant, r.lot.reference, r.lot.couleur, r.lot.codeCouleur, r.lot.lotFournisseur, r.lot.saison,
       r.reception.numero, r.reception.fournisseur, r.reception.client, r.reception.blClient, r.reception.commandeFournisseur,
-      r.emplacement, statutLabel(r.statut).label, r.derniereCommande, ...r.commandes.map((c) => c.label),
+      r.emplacement, statutLabel(r.statut).label, r.derniereCommande, r.chez ?? "", ...r.commandes.map((c) => c.label),
     ].join(" ");
     return sansAccents(texte).includes(q);
   });

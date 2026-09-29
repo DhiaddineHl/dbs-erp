@@ -59,7 +59,21 @@ export function KpisRouleaux({ i, onFiltre }: { i: IndicateursAffiches; onFiltre
 
 /* ═══════════ onglet Rouleaux : recherche, sélection, étiquettes ═══════════ */
 
-export function OngletRouleaux({ rouleaux, indicateurs, q, peutSaisir }: { rouleaux: RouleauRow[]; indicateurs: IndicateursAffiches; q: string; peutSaisir: boolean }) {
+export type BonSortieResume = { numero: string; date: string; lieu: string; commande: string; rouleaux: number; metrage: number };
+
+export function OngletRouleaux({
+  rouleaux,
+  indicateurs,
+  q,
+  peutSaisir,
+  bons = [],
+}: {
+  rouleaux: RouleauRow[];
+  indicateurs: IndicateursAffiches;
+  q: string;
+  peutSaisir: boolean;
+  bons?: BonSortieResume[];
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [statut, setStatut] = useState("");
@@ -123,9 +137,18 @@ export function OngletRouleaux({ rouleaux, indicateurs, q, peutSaisir }: { roule
             <b>{choisis.length} sélectionné(s)</b>
             {(["thermique", "standard", "a4x4", "a4"] as const).map((f) => (
               <Link key={f} href={`/magtissu/etiquettes/rouleaux?ids=${choisis.join(",")}&format=${f}`} target="_blank" className="rounded-md border bg-card px-2 py-1 font-semibold hover:bg-muted">
-                🏷 {f === "thermique" ? "100×50" : f === "standard" ? "70×37" : f === "a4x4" ? "A4 ×4 (105×148)" : "A4 ×24"}
+                🏷 {f === "thermique" ? "100×50" : f === "standard" ? "70×37" : f === "a4x4" ? "A4 ×4" : "A4 ×24"}
               </Link>
             ))}
+            {peutSaisir && (
+              <Link
+                href={`/m/tissu/sortie?codes=${rouleaux.filter((r) => coches.has(r.id)).map((r) => r.code).join(",")}`}
+                target="_blank"
+                className="rounded-md border border-amber-500 bg-amber-50 px-2 py-1 font-semibold text-amber-900 hover:bg-amber-100"
+              >
+                🚚 Sortie groupée
+              </Link>
+            )}
             {peutSaisir && (
               <Button size="sm" variant="outline" className="h-7" disabled={pending} onClick={retourFournisseur}>
                 ↩ Retour fournisseur
@@ -202,6 +225,7 @@ export function OngletRouleaux({ rouleaux, indicateurs, q, peutSaisir }: { roule
                     </td>
                     <td className="px-3 py-1.5">
                       <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
+                      {r.chez && <div className="mt-0.5 text-[10px] font-semibold text-warning-foreground">🚚 {r.chez}</div>}
                     </td>
                     <td className="px-3 py-1.5 font-mono">{r.emplacement || <span className="text-warning-foreground">—</span>}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{q2.format(r.metrageInitial)}</td>
@@ -215,6 +239,27 @@ export function OngletRouleaux({ rouleaux, indicateurs, q, peutSaisir }: { roule
           </table>
         </div>
       </SectionPanel>
+
+      {bons.length > 0 && (
+        <SectionPanel title={`Bons de sortie groupée (${bons.length})`} flush>
+          <div className="divide-y text-xs">
+            {bons.map((b) => (
+              <div key={b.numero} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                <span className="font-mono font-bold">{b.numero}</span>
+                <span className="text-muted-foreground">{b.date.slice(0, 10).split("-").reverse().join("/")}</span>
+                <span>{b.lieu}</span>
+                <span className="text-muted-foreground">{b.commande}</span>
+                <span className="text-muted-foreground">
+                  {b.rouleaux} rouleau(x) · {q2.format(b.metrage)} m
+                </span>
+                <Link href={`/magtissu/sortie/${encodeURIComponent(b.numero)}`} target="_blank" className="ml-auto font-semibold text-brand hover:underline">
+                  🖨 Bon
+                </Link>
+              </div>
+            ))}
+          </div>
+        </SectionPanel>
+      )}
     </div>
   );
 }

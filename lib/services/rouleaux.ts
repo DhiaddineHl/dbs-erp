@@ -1,8 +1,9 @@
 import "server-only";
-import { asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   commande,
+  faconnier,
   tissuAffectation,
   tissuEmplacement,
   tissuInventaire,
@@ -53,6 +54,8 @@ export type RouleauRow = {
   commandes: { id: number; label: string }[];
   /** Dernière commande servie par ce rouleau (sortie). */
   derniereCommande: string;
+  /** Où est le tissu sorti non soldé : « Coupe interne », « chez X »… ("" si rien dehors). */
+  chez: string;
   bilan: rl.BilanRouleau;
   createdAt: string;
 };
@@ -62,6 +65,8 @@ export type MouvementRouleauRow = {
   sens: string;
   quantite: number;
   destination: string;
+  faconnierNom: string;
+  bon: string;
   commandeId: number | null;
   commandeLabel: string;
   motif: string;
@@ -101,7 +106,16 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
   const lotIds = [...new Set(rows.map((x) => x.lot.id))];
   const [mvts, affs] = await Promise.all([
     db
-      .select({ id: tissuMouvement.id, rouleauId: tissuMouvement.rouleauId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId, commandeLabel: tissuMouvement.commandeLabel })
+      .select({
+        id: tissuMouvement.id,
+        rouleauId: tissuMouvement.rouleauId,
+        sens: tissuMouvement.sens,
+        quantite: tissuMouvement.quantite,
+        annuleId: tissuMouvement.annuleId,
+        commandeLabel: tissuMouvement.commandeLabel,
+        destination: tissuMouvement.destination,
+        faconnierNom: tissuMouvement.faconnierNom,
+      })
       .from(tissuMouvement)
       .where(inArray(tissuMouvement.rouleauId, ids))
       .orderBy(asc(tissuMouvement.id)),
@@ -116,6 +130,8 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
   return rows.map(({ r, lot, rec, emplacement, zone }) => {
     const ms = parRouleau.get(r.id) ?? [];
     const eff = rl.mouvementsEffectifs(ms);
+    const bilan = rl.bilanRouleau(r.metrageInitial, ms);
+    const derniereSortie = [...eff].reverse().find((m) => m.sens === "sortie");
     const commandes = new Map<number, string>();
     for (const a of affs) if (a.lotId === lot.id && a.commandeId != null) commandes.set(a.commandeId, a.label);
     return {
@@ -142,8 +158,9 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
         commandeFournisseur: rec.commandeFournisseur,
       },
       commandes: [...commandes.entries()].map(([id, label]) => ({ id, label })),
-      derniereCommande: [...eff].reverse().find((m) => m.sens === "sortie")?.commandeLabel ?? "",
-      bilan: rl.bilanRouleau(r.metrageInitial, ms),
+      derniereCommande: derniereSortie?.commandeLabel ?? "",
+      chez: bilan.enCoupe > 0.001 && derniereSortie ? rl.lieuSortie(derniereSortie) : "",
+      bilan,
       createdAt: iso(r.createdAt),
     };
   });
@@ -157,7 +174,8 @@ export async function getRouleau(code: string): Promise<{ rouleau: RouleauRow; m
   return {
     rouleau,
     mouvements: mvts.map((m) => ({
-      id: m.id, sens: m.sens, quantite: m.quantite, destination: m.destination, commandeId: m.commandeId, commandeLabel: m.commandeLabel,
+      id: m.id, sens: m.sens, quantite: m.quantite, destination: m.destination, faconnierNom: m.faconnierNom, bon: m.bon,
+      commandeId: m.commandeId, commandeLabel: m.commandeLabel,
       motif: m.motif, valeurAvant: m.valeurAvant, valeurApres: m.valeurApres, annuleId: m.annuleId, annule: annules.has(m.id),
       par: m.createdBy, date: iso(m.createdAt),
     })),
@@ -280,18 +298,119 @@ export async function prochainCodeRouleau(ex: Executeur, annee = new Date().getF
   return rl.formatCodeRouleau(annee, n);
 }
 
-/** Commandes proposées pour une sortie : celles du lot d'abord. */
-export async function commandesPourSortie(lotId: number) {
+/** Commandes proposées pour une sortie : celles du lot d'abord. Chacune dit
+ * où elle se coupe — interne (chaîne) ou chez son façonnier — pour proposer
+ * le bon lieu d'office. */
+export async function commandesPourSortie(lotId: number | null) {
   const [affs, toutes] = await Promise.all([
-    db.select({ commandeId: tissuAffectation.commandeId }).from(tissuAffectation).where(eq(tissuAffectation.lotId, lotId)),
+    lotId == null ? Promise.resolve([]) : db.select({ commandeId: tissuAffectation.commandeId }).from(tissuAffectation).where(eq(tissuAffectation.lotId, lotId)),
     db
-      .select({ id: commande.id, of: commande.ofNumber, modele: commande.modele, archived: commande.archived })
+      .select({
+        id: commande.id,
+        of: commande.ofNumber,
+        modele: commande.modele,
+        archived: commande.archived,
+        chaineId: commande.chaineId,
+        faconnierId: commande.faconnierId,
+        faconnierNom: faconnier.nom,
+      })
       .from(commande)
+      .leftJoin(faconnier, eq(commande.faconnierId, faconnier.id))
       .orderBy(desc(commande.id)),
   ]);
   const reservees = new Set(affs.map((a) => a.commandeId));
   return toutes
     .filter((c) => !c.archived || reservees.has(c.id))
-    .map((c) => ({ id: c.id, label: `${c.of} · ${c.modele}`, reservee: reservees.has(c.id) }))
+    .map((c) => {
+      const st = !c.chaineId && c.faconnierId != null && rl.estSousTraitant(c.faconnierNom ?? "");
+      return {
+        id: c.id,
+        label: `${c.of} · ${c.modele}`,
+        reservee: reservees.has(c.id),
+        faconnierId: st ? c.faconnierId : null,
+        faconnierNom: st ? (c.faconnierNom ?? "") : "",
+      };
+    })
     .sort((a, b) => Number(b.reservee) - Number(a.reservee));
+}
+
+export type CommandeSortie = Awaited<ReturnType<typeof commandesPourSortie>>[number];
+
+/** Sous-traitants (façonniers hors DBS / interne), pour le choix du lieu de coupe. */
+export async function sousTraitants(): Promise<{ id: number; nom: string }[]> {
+  const rows = await db.select({ id: faconnier.id, nom: faconnier.nom }).from(faconnier).orderBy(asc(faconnier.nom));
+  return rows.filter((f) => rl.estSousTraitant(f.nom));
+}
+
+/* ─────────── bons de sortie groupée (BST) ─────────── */
+
+export type BonSortie = {
+  numero: string;
+  date: string;
+  par: string;
+  destination: string;
+  lieu: string;
+  faconnierNom: string;
+  commandeLabel: string;
+  motif: string;
+  lignes: { code: string; lot: string; tissu: string; couleur: string; lotFournisseur: string; laize: number | null; quantite: number; unite: string; annule: boolean }[];
+};
+
+/** Un bon de sortie groupée, reconstitué depuis les mouvements qui le portent. */
+export async function bonSortie(numero: string): Promise<BonSortie | null> {
+  const mvts = await db
+    .select()
+    .from(tissuMouvement)
+    .where(eq(tissuMouvement.bon, numero))
+    .orderBy(asc(tissuMouvement.id));
+  const sorties = mvts.filter((m) => m.sens === "sortie");
+  if (!sorties.length) return null;
+  const annules = new Set(
+    (await db.select({ annuleId: tissuMouvement.annuleId }).from(tissuMouvement).where(inArray(tissuMouvement.annuleId, sorties.map((m) => m.id)))).map(
+      (x) => x.annuleId,
+    ),
+  );
+  const rs = new Map((await chargerRouleaux({ ids: sorties.map((m) => m.rouleauId!).filter((x) => x != null) })).map((r) => [r.id, r]));
+  const m0 = sorties[0];
+  return {
+    numero,
+    date: iso(m0.createdAt),
+    par: m0.createdBy,
+    destination: m0.destination,
+    lieu: rl.lieuSortie(m0),
+    faconnierNom: m0.faconnierNom,
+    commandeLabel: m0.commandeLabel,
+    motif: m0.motif === numero ? "" : m0.motif,
+    lignes: sorties.map((m) => {
+      const r = rs.get(m.rouleauId!);
+      return {
+        code: r?.code ?? "?",
+        lot: r?.lot.identifiant ?? "",
+        tissu: [r?.lot.reference, r?.lot.composition].filter(Boolean).join(" · "),
+        couleur: [r?.lot.couleur, r?.lot.codeCouleur].filter(Boolean).join(" · "),
+        lotFournisseur: r?.lot.lotFournisseur ?? "",
+        laize: r?.laize ?? null,
+        quantite: m.quantite,
+        unite: r?.lot.unite ?? "m",
+        annule: annules.has(m.id),
+      };
+    }),
+  };
+}
+
+/** Derniers bons de sortie groupée (pour les réimprimer). */
+export async function listBonsSortie(limite = 30) {
+  const rows = await db
+    .select({ bon: tissuMouvement.bon, quantite: tissuMouvement.quantite, lieu: tissuMouvement.faconnierNom, destination: tissuMouvement.destination, commande: tissuMouvement.commandeLabel, date: tissuMouvement.createdAt })
+    .from(tissuMouvement)
+    .where(and(eq(tissuMouvement.sens, "sortie"), sql`${tissuMouvement.bon} <> ''`))
+    .orderBy(desc(tissuMouvement.id));
+  const par = new Map<string, { numero: string; date: string; lieu: string; commande: string; rouleaux: number; metrage: number }>();
+  for (const r of rows) {
+    const e = par.get(r.bon) ?? { numero: r.bon, date: iso(r.date), lieu: rl.lieuSortie({ destination: r.destination, faconnierNom: r.lieu }), commande: r.commande, rouleaux: 0, metrage: 0 };
+    e.rouleaux++;
+    e.metrage = Math.round((e.metrage + r.quantite) * 100) / 100;
+    par.set(r.bon, e);
+  }
+  return [...par.values()].slice(0, limite);
 }

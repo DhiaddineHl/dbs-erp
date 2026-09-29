@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import { type AnyPgColumn, boolean, date, doublePrecision, index, integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { commande } from "./commande";
+import { faconnier } from "./referentiel";
 
 /* ═══════════════════════════════════════════════════════════════════════
  * MAGASIN TISSU — modèle physique par lots
@@ -163,6 +164,12 @@ export const tissuMouvement = pgTable(
     rouleauId: integer().references((): AnyPgColumn => tissuRouleau.id, { onDelete: "cascade" }),
     /** Destination d'une sortie : coupe | atelier | soustraitant | autre. */
     destination: text().notNull().default(""),
+    /** Sous-traitant chez qui part le tissu (sortie « soustraitant ») ; le nom
+     * est recopié pour que l'historique survive à un renommage. */
+    faconnierId: integer().references(() => faconnier.id, { onDelete: "set null" }),
+    faconnierNom: text().notNull().default(""),
+    /** Bon de sortie groupée (BST-AAAA-NNN) qui a emporté le rouleau. */
+    bon: text().notNull().default(""),
     /** Correction / déplacement : valeur d'avant et d'après (lisible). */
     valeurAvant: text().notNull().default(""),
     valeurApres: text().notNull().default(""),
@@ -171,7 +178,11 @@ export const tissuMouvement = pgTable(
     createdBy: text().notNull().default(""),
     createdAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [index("tissu_mouvement_lot_idx").on(t.lotId), index("tissu_mouvement_rouleau_idx").on(t.rouleauId)],
+  (t) => [
+    index("tissu_mouvement_lot_idx").on(t.lotId),
+    index("tissu_mouvement_rouleau_idx").on(t.rouleauId),
+    index("tissu_mouvement_bon_idx").on(t.bon),
+  ],
 );
 
 /* ═══════════ ROULEAUX PHYSIQUES ═══════════

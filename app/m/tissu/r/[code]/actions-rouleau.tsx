@@ -4,15 +4,16 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as A from "@/lib/actions/rouleaux";
-import { DESTINATIONS, lireScan } from "@/lib/domain/rouleau";
+import { lireScan } from "@/lib/domain/rouleau";
 import type { RouleauRow } from "@/lib/services/rouleaux";
 import { ScannerQr } from "@/components/shared/scanner-qr";
+import { ChoixSortie, lieuComplet, lieuInitial, type CmdSortie, type Lieu, type SousTraitant } from "../../choix-sortie";
 
 const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 const lire = (s: string) => Number(String(s).replace(",", ".")) || 0;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-type Cmd = { id: number; label: string; reservee: boolean };
+type Cmd = CmdSortie;
 type Emp = { code: string; libelle: string; zone: string };
 type Action = "valider" | "sortie" | "retour" | "conso" | "deplacer" | "rtf" | "corriger";
 
@@ -22,11 +23,13 @@ type Action = "valider" | "sortie" | "retour" | "conso" | "deplacer" | "rtf" | "
 export function ActionsRouleau({
   rouleau: r,
   commandes,
+  sousTraitants,
   emplacements,
   peutSaisir,
 }: {
   rouleau: RouleauRow;
   commandes: Cmd[];
+  sousTraitants: SousTraitant[];
   emplacements: Emp[];
   peutSaisir: boolean;
 }) {
@@ -105,6 +108,7 @@ export function ActionsRouleau({
         <FormSortie
           r={r}
           commandes={commandes}
+          sousTraitants={sousTraitants}
           pending={pending}
           onOk={(x) => lancer(() => A.sortirRouleau({ code: r.code, ...x }), `${nb.format(lire(x.quantite))} ${u} sortis`)}
         />
@@ -247,54 +251,26 @@ function FormValider({ emplacements, pending, onOk }: { emplacements: Emp[]; pen
 function FormSortie({
   r,
   commandes,
+  sousTraitants,
   pending,
   onOk,
 }: {
   r: RouleauRow;
   commandes: Cmd[];
+  sousTraitants: SousTraitant[];
   pending: boolean;
-  onOk: (x: { quantite: string; destination: string; commandeId: number | null; motif?: string }) => void;
+  onOk: (x: { quantite: string; destination: string; commandeId: number | null; faconnierId: number | null; motif?: string }) => void;
 }) {
   const b = r.bilan;
-  const reservees = commandes.filter((c) => c.reservee);
-  const [dest, setDest] = useState("coupe");
-  const [cmd, setCmd] = useState<number | null>(reservees.length === 1 ? reservees[0].id : null);
-  const [toutes, setToutes] = useState(reservees.length === 0);
+  const [lieu, setLieu] = useState<Lieu>(() => lieuInitial(commandes));
   const [qte, setQte] = useState(String(b.disponible));
   const [motif, setMotif] = useState("");
   const v = lire(qte);
-  const liste = toutes ? commandes : reservees;
   const trop = v > b.disponible + 0.001;
   return (
     <>
       <Titre>Sortie du rouleau {r.code}</Titre>
-      <div className="text-sm font-bold text-slate-700">1 · Destination</div>
-      <div className="grid grid-cols-4 gap-1.5">
-        {DESTINATIONS.map((d) => (
-          <button key={d.value} onClick={() => setDest(d.value)} className={`rounded-xl border-2 py-2 text-xs font-bold ${dest === d.value ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200"}`}>
-            {d.label}
-          </button>
-        ))}
-      </div>
-      <div className="text-sm font-bold text-slate-700">2 · Commande / OF</div>
-      <div className="max-h-56 space-y-1.5 overflow-y-auto">
-        {liste.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => setCmd(c.id)}
-            className={`flex w-full items-center justify-between rounded-xl border-2 px-3 py-2.5 text-left text-sm ${cmd === c.id ? "border-slate-900 bg-slate-50" : "border-slate-200"}`}
-          >
-            <span className="font-bold">{c.label}</span>
-            {c.reservee && <span className="text-[10px] font-bold uppercase text-emerald-700">réservé</span>}
-          </button>
-        ))}
-        {liste.length === 0 && <div className="text-sm text-slate-500">Aucune commande réservée sur ce lot.</div>}
-      </div>
-      {!toutes && (
-        <button onClick={() => setToutes(true)} className="text-sm font-semibold text-slate-600 underline">
-          Voir toutes les commandes
-        </button>
-      )}
+      <ChoixSortie commandes={commandes} sousTraitants={sousTraitants} valeur={lieu} onChange={setLieu} />
       {r.lot.controle === "refuse" && <div className="rounded-xl bg-red-100 px-3 py-2 text-sm text-red-900">Lot refusé au contrôle : sortie bloquée.</div>}
       <div className="text-sm font-bold text-slate-700">3 · Métrage sorti ({r.lot.unite})</div>
       <GrosChiffre value={qte} onChange={setQte} />
@@ -304,15 +280,12 @@ function FormSortie({
         </button>
       </div>
       {trop && <div className="rounded-xl bg-red-100 px-3 py-2 text-sm text-red-900">Il ne reste que {nb.format(b.disponible)} {r.lot.unite}.</div>}
-      {(dest === "autre" || !cmd) && (
+      {(lieu.destination === "autre" || !lieu.commandeId) && (
         <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif (obligatoire sans commande)" className="w-full rounded-2xl border border-slate-300 px-3 py-3" />
       )}
-      <Valider
-        pending={pending}
-        disabled={v <= 0 || trop || (!cmd && dest !== "autre") || (!cmd && !motif.trim())}
-        onClick={() => onOk({ quantite: String(v), destination: dest, commandeId: cmd, motif })}
-      >
+      <Valider pending={pending} disabled={v <= 0 || trop || !lieuComplet(lieu, motif)} onClick={() => onOk({ quantite: String(v), ...lieu, motif })}>
         ✔ Sortir {nb.format(v)} {r.lot.unite}
+        {lieu.destination === "soustraitant" && lieu.faconnierId ? ` → ${sousTraitants.find((s) => s.id === lieu.faconnierId)?.nom ?? ""}` : ""}
       </Valider>
     </>
   );

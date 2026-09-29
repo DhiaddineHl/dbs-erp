@@ -31,7 +31,8 @@ const GABARIT_EXEMPLES = [
   ["OF-2026-118", "PANTALON CHINO", "REF-2210", "Marine", "PE26", "MODA SRL", "", "800", "150", "24,00", "", "30/09/2026"],
 ];
 
-export default async function CommandesPage() {
+export default async function CommandesPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  const { q = "" } = await searchParams;
   /* Les archivées sont chargées avec le reste : l'écran sait les masquer, et
    * la case « Inclure les archivées » doit répondre sans aller-retour. */
   const [CMDS, clients, faconniers, chaines, peutSupprimer] = await Promise.all([
@@ -134,6 +135,8 @@ export default async function CommandesPage() {
         chaines={chaineChoices}
         peutSupprimer={peutSupprimer}
         peutFacturer={facturable}
+        rechercheInitiale={q}
+        key={q}
       />
     </>
   );

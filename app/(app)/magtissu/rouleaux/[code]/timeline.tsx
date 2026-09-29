@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { annulerMouvement } from "@/lib/actions/tissu";
-import { SENS, destinationLabel, type SensRouleau } from "@/lib/domain/rouleau";
+import { SENS, lieuSortie, type SensRouleau } from "@/lib/domain/rouleau";
 import type { MouvementRouleauRow } from "@/lib/services/rouleaux";
 
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
@@ -46,7 +46,15 @@ export function TimelineRouleau({ mouvements, unite, peutSaisir }: { mouvements:
               </td>
               <td className="px-3 py-1.5 tabular-nums">{m.valeurAvant || m.valeurApres ? `${m.valeurAvant || "—"} → ${m.valeurApres || "—"}` : ""}</td>
               <td className="px-3 py-1.5">
-                {[m.commandeLabel, m.destination && destinationLabel(m.destination)].filter(Boolean).join(" · ")}
+                {[m.commandeLabel, m.destination && lieuSortie(m)].filter(Boolean).join(" · ")}
+                {m.bon && (
+                  <>
+                    {" · "}
+                    <Link href={`/magtissu/sortie/${encodeURIComponent(m.bon)}`} target="_blank" className="font-semibold underline">
+                      {m.bon}
+                    </Link>
+                  </>
+                )}
                 {m.motif && (
                   <span className="text-muted-foreground">
                     {" "}

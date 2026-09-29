@@ -15,7 +15,7 @@ import type { MatiereCommandeRow } from "@/lib/services/matiere-tissu";
 import * as A from "@/lib/actions/tissu";
 import { SENS, type SensRouleau } from "@/lib/domain/rouleau";
 import type { RouleauRow } from "@/lib/services/rouleaux";
-import { KpisRouleaux, OngletRouleaux, RouleauxDuLot, type IndicateursAffiches } from "./rouleaux-ui";
+import { KpisRouleaux, OngletRouleaux, RouleauxDuLot, type BonSortieResume, type IndicateursAffiches } from "./rouleaux-ui";
 
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso || "—");
@@ -61,7 +61,9 @@ export function MagasinTissu({
   rechercheInitiale,
   rouleaux,
   indicateursRouleaux,
+  bonsSortie = [],
 }: {
+  bonsSortie?: BonSortieResume[];
   rouleaux: RouleauRow[];
   indicateursRouleaux: IndicateursAffiches;
   lots: LotRow[];
@@ -149,7 +151,7 @@ export function MagasinTissu({
       {onglet === "dashboard" ? (
         <Dashboard d={d} rouleaux={indicateursRouleaux} />
       ) : onglet === "rouleaux" ? (
-        <OngletRouleaux rouleaux={rouleaux} indicateurs={indicateursRouleaux} q={q} peutSaisir={peutSaisir} />
+        <OngletRouleaux rouleaux={rouleaux} indicateurs={indicateursRouleaux} q={q} peutSaisir={peutSaisir} bons={bonsSortie} />
       ) : onglet === "commandes" ? (
         <OngletCommandes rows={parCommande} q={q} peutSaisir={peutSaisir} />
       ) : onglet === "reliquats" ? (
