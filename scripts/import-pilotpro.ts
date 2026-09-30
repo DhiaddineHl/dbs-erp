@@ -26,7 +26,8 @@
  * tout ce qui a été saisi dans l'application depuis. Pour la rejouer malgré
  * tout, poser `IMPORT_PILOTPRO=reset` dans l'environnement du service — et
  * retirer la variable ensuite, sinon chaque redémarrage repart de la
- * sauvegarde et efface le travail du jour.
+ * sauvegarde et efface le travail du jour. `IMPORT_PILOTPRO=off` coupe la
+ * reprise au démarrage (instance d'une autre société).
  */
 
 import { createInterface } from "node:readline/promises";
@@ -147,6 +148,13 @@ async function main() {
   // En mode démarrage, la remise à zéro fait partie du contrat : on repart de
   // la sauvegarde, donc on repart d'une base propre.
   const reset = args.includes("--reset") || auto;
+
+  // Instance d'une autre société : la sauvegarde DBS n'a rien à y faire.
+  if (auto && process.env.IMPORT_PILOTPRO === "off") {
+    console.log("Reprise PilotPro : désactivée (IMPORT_PILOTPRO=off) — ignorée.");
+    await pool.end();
+    return;
+  }
 
   if (auto) {
     const dejaFait = await lireMarqueur();

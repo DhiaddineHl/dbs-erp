@@ -128,8 +128,10 @@ async function seedPermissions() {
   console.log(`  ✓ matrice de permissions (${tousRoles.length} rôles × ${MODULE_IDS.length} modules) + réglages`);
 }
 
-async function seedUsers() {
-  for (const u of DEFAULT_USERS) {
+type CompteSeed = { email: string; password: string; name: string; role: string };
+
+async function seedUsers(comptes: readonly CompteSeed[] = DEFAULT_USERS) {
+  for (const u of comptes) {
     const [exists] = await db.select({ id: user.id }).from(user).where(eq(user.email, u.email));
     if (exists) continue;
     const id = randomUUID();
@@ -142,7 +144,28 @@ async function seedUsers() {
       password: await hashPassword(u.password),
     });
   }
-  console.log(`  ✓ ${DEFAULT_USERS.length} default users (admin@dbs.local / admin123, …)`);
+  if (comptes === DEFAULT_USERS) console.log(`  ✓ ${DEFAULT_USERS.length} default users (admin@dbs.local / admin123, …)`);
+  else console.log(`  ✓ administrateur ${comptes.map((c) => c.email).join(", ")}`);
+}
+
+/** Premier administrateur d'une instance neuve, lu dans l'environnement.
+ *
+ * Une instance mise en service pour une autre société ne doit ni hériter des
+ * comptes de démonstration (mots de passe connus de tous) ni rester sans aucun
+ * compte : on crée exactement celui que l'environnement décrit. Sans
+ * ADMIN_EMAIL / ADMIN_PASSWORD, on ne crée rien et on le dit. */
+function adminDepuisEnv(): CompteSeed[] {
+  const email = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD ?? "";
+  if (!email || !password) {
+    console.warn("  ⚠ ADMIN_EMAIL / ADMIN_PASSWORD absents — aucun compte créé");
+    return [];
+  }
+  if (password.length < 8) {
+    console.warn("  ⚠ ADMIN_PASSWORD trop court (8 caractères minimum) — aucun compte créé");
+    return [];
+  }
+  return [{ email, password, name: process.env.ADMIN_NAME?.trim() || "Administrateur", role: "admin" }];
 }
 
 async function seedFacturation() {
@@ -480,9 +503,22 @@ async function seedAtelier() {
   console.log(`  ✓ ${liens.length} ouvriere(s) rattachee(s) au registre (${restants} a faire a la main)`);
 }
 
+/* SEED_MODE=minimal : une instance vierge pour une autre société — rôles,
+ * permissions et réglages, plus le seul administrateur décrit par
+ * l'environnement. Ni comptes de démonstration, ni données DBS (clients,
+ * factures, ouvrières, opérations…). Par défaut (variable absente), le seed
+ * complet d'origine, inchangé. */
 async function main() {
-  console.log("Seeding database…");
+  const minimal = process.env.SEED_MODE === "minimal";
+  console.log(minimal ? "Seeding database (SEED_MODE=minimal)…" : "Seeding database…");
   await seedPermissions();
+  if (minimal) {
+    const admin = adminDepuisEnv();
+    if (admin.length) await seedUsers(admin);
+    console.log("Done.");
+    await pool.end();
+    return;
+  }
   await seedUsers();
   await seedFacturation();
   await seedGpao();
