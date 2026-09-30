@@ -11,7 +11,6 @@ import type { ClientRow } from "@/lib/services/commandes";
 import * as R from "@/lib/actions/referentiel";
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
 /** B17 · fusionne les fiches clients qui désignent la même société.
  *
@@ -68,7 +67,7 @@ function DialogFusion({ clients, onFermer }: { clients: ClientRow[]; onFermer: (
           </button>
         </div>
 
-        {onglet === "auto" ? <PanneauAuto /> : <PanneauManuel clients={clients} />}
+        {onglet === "auto" ? <PanneauAuto clients={clients} /> : <PanneauManuel clients={clients} />}
 
         <DialogFooter>
           <Button variant="outline" onClick={onFermer}>
@@ -82,7 +81,7 @@ function DialogFusion({ clients, onFermer }: { clients: ClientRow[]; onFermer: (
 
 /* ─────────── Détection automatique ─────────── */
 
-function PanneauAuto() {
+function PanneauAuto({ clients }: { clients: ClientRow[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [groupes, setGroupes] = useState<GroupeFusion[] | null>(null);
@@ -185,7 +184,7 @@ function PanneauAuto() {
                         <td className="px-2 py-1 text-muted-foreground">{c.code || "—"}</td>
                         <td className="px-2 py-1 font-semibold">{c.nom}</td>
                         <td className="px-2 py-1 text-right tabular-nums">{nb.format(c.cmd)}</td>
-                        <td className="px-2 py-1 text-right tabular-nums">{eur.format(c.ca)} €</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{clients.find((x) => x.id === c.id)?.caLibelle ?? "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -317,13 +316,13 @@ function PanneauManuel({ clients }: { clients: ClientRow[] }) {
                     <td className="px-2 py-1 font-semibold">Garde</td>
                     <td className="px-2 py-1 font-semibold">{garde.nom}</td>
                     <td className="px-2 py-1 text-right tabular-nums">{nb.format(garde.cmd)}</td>
-                    <td className="px-2 py-1 text-right tabular-nums">{eur.format(garde.ca)} €</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{garde.caLibelle}</td>
                   </tr>
                   <tr className="border-t">
                     <td className="px-2 py-1 text-muted-foreground">Absorbe</td>
                     <td className="px-2 py-1">{absorbe.nom}</td>
                     <td className="px-2 py-1 text-right tabular-nums">{nb.format(absorbe.cmd)}</td>
-                    <td className="px-2 py-1 text-right tabular-nums">{eur.format(absorbe.ca)} €</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{absorbe.caLibelle}</td>
                   </tr>
                 </tbody>
               </table>

@@ -4,9 +4,9 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { PlanFaconnier } from "@/lib/domain/aval";
 import { libelleMoisExport } from "@/lib/domain/aval";
+import { formatMontant, formatMontants } from "@/lib/domain/montants";
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
 /* Ligne d'un façonnier dans le plan : cliquable pour DÉPLIER le détail des
  * commandes qui lui sont confiées (tirées directement des commandes, là où le
@@ -22,7 +22,7 @@ export function LigneFaconnier({ plan: p, mois }: { plan: PlanFaconnier; mois: s
             <b>{p.faconnier}</b>
           </div>
           <div className="pl-5 text-[10px] text-muted-foreground">
-            {p.total.nbCommandes} commande(s) · {eur.format(p.total.ca)} € · cliquer pour le détail
+            {p.total.nbCommandes} commande(s) · {formatMontants(p.total.ca, { decimales: 0 })} · cliquer pour le détail
           </div>
         </td>
         {mois.map((m) => {
@@ -86,7 +86,7 @@ export function LigneFaconnier({ plan: p, mois }: { plan: PlanFaconnier; mois: s
                       >
                         {c.restant > 0 ? nb.format(c.restant) : "à jour"}
                       </td>
-                      <td className="px-2 py-1 text-right tabular-nums">{eur.format(c.ca)} €</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{formatMontant(c.ca, c.devise, { decimales: 0 })}</td>
                     </tr>
                   ))}
                 </tbody>

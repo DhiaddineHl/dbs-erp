@@ -218,6 +218,8 @@ export async function creerBl(v: {
   transporteur?: string;
   adresseLivraison?: string;
   note?: string;
+  /** Taux de TVA (%) du bon, 0 par défaut. */
+  tauxTva?: number;
   lignes: { commandeId: number; qteLivree: number }[];
 }): Promise<Result<{ id: number; numero: string }>> {
   try {
@@ -230,7 +232,7 @@ export async function creerBl(v: {
     const r = await svc.creerBl({
       date: v.date, clientId: v.clientId, clientNom: v.clientNom,
       transporteur: v.transporteur ?? "", adresseLivraison: v.adresseLivraison ?? "",
-      note: v.note ?? "", lignes,
+      note: v.note ?? "", tauxTva: v.tauxTva ?? 0, lignes,
     });
     await journaliser("creation", "Bons de livraison", `${r.numero} — ${v.clientNom}, ${lignes.length} ligne(s)`);
     revalider();

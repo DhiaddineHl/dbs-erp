@@ -25,6 +25,7 @@ import {
   trierCommandes,
 } from "@/lib/domain/commande";
 import type { CommandeRow } from "@/lib/services/commandes";
+import { DEVISES, type Montants, formatMontants } from "@/lib/domain/montants";
 import { couvertureCommande } from "@/lib/domain/tissu";
 import * as A from "@/lib/actions/commandes";
 import { COLONNES_ARGENT, COLONNES_COMMANDE, type CleColonne, storeColonnes } from "./colonnes";
@@ -205,21 +206,22 @@ export function CommandesClient({
   const cochees = useMemo(() => commandes.filter((c) => selection.has(c.id)), [commandes, selection]);
   const synthese = useMemo(() => {
     let pieces = 0;
-    let ca = 0;
-    let marge = 0;
     let piecesST = 0;
-    let margeST = 0;
     let nST = 0;
+    // Montants par devise : on n'additionne jamais des euros et des dinars.
+    const ca: Montants = {};
+    const marge: Montants = {};
+    const margeST: Montants = {};
     /* Quantités et montants PROPRES, pas totaux : cocher une mère et ses
        parts ne doit pas compter les mêmes pièces deux fois. Sur une commande
        non découpée, le propre est le tout — la synthèse ne change donc pas. */
     for (const c of cochees) {
       pieces += c.qtePropre;
-      ca += c.caPropre;
-      marge += c.margePropre;
+      ca[c.devise] = (ca[c.devise] ?? 0) + c.caPropre;
+      marge[c.devise] = (marge[c.devise] ?? 0) + c.margePropre;
       if (estSousTraitee(c)) {
         piecesST += c.qtePropre;
-        margeST += c.margePropre;
+        margeST[c.devise] = (margeST[c.devise] ?? 0) + c.margePropre;
         nST++;
       }
     }
@@ -287,7 +289,9 @@ export function CommandesClient({
   };
 
   const actionSupprimer = () => {
-    const ca = eur.format(cochees.reduce((s, c) => s + c.ca, 0));
+    const ca = formatMontants(
+      cochees.reduce<Montants>((m, c) => ({ ...m, [c.devise]: (m[c.devise] ?? 0) + c.ca }), {}),
+    );
     if (
       !confirm(
         `⚠ SUPPRIMER DÉFINITIVEMENT ${cochees.length} commande(s) ?\n\n${resume(cochees)}\n\n` +
@@ -541,7 +545,7 @@ export function CommandesClient({
           <td className="px-3 py-1.5 text-right tabular-nums">
             <Cellule
               valeur={c.prixVente == null ? "" : String(c.prixVente)}
-              affichage={c.prixVente == null ? "—" : `${dec.format(c.prixVente)} €`}
+              affichage={c.prixVente == null ? "—" : `${dec.format(c.prixVente)} ${DEVISES[c.devise].symbole}`}
               type="number"
               droite
               onSave={(v) => enregistrer(c.id, "prixVente", v)}
@@ -552,7 +556,7 @@ export function CommandesClient({
           <td className="px-3 py-1.5 text-right tabular-nums">
             <Cellule
               valeur={c.prixFacon == null ? "" : String(c.prixFacon)}
-              affichage={c.prixFacon == null ? "—" : `${dec.format(c.prixFacon)} €`}
+              affichage={c.prixFacon == null ? "—" : `${dec.format(c.prixFacon)} ${DEVISES[c.devise].symbole}`}
               type="number"
               droite
               onSave={(v) => enregistrer(c.id, "prixFacon", v)}
@@ -562,7 +566,7 @@ export function CommandesClient({
         {visible("margeTotale") && (
           <td className="px-3 py-1.5 text-right tabular-nums">
             <b className={c.margeTotale >= 0 ? "text-success-foreground" : "text-[var(--danger-d)]"}>
-              {dec.format(c.margeUnitaire)} €
+              {dec.format(c.margeUnitaire)} {DEVISES[c.devise].symbole}
             </b>
             {/* Sur une commande découpée, le total est celui du groupe : chaque
                 part à son propre prix, plus ce que la mère produit elle-même.
@@ -572,7 +576,7 @@ export function CommandesClient({
               className="text-[10px] text-muted-foreground"
               title={decoupee ? "Marge du groupe : cette commande et ses sous-commandes" : undefined}
             >
-              {eur.format(decoupee ? c.margeGroupe : c.margeTotale)} € tot.{decoupee && " (groupe)"}
+              {eur.format(decoupee ? c.margeGroupe : c.margeTotale)} {DEVISES[c.devise].symbole} tot.{decoupee && " (groupe)"}
             </div>
           </td>
         )}
@@ -912,16 +916,16 @@ export function CommandesClient({
               pièces
               {visible("prixVente") && (
                 <>
-                  {" · CA "}
-                  <b>{eur.format(synthese.ca)} €</b>
+                  {" · CA HT "}
+                  <b>{formatMontants(synthese.ca)}</b>
                   {" · Marge "}
-                  <b>{eur.format(synthese.marge)} €</b>
+                  <b>{formatMontants(synthese.marge)}</b>
                 </>
               )}
             </span>
             {synthese.nST > 0 && visible("prixVente") && (
               <span className="text-muted-foreground">
-                dont sous-traité : {nb.format(synthese.piecesST)} pcs, marge {eur.format(synthese.margeST)} €
+                dont sous-traité : {nb.format(synthese.piecesST)} pcs, marge {formatMontants(synthese.margeST)}
               </span>
             )}
             <span className="ml-auto flex flex-wrap gap-1.5">

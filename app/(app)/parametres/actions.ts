@@ -7,6 +7,8 @@ import * as users from "@/lib/services/users";
 import * as perm from "@/lib/services/permissions";
 import { setPermission, setSetting } from "@/lib/services/permissions";
 import { journaliser } from "@/lib/services/activite";
+import * as taux from "@/lib/services/taux-change";
+import { DEVISE_PIVOT, estDevise } from "@/lib/domain/montants";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -156,4 +158,38 @@ export async function supprimerRoleAction(key: string): Promise<ActionResult> {
   } catch (e) {
     return fail(e);
   }
+}
+
+/* ─────────── taux de change ─────────── */
+
+/** Ajoute (ou corrige) le taux d'une devise à une date. Il vaut à partir de
+ * cette date : les périodes antérieures gardent leur taux. */
+export async function enregistrerTauxChangeAction(v: { devise: string; date: string; taux: number }): Promise<ActionResult> {
+  try {
+    await assertAdmin();
+    if (!estDevise(v.devise)) return { ok: false, error: `Devise inconnue : ${v.devise}` };
+    await taux.enregistrerTauxChange({ devise: v.devise, date: v.date, taux: v.taux });
+    await journaliser("modification", "Paramètres", `taux ${v.devise} au ${v.date} → ${v.taux} ${DEVISE_PIVOT}`);
+    revaliderTaux();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function supprimerTauxChangeAction(id: number): Promise<ActionResult> {
+  try {
+    await assertAdmin();
+    await taux.supprimerTauxChange(id);
+    await journaliser("suppression", "Paramètres", `taux de change id ${id}`);
+    revaliderTaux();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Un taux change les montants convertis de tous les écrans de chiffre d'affaires. */
+function revaliderTaux() {
+  for (const p of ["/parametres", "/factures", "/cockpit", "/stats", "/"]) revalidatePath(p);
 }

@@ -28,6 +28,8 @@ import { FacturationMensuelle } from "@/components/charts/facturation-mensuelle"
 import { MargesFaconniersChart } from "@/components/charts/marges-faconniers";
 import { getCockpitData, getGraphiquesFinance } from "@/lib/services/dashboard";
 import { pointMortMoisCourant } from "@/lib/services/rentabilite";
+import { VueDeviseSelect } from "@/components/shared/vue-devise";
+import { DEVISES, devisesDe, formatMontant, formatMontants, parseVueDevise } from "@/lib/domain/montants";
 
 const STAGE_META = [
   { key: "commandes", n: "1 · Commandes", icon: Package, lbl: "en cours", href: "/commandes", color: "var(--s1)" },
@@ -47,9 +49,15 @@ const TONE_TEXT: Record<string, string> = {
 
 const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
 
-export default async function CockpitPage() {
-  const [data, finance, pm] = await Promise.all([getCockpitData(), getGraphiquesFinance(), pointMortMoisCourant()]);
-  const totalFacture = finance.facturation.at(-1)?.cumul ?? 0;
+export default async function CockpitPage({ searchParams }: { searchParams: Promise<{ vue?: string }> }) {
+  // Montants séparés par devise, ou convertis dans la devise choisie (?vue=TND).
+  const vue = parseVueDevise((await searchParams).vue);
+  const [data, finance, pm] = await Promise.all([getCockpitData(vue), getGraphiquesFinance(vue), pointMortMoisCourant()]);
+  const k = data.kpis;
+  const arrondi = { decimales: 0 };
+  const margePct = devisesDe(k.margePct)
+    .map((d) => `${k.margePct[d]}%` + (devisesDe(k.margePct).length > 1 ? ` (${DEVISES[d].symbole})` : ""))
+    .join(" · ");
 
   return (
     <>
@@ -124,17 +132,37 @@ export default async function CockpitPage() {
         </div>
       </div>
 
-      {/* Financial KPIs */}
+      {/* Financial KPIs — hors taxes */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <VueDeviseSelect />
+        {k.nonConvertis > 0 && (
+          <span className="text-[11px] text-[var(--danger-d)]">
+            ⚠ {k.nonConvertis} montant(s) exclu(s) faute de taux de change — voir Paramètres
+          </span>
+        )}
+      </div>
       <KpiGrid>
-        <KpiCard label="CA en cours" value={eur(data.kpis.caEnCours)} icon={Euro} tone="brand" sub={`${data.nbCommandes} commandes actives`} />
+        <KpiCard
+          label="CA en cours (HT)"
+          value={formatMontants(k.caEnCours, arrondi)}
+          icon={Euro}
+          tone="brand"
+          sub={`${data.nbCommandes} commandes actives`}
+        />
         <KpiCard
           label="Marge brute"
-          value={eur(data.kpis.margeBrute)}
+          value={formatMontants(k.margeBrute, arrondi)}
           icon={BarChart3}
           tone="purple"
-          sub={<StatusBadge tone="success">{data.kpis.margePct}% du CA</StatusBadge>}
+          sub={margePct ? <StatusBadge tone="success">{margePct} du CA</StatusBadge> : undefined}
         />
-        <KpiCard label="Facturé (net)" value={eur(data.kpis.facture)} icon={Wallet} tone="success" sub={`${data.kpis.nbFactures} factures`} />
+        <KpiCard
+          label="Facturé net (HT)"
+          value={formatMontants(k.facture, arrondi)}
+          icon={Wallet}
+          tone="success"
+          sub={`${k.nbFactures} factures`}
+        />
         <KpiCard label="En retard" value={String(data.kpis.enRetard)} icon={TriangleAlert} tone="danger" sub="commandes à surveiller" />
       </KpiGrid>
 
@@ -220,28 +248,37 @@ export default async function CockpitPage() {
         </SectionPanel>
       </div>
 
-      {/* Les deux séries financières mensuelles, portées du statique */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <SectionPanel
-          title="Facturation par origine de production"
-          icon={<Euro className="size-4 text-brand" />}
-          actions={<StatusBadge tone="brand">{eur(totalFacture)} facturés</StatusBadge>}
-        >
-          <FacturationMensuelle data={finance.facturation} />
-        </SectionPanel>
+      {/* Les deux séries financières mensuelles, une paire de graphiques par devise */}
+      {finance.map((g) => {
+        const suffixe = finance.length > 1 ? ` — ${g.devise}` : "";
+        return (
+          <div key={g.devise} className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <SectionPanel
+              title={`Facturation par origine de production${suffixe}`}
+              icon={<Euro className="size-4 text-brand" />}
+              actions={
+                <StatusBadge tone="brand">
+                  {formatMontant(g.facturation.at(-1)?.cumul ?? 0, g.devise, arrondi)} facturés HT
+                </StatusBadge>
+              }
+            >
+              <FacturationMensuelle data={g.facturation} devise={g.devise} />
+            </SectionPanel>
 
-        <SectionPanel
-          title="Marge sur coût façon, par façonnier"
-          icon={<BarChart3 className="size-4 text-brand" />}
-          actions={<StatusBadge tone="success">{eur(finance.marges.total)}</StatusBadge>}
-        >
-          <MargesFaconniersChart marges={finance.marges} />
-          <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-            Montant facturé moins la façon payée. Ni le tissu, ni les fournitures, ni la coupe
-            ne sont déduits : ce n&apos;est pas la marge nette.
-          </p>
-        </SectionPanel>
-      </div>
+            <SectionPanel
+              title={`Marge sur coût façon, par façonnier${suffixe}`}
+              icon={<BarChart3 className="size-4 text-brand" />}
+              actions={<StatusBadge tone="success">{formatMontant(g.marges.total, g.devise, arrondi)}</StatusBadge>}
+            >
+              <MargesFaconniersChart marges={g.marges} devise={g.devise} />
+              <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+                Montant facturé moins la façon payée. Ni le tissu, ni les fournitures, ni la coupe
+                ne sont déduits : ce n&apos;est pas la marge nette.
+              </p>
+            </SectionPanel>
+          </div>
+        );
+      })}
     </>
   );
 }

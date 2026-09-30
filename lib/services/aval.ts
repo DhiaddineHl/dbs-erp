@@ -17,6 +17,7 @@ import {
 } from "@/lib/db/schema";
 import * as av from "@/lib/domain/aval";
 import * as biz from "@/lib/domain/commande";
+import { type Devise, arrondir, calculerTotaux, deviseOu, tauxTvaValide } from "@/lib/domain/montants";
 import { conditionEntreeStock, productionGpaoParCommande, recalculerProduit } from "@/lib/services/avancement";
 
 /* ─────────── recalcul des compteurs ───────────
@@ -103,6 +104,8 @@ export type CommandeAval = {
   magasinQte: number;
   factureQte: number;
   prixVente: number | null;
+  /** Devise du prix de vente (HT). */
+  devise: Devise;
   dateExport: string;
   exportPrev: string;
   statutLog: string;
@@ -170,6 +173,7 @@ function versAval(
     magasinQte: c.magasinQte,
     factureQte: c.factureQte,
     prixVente: c.prixVente,
+    devise: deviseOu(c.devise),
     dateExport: iso(c.dateExport),
     exportPrev: iso(c.exportPrev),
     statutLog: c.statutLog,
@@ -366,7 +370,13 @@ export type BlRow = {
   note: string;
   lignes: BlLigneRow[];
   totalQte: number;
+  /** Devise des prix (celle des commandes livrées). */
+  devise: Devise;
+  /** Taux de TVA (%) saisi à l'émission ; 0 = BL hors taxes. */
+  tauxTva: number;
   totalHt: number;
+  montantTva: number;
+  totalTtc: number;
 };
 
 export async function listBl(): Promise<BlRow[]> {
@@ -381,17 +391,19 @@ export async function listBl(): Promise<BlRow[]> {
     else parBl.set(l.blId, [l]);
   }
   return entetes.map((b) => {
+    const devise = deviseOu(b.devise);
     const ls = (parBl.get(b.id) ?? []).map((l) => ({
       id: l.id, commandeId: l.commandeId, of: l.of, modele: l.modele, refArticle: l.refArticle,
       couleur: l.couleur, qteLivree: l.qteLivree, prixUnitaire: l.prixUnitaire,
-      montant: Math.round(l.qteLivree * l.prixUnitaire * 100) / 100,
+      montant: arrondir(l.qteLivree * l.prixUnitaire, devise),
     }));
+    const t = calculerTotaux({ montantsHt: ls.map((l) => l.montant), tauxTva: b.tauxTva, devise });
     return {
       id: b.id, numero: b.numero, date: b.date, clientNom: b.clientNom,
       transporteur: b.transporteur, adresseLivraison: b.adresseLivraison,
       statut: b.statut, note: b.note, lignes: ls,
       totalQte: ls.reduce((s, l) => s + l.qteLivree, 0),
-      totalHt: Math.round(ls.reduce((s, l) => s + l.montant, 0) * 100) / 100,
+      devise, tauxTva: b.tauxTva, ...t,
     };
   });
 }
@@ -594,23 +606,33 @@ export async function creerBl(v: {
   transporteur: string;
   adresseLivraison: string;
   note: string;
+  /** Taux de TVA (%) du bon, 0 par défaut. Les prix des lignes restent HT. */
+  tauxTva?: number;
   lignes: { commandeId: number; qteLivree: number }[];
 }) {
   const numero = await prochainNumero("BL");
   return db.transaction(async (tx) => {
-    const [entete] = await tx
-      .insert(bl)
-      .values({
-        numero, date: v.date, clientId: v.clientId, clientNom: v.clientNom,
-        transporteur: v.transporteur, adresseLivraison: v.adresseLivraison, note: v.note, statut: "draft",
-      })
-      .returning({ id: bl.id });
-
     const ids = v.lignes.map((l) => l.commandeId);
     const commandes = ids.length
       ? await tx.select().from(commande).where(inArray(commande.id, ids))
       : [];
     const parId = new Map(commandes.map((c) => [c.id, c]));
+
+    /* Un BL porte une seule devise : ses lignes se totalisent. Des commandes
+     * en euros et en dinars partent sur deux bons. */
+    const devises = [...new Set(commandes.map((c) => deviseOu(c.devise)))];
+    if (devises.length > 1)
+      throw new Error(`Commandes en ${devises.join(" et ")} : faites un bon de livraison par devise`);
+    const devise = devises[0] ?? deviseOu(null);
+
+    const [entete] = await tx
+      .insert(bl)
+      .values({
+        numero, date: v.date, clientId: v.clientId, clientNom: v.clientNom,
+        transporteur: v.transporteur, adresseLivraison: v.adresseLivraison, note: v.note, statut: "draft",
+        devise, tauxTva: tauxTvaValide(v.tauxTva),
+      })
+      .returning({ id: bl.id });
 
     const lignes = v.lignes
       .filter((l) => l.qteLivree > 0 && parId.has(l.commandeId))
@@ -758,6 +780,8 @@ export type ArchiveRow = {
   factureQte: number;
   prixVente: number | null;
   prixFacon: number | null;
+  /** Devise de prix, CA et marge (HT). */
+  devise: Devise;
   ca: number;
   marge: number;
   margePct: number;
@@ -794,6 +818,7 @@ export async function listArchives(): Promise<ArchiveRow[]> {
         factureQte: c.factureQte,
         prixVente: c.prixVente,
         prixFacon: c.prixFacon,
+        devise: deviseOu(c.devise),
         ca: biz.chiffreAffaires(c),
         marge: biz.margeTotale(c),
         margePct: biz.margePct(c),
@@ -875,6 +900,7 @@ export async function getPlanFaconnier(): Promise<PlanFaconnierData> {
     qte: c.qtePropre,
     produit: c.produit,
     ca: caLigne(c.qtePropre, c.prixVente),
+    devise: c.devise,
     of: c.of,
     modele: c.modele,
     ref: c.refArticle,

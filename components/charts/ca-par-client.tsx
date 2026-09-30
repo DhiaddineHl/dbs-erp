@@ -7,7 +7,8 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { euros } from "./format";
+import { montant } from "./format";
+import type { Devise } from "@/lib/domain/montants";
 
 export type PartClient = { client: string; ca: number; pieces: number };
 
@@ -21,7 +22,7 @@ const config = {
 /** Tronque les raisons sociales longues pour garder l'axe étroit. */
 const court = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
 
-export function CaParClient({ data }: { data: PartClient[] }) {
+export function CaParClient({ data, devise = "EUR" }: { data: PartClient[]; devise?: Devise }) {
   if (!data.length) {
     return (
       <div className="flex h-[240px] items-center justify-center text-xs text-muted-foreground">
@@ -58,7 +59,7 @@ export function CaParClient({ data }: { data: PartClient[] }) {
                     {(item?.payload as PartClient | undefined)?.pieces.toLocaleString("fr-FR")} pcs
                   </span>
                   <span className="font-mono font-medium tabular-nums text-foreground">
-                    {typeof value === "number" ? euros(value) : String(value)}
+                    {typeof value === "number" ? montant(value, devise) : String(value)}
                   </span>
                 </div>
               )}
@@ -72,7 +73,7 @@ export function CaParClient({ data }: { data: PartClient[] }) {
             offset={8}
             className="fill-foreground"
             fontSize={11}
-            formatter={(v) => (typeof v === "number" ? euros(v) : "")}
+            formatter={(v) => (typeof v === "number" ? montant(v, devise) : "")}
           />
         </Bar>
       </BarChart>

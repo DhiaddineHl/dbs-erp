@@ -18,7 +18,7 @@ export const CLIENT_EDIT: EditColumn[] = [
   { key: "tva", label: "N° TVA" },
   // Derived from the commandes — shown, never typed.
   { key: "cmd", label: "Cmd", kind: "number", readOnly: true, align: "right" },
-  { key: "ca", label: "CA total", kind: "money", readOnly: true, accent: "success" },
+  { key: "caLibelle", label: "CA total HT", kind: "readonly", readOnly: true, accent: "success" },
 ];
 
 type CmdChoices = {

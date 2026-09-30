@@ -129,7 +129,14 @@ export type GroupeFusion = ref.PaireClients;
 export async function propositionsFusionClients(): Promise<GroupeFusion[]> {
   const clients = await listClients();
   return ref.propositionsFusionClients(
-    clients.map((c) => ({ id: c.id, nom: c.nom, code: c.code, cmd: c.cmd, ca: c.ca })),
+    // Le CA ne sert ici qu'à départager deux fiches : un ordre de grandeur, toutes devises confondues.
+    clients.map((c) => ({
+      id: c.id,
+      nom: c.nom,
+      code: c.code,
+      cmd: c.cmd,
+      ca: Object.values(c.caParDevise).reduce((s, v) => s + (v ?? 0), 0),
+    })),
   );
 }
 

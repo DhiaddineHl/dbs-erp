@@ -14,10 +14,10 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { STATUTS_BL, type StatutBl } from "@/lib/domain/aval";
 import type { BlRow, CommandeAval } from "@/lib/services/aval";
 import * as A from "@/lib/actions/aval";
+import { type Montants, calculerTotaux, formatMontant, formatMontants, tauxTvaValide } from "@/lib/domain/montants";
 import { BoutonAction, Kpi, SelectAction, Tuiles } from "../aval/ui";
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const auj = () => new Date().toISOString().slice(0, 10);
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-").reverse().join("/") : iso || "—");
 
@@ -149,7 +149,14 @@ export function BlClient({
                         <td className="px-3 py-2 text-muted-foreground">{b.transporteur || "—"}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{b.lignes.length}</td>
                         <td className="px-3 py-2 text-right font-semibold tabular-nums">{nb.format(b.totalQte)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{eur.format(b.totalHt)} €</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatMontant(b.totalHt, b.devise)}
+                          {b.tauxTva > 0 && (
+                            <div className="text-[10px] text-muted-foreground">
+                              TVA {b.tauxTva} % · TTC {formatMontant(b.totalTtc, b.devise)}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-3 py-2">
                           {peutSaisir ? (
                             <SelectAction
@@ -202,9 +209,9 @@ export function BlClient({
                                     <td className="py-1 text-muted-foreground">{l.refArticle || "—"}</td>
                                     <td className="py-1 text-muted-foreground">{l.couleur || "—"}</td>
                                     <td className="py-1 text-right tabular-nums">{nb.format(l.qteLivree)}</td>
-                                    <td className="py-1 text-right tabular-nums">{eur.format(l.prixUnitaire)} €</td>
+                                    <td className="py-1 text-right tabular-nums">{formatMontant(l.prixUnitaire, b.devise)}</td>
                                     <td className="py-1 text-right font-semibold tabular-nums">
-                                      {eur.format(l.montant)} €
+                                      {formatMontant(l.montant, b.devise)}
                                     </td>
                                   </tr>
                                 ))}
@@ -238,6 +245,8 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
   const [adresse, setAdresse] = useState("");
   const [note, setNote] = useState("");
   const [qtes, setQtes] = useState<Record<number, string>>({});
+  // TVA du bon : 0 % par défaut, les prix des commandes restent hors taxes.
+  const [tauxTva, setTauxTva] = useState("0");
   const [pending, start] = useTransition();
 
   // Un BL ne concerne qu'un client : on livre à une adresse à la fois.
@@ -265,7 +274,20 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
     .filter((c) => qtes[c.id] !== undefined)
     .map((c) => ({ c, qte: Math.max(0, Math.round(Number(qtes[c.id]) || 0)) }));
   const totalQte = selection.reduce((s, l) => s + l.qte, 0);
-  const totalHt = selection.reduce((s, l) => s + l.qte * (l.c.prixVente ?? 0), 0);
+  // Un bon = une devise : le serveur refuse le mélange, l'écran le signale avant.
+  const devises = [...new Set(selection.map((l) => l.c.devise))];
+  const devise = devises[0] ?? "EUR";
+  const mixte = devises.length > 1;
+  // Sélection mixte : un sous-total HT par devise, jamais une somme d'euros et de dinars.
+  const htParDevise = selection.reduce<Montants>(
+    (m, l) => ({ ...m, [l.c.devise]: (m[l.c.devise] ?? 0) + l.qte * (l.c.prixVente ?? 0) }),
+    {},
+  );
+  const totaux = calculerTotaux({
+    montantsHt: selection.map((l) => l.qte * (l.c.prixVente ?? 0)),
+    tauxTva: tauxTvaValide(tauxTva),
+    devise,
+  });
 
   const clientId = lignes.find((c) => c.clientId !== null)?.clientId ?? null;
 
@@ -361,7 +383,7 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
                       <td className="px-2 py-1.5 text-right tabular-nums">{nb.format(c.qte)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{nb.format(c.stockQte)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">
-                        {c.prixVente == null ? "—" : `${eur.format(c.prixVente)} €`}
+                        {c.prixVente == null ? "—" : formatMontant(c.prixVente, c.devise)}
                       </td>
                       <td className="px-2 py-1.5 text-right">
                         <input
@@ -380,17 +402,42 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
           )}
         </div>
 
-        <Champ label="Observations">
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            className="w-full rounded-md border border-input bg-card px-2 py-1.5 text-xs"
-          />
-        </Champ>
+        <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
+          <Champ label="Observations">
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="w-full rounded-md border border-input bg-card px-2 py-1.5 text-xs"
+            />
+          </Champ>
+          <Champ label="TVA (%) — 0 si non soumis">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step="0.01"
+              value={tauxTva}
+              onChange={(e) => setTauxTva(e.target.value)}
+              className="w-full rounded-md border border-input bg-card px-2 py-1.5 text-xs"
+            />
+          </Champ>
+        </div>
 
         <div className="rounded-lg bg-muted px-3 py-2 text-xs">
           {selection.length} ligne(s) · <b>{nb.format(totalQte)}</b> pièces ·{" "}
-          <b>{eur.format(Math.round(totalHt * 100) / 100)} €</b> HT
+          <b>{mixte ? formatMontants(htParDevise) : formatMontant(totaux.totalHt, devise)}</b> HT
+          {!mixte && totaux.montantTva > 0 && (
+            <>
+              {" "}
+              · TVA {tauxTvaValide(tauxTva)} % {formatMontant(totaux.montantTva, devise)} ·{" "}
+              <b>{formatMontant(totaux.totalTtc, devise)} TTC</b>
+            </>
+          )}
+          {mixte && (
+            <div className="mt-1 font-semibold text-[var(--danger-d)]">
+              ⚠ Commandes en {devises.join(" et ")} : faites un bon de livraison par devise.
+            </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -398,7 +445,7 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
             Annuler
           </Button>
           <Button
-            disabled={pending || !client || totalQte <= 0}
+            disabled={pending || !client || totalQte <= 0 || mixte}
             onClick={() =>
               start(async () => {
                 const r = await A.creerBl({
@@ -408,6 +455,7 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
                   transporteur,
                   adresseLivraison: adresse,
                   note,
+                  tauxTva: tauxTvaValide(tauxTva),
                   lignes: selection.map((l) => ({ commandeId: l.c.id, qteLivree: l.qte })),
                 });
                 if (!r.ok) {

@@ -84,6 +84,8 @@ export const commande = pgTable(
     tailles: jsonb().$type<Taille[]>().notNull().default([]),
     prixVente: doublePrecision(),
     prixFacon: doublePrecision(),
+    /** Devise des prix (hors taxes) de la commande : EUR | TND. */
+    devise: text().notNull().default("EUR"),
 
     /* ── nomenclature (feeds the fabric requirement) ── */
     consoTheo: doublePrecision(),

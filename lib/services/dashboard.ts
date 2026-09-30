@@ -20,21 +20,53 @@ import { reliquatsTissu } from "@/lib/services/matiere-tissu";
 import { relances as relancesFournitures } from "@/lib/services/fournitures";
 import { enRetard } from "@/lib/domain/actions-qualite";
 import type { Tone } from "@/components/shared/status-badge";
+import {
+  type Devise,
+  LISTE_DEVISES,
+  type Montants,
+  type VueDevise,
+  convertir,
+  deviseOu,
+  totaliser,
+} from "@/lib/domain/montants";
+import { listTauxChange } from "@/lib/services/taux-change";
+
+const aujourdhui = () => new Date().toISOString().slice(0, 10);
+
+/** Marge en % du CA, devise par devise (une seule quand la vue est convertie). */
+function margePctParDevise(ca: Montants, marge: Montants): Montants {
+  const out: Montants = {};
+  for (const d of LISTE_DEVISES) {
+    const c = ca[d];
+    if (c !== undefined && c > 0) out[d] = Math.round(((marge[d] ?? 0) / c) * 100);
+  }
+  return out;
+}
 
 const WEEKDAY_FR = ["dim", "lun", "mar", "mer", "jeu", "ven", "sam"];
 
 export type CockpitData = {
   pipeline: { commandes: number; matieres: number; prepa: number; production: number; magasin: number };
   insights: { tone: string; text: string; href: string }[];
-  kpis: { caEnCours: number; margeBrute: number; margePct: number; facture: number; nbFactures: number; enRetard: number };
+  /** Montants HT, séparés par devise ou convertis selon la vue. */
+  kpis: {
+    caEnCours: Montants;
+    margeBrute: Montants;
+    margePct: Montants;
+    facture: Montants;
+    /** Montants exclus faute de taux de change (vue convertie). */
+    nonConvertis: number;
+    nbFactures: number;
+    enRetard: number;
+  };
   nbCommandes: number;
   nbFacturesActives: number;
   chains: { nom: string; spec: string; ouv: number; pcs: number; rend: number; color: string }[];
   week: { d: string; iso: string; v: number }[];
 };
 
-export async function getCockpitData(): Promise<CockpitData> {
-  const [commandes, prepa, magasin, factures, chaines, journees, modeles] =
+export async function getCockpitData(vue: VueDevise = "par-devise"): Promise<CockpitData> {
+  const [commandes, prepa, magasin, factures, chaines, journees, modeles, taux] =
     await Promise.all([
       listCommandes(),
       listPreparation(),
@@ -43,6 +75,7 @@ export async function getCockpitData(): Promise<CockpitData> {
       getChaines(),
       getJournees(),
       getModeles(),
+      listTauxChange(),
     ]);
 
   const actives = commandes.filter((c) => c.statutKey !== "livree");
@@ -65,11 +98,25 @@ export async function getCockpitData(): Promise<CockpitData> {
   /* Valeurs propres : une commande découpée apparaît dans la liste avec sa
    * mère et ses parts, et additionner les deux compterait deux fois les
    * pièces réparties. Sans découpe, le propre est le tout. */
-  const caEnCours = actives.reduce((s, c) => s + c.caPropre, 0);
-  const margeBrute = commandes.reduce((s, c) => s + c.margePropre, 0);
-  const factureNet = factures.reduce(
-    (s, f) => s + (f.type === "avoir" ? -f.total : f.type === "proforma" ? 0 : f.total),
-    0,
+  // Une commande encore ouverte n'a pas de date de vente : on la convertit au taux du jour.
+  const jour = aujourdhui();
+  const caEnCours = totaliser(
+    actives.map((c) => ({ devise: c.devise, montant: c.caPropre, date: jour })),
+    vue,
+    taux,
+  );
+  const margeBrute = totaliser(
+    commandes.map((c) => ({ devise: c.devise, montant: c.margePropre, date: jour })),
+    vue,
+    taux,
+  );
+  // Une facture, elle, au taux de sa date.
+  const factureNet = totaliser(
+    factures
+      .filter((f) => f.type !== "proforma")
+      .map((f) => ({ devise: f.devise, date: f.date, montant: f.type === "avoir" ? -f.total : f.total })),
+    vue,
+    taux,
   );
   const nbFactures = factures.filter((f) => f.type === "facture").length;
 
@@ -135,10 +182,11 @@ export async function getCockpitData(): Promise<CockpitData> {
       },
     ].filter(Boolean) as CockpitData["insights"],
     kpis: {
-      caEnCours,
-      margeBrute,
-      margePct: caEnCours > 0 ? Math.round((margeBrute / caEnCours) * 100) : 0,
-      facture: factureNet,
+      caEnCours: caEnCours.montants,
+      margeBrute: margeBrute.montants,
+      margePct: margePctParDevise(caEnCours.montants, margeBrute.montants),
+      facture: factureNet.montants,
+      nonConvertis: caEnCours.nonConvertis + factureNet.nonConvertis,
       nbFactures,
       enRetard: late.length,
     },
@@ -415,6 +463,8 @@ export async function getAlertes(): Promise<AlertesData> {
 
 export type StatsRow = {
   unite: string;
+  /** Devise de `ca` et `marge` (celle de la vue quand elle est convertie). */
+  devise: Devise;
   cmd: number;
   pieces: number;
   produit: number;
@@ -436,63 +486,86 @@ const nombreOuNull = (v: string): number | null => {
  * `lib/domain/graphiques`. C'est la seule jointure : le domaine ne connaît
  * ni la base ni la forme des factures.
  */
-export async function getLignesCoutees(): Promise<LigneCoutee[]> {
-  const [factures, couts] = await Promise.all([getFactures(), getCostLines()]);
-  const out: LigneCoutee[] = [];
+/** Lignes de facture annotées de leur coût, regroupées par devise — ou
+ * converties dans la devise de la vue, chaque facture au taux de sa date. */
+export async function getLignesCoutees(vue: VueDevise = "par-devise"): Promise<Map<Devise, LigneCoutee[]>> {
+  const [factures, couts, taux] = await Promise.all([getFactures(), getCostLines(), listTauxChange()]);
+  const out = new Map<Devise, LigneCoutee[]>();
   for (const f of factures) {
+    const de = deviseOu(f.devise);
+    const cible = vue === "par-devise" ? de : vue;
+    const k = convertir(1, de, cible, f.date, taux);
+    if (k === null) continue; // pas de taux : exclu plutôt que faux
     const annotations = couts[`${f.id}|${f.type}`]?.lines ?? {};
+    const lignes = out.get(cible) ?? [];
     f.lignes.forEach((l, i) => {
       const c = annotations[i];
-      out.push({
+      const saisi = nombreOuNull(c?.cout ?? "");
+      lignes.push({
         date: f.date,
         type: f.type,
         qte: l.qte,
-        mt: l.mt,
-        pu: l.pu,
+        mt: l.mt * k,
+        pu: l.pu * k,
         lieu: c?.lieu ?? "",
         faconnier: c?.fac ?? "",
         // Convention de l'écran Factures : en interne le coût vaut le prix
         // facturé (marge nulle), la case n'étant pas saisissable.
-        cout: c?.lieu === "interne" ? l.pu : nombreOuNull(c?.cout ?? ""),
+        cout: c?.lieu === "interne" ? l.pu * k : saisi === null ? null : saisi * k,
       });
     });
+    out.set(cible, lignes);
   }
   return out;
 }
 
-export type GraphiquesFinance = { facturation: PointFacturation[]; marges: MargesFaconniers };
+export type GraphiquesFinance = { devise: Devise; facturation: PointFacturation[]; marges: MargesFaconniers }[];
 
-export async function getGraphiquesFinance(): Promise<GraphiquesFinance> {
-  const lignes = await getLignesCoutees();
-  return { facturation: facturationMensuelle(lignes), marges: margesFaconniers(lignes) };
+export async function getGraphiquesFinance(vue: VueDevise = "par-devise"): Promise<GraphiquesFinance> {
+  const parDevise = await getLignesCoutees(vue);
+  return LISTE_DEVISES.filter((d) => parDevise.has(d)).map((devise) => {
+    const lignes = parDevise.get(devise)!;
+    return { devise, facturation: facturationMensuelle(lignes), marges: margesFaconniers(lignes) };
+  });
 }
 
-export async function getStatsData(): Promise<{
+export async function getStatsData(vue: VueDevise = "par-devise"): Promise<{
   rows: StatsRow[];
-  totals: { ca: number; marge: number; pieces: number };
+  totals: { ca: Montants; marge: Montants; pieces: number; nonConvertis: number };
   repartition: RepartitionProduction;
 }> {
-  const commandes = await listCommandes();
+  const [commandes, taux] = await Promise.all([listCommandes(), listTauxChange()]);
+  const jour = aujourdhui();
   const by = new Map<string, StatsRow>();
+  let nonConvertis = 0;
   for (const c of commandes) {
-    const k = c.client || "—";
-    const row = by.get(k) ?? { unite: k, cmd: 0, pieces: 0, produit: 0, av: 0, ca: 0, marge: 0 };
+    // Une ligne par client ET devise : des euros et des dinars ne se somment pas.
+    const devise = vue === "par-devise" ? c.devise : vue;
+    const kDev = convertir(1, c.devise, devise, jour, taux);
+    if (kDev === null) {
+      nonConvertis++;
+      continue;
+    }
+    const k = `${c.client || "—"}|${devise}`;
+    const row = by.get(k) ?? { unite: c.client || "—", devise, cmd: 0, pieces: 0, produit: 0, av: 0, ca: 0, marge: 0 };
     // Une sous-commande n'est pas une commande de plus pour le client : c'est
     // une part de la sienne. Elle pèse en pièces et en euros, pas en nombre.
     if (c.parentId == null) row.cmd += 1;
     row.pieces += c.qtePropre;
     row.produit += c.produit;
-    row.ca += c.caPropre;
-    row.marge += c.margePropre;
+    row.ca += c.caPropre * kDev;
+    row.marge += c.margePropre * kDev;
     by.set(k, row);
   }
   const rows = [...by.values()]
     .map((r) => ({ ...r, av: r.pieces > 0 ? Math.round((r.produit / r.pieces) * 100) : 0 }))
     .sort((a, b) => b.ca - a.ca);
-  const totals = rows.reduce(
-    (t, r) => ({ ca: t.ca + r.ca, marge: t.marge + r.marge, pieces: t.pieces + r.pieces }),
-    { ca: 0, marge: 0, pieces: 0 },
-  );
+  const totals = {
+    ca: totaliser(rows.map((r) => ({ devise: r.devise, montant: r.ca, date: jour })), "par-devise").montants,
+    marge: totaliser(rows.map((r) => ({ devise: r.devise, montant: r.marge, date: jour })), "par-devise").montants,
+    pieces: rows.reduce((s, r) => s + r.pieces, 0),
+    nonConvertis,
+  };
   // La répartition ne porte que sur ce qui reste à produire : une commande
   // livrée n'occupe plus ni l'atelier ni un façonnier.
   const repartition = repartitionProduction(

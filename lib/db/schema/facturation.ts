@@ -27,7 +27,15 @@ export const facture = pgTable(
     marque: text().notNull().default(""),
     clientRaw: text().notNull().default(""),
     pieces: integer().notNull().default(0),
+    /** Total HORS TAXES — base du chiffre d'affaires et des marges. */
     total: doublePrecision().notNull().default(0),
+    /** Devise du document : EUR | TND. */
+    devise: text().notNull().default("EUR"),
+    /** Taux de TVA saisi à l'émission (%), 0 par défaut. Figé sur la facture. */
+    tauxTva: doublePrecision().notNull().default(0),
+    montantTva: doublePrecision().notNull().default(0),
+    /** Ce que le client doit payer : total + TVA. Base des encaissements. */
+    totalTtc: doublePrecision().notNull().default(0),
     fournitures: doublePrecision().notNull().default(0),
     poids: text().notNull().default(""),
     mp: text().notNull().default(""),

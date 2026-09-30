@@ -12,11 +12,12 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Affectation } from "@/lib/domain/aval";
 import type { ArchiveRow } from "@/lib/services/aval";
+import { type Montants, devisesDe, formatMontant, formatMontants } from "@/lib/domain/montants";
 import * as A from "@/lib/actions/aval";
 import { Kpi, Tuiles } from "../aval/ui";
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
+const arrondi = { decimales: 0 };
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-").reverse().join("/") : iso || "—");
 
 export function ArchivesClient({ archives, peutSaisir }: { archives: ArchiveRow[]; peutSaisir: boolean }) {
@@ -41,10 +42,19 @@ export function ArchivesClient({ archives, peutSaisir }: { archives: ArchiveRow[
 
   // Les totaux suivent le filtre : on veut le réalisé de la période affichée.
   const stats = useMemo(() => {
-    const ca = filtrees.reduce((s, a) => s + a.ca, 0);
-    const marge = filtrees.reduce((s, a) => s + a.marge, 0);
+    // Par devise : des euros et des dinars ne s'additionnent pas.
+    const ca: Montants = {};
+    const marge: Montants = {};
+    for (const a of filtrees) {
+      ca[a.devise] = (ca[a.devise] ?? 0) + a.ca;
+      marge[a.devise] = (marge[a.devise] ?? 0) + a.marge;
+    }
+    const pct = devisesDe(ca)
+      .filter((d) => (ca[d] ?? 0) > 0)
+      .map((d) => `${(((marge[d] ?? 0) / ca[d]!) * 100).toFixed(1)} %`)
+      .join(" · ");
     const retards = filtrees.filter((a) => (a.retardExport ?? 0) > 0).length;
-    return { nb: filtrees.length, ca, marge, pct: ca > 0 ? (marge / ca) * 100 : 0, retards };
+    return { nb: filtrees.length, ca, marge, pct, retards };
   }, [filtrees]);
 
   const basculer = (id: number) =>
@@ -67,12 +77,12 @@ export function ArchivesClient({ archives, peutSaisir }: { archives: ArchiveRow[
 
       <Tuiles>
         <Kpi label="Commandes archivées" valeur={String(stats.nb)} />
-        <Kpi label="CA réalisé" valeur={`${eur.format(stats.ca)} €`} tone="success" />
+        <Kpi label="CA réalisé HT" valeur={formatMontants(stats.ca, arrondi)} tone="success" />
         <Kpi
           label="Marge réalisée"
-          valeur={`${eur.format(stats.marge)} €`}
+          valeur={formatMontants(stats.marge, arrondi)}
           tone="purple"
-          sub={`${stats.pct.toFixed(1)} % du CA`}
+          sub={stats.pct ? `${stats.pct} du CA` : undefined}
         />
         <Kpi label="Livrées en retard" valeur={String(stats.retards)} tone={stats.retards ? "danger" : "neutral"} />
       </Tuiles>
@@ -165,10 +175,10 @@ export function ArchivesClient({ archives, peutSaisir }: { archives: ArchiveRow[
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {a.delaiCycle == null ? "—" : `${a.delaiCycle} j`}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{eur.format(a.ca)} €</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatMontant(a.ca, a.devise, arrondi)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       <b className={a.marge >= 0 ? "text-success-foreground" : "text-[var(--danger-d)]"}>
-                        {eur.format(a.marge)} €
+                        {formatMontant(a.marge, a.devise, arrondi)}
                       </b>
                       <div className="text-[10px] text-muted-foreground">{a.margePct.toFixed(1)} %</div>
                     </td>

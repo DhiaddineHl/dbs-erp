@@ -1,4 +1,16 @@
-import { boolean, index, jsonb, pgTable, primaryKey, serial, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  date,
+  doublePrecision,
+  index,
+  jsonb,
+  pgTable,
+  primaryKey,
+  serial,
+  text,
+  timestamp,
+  unique,
+} from "drizzle-orm/pg-core";
 
 /** Rôles de l'application.
  *
@@ -56,3 +68,18 @@ export const appSetting = pgTable("app_setting", {
   key: text().primaryKey(),
   value: jsonb().$type<unknown>().notNull(),
 });
+
+/** Historique des taux de change : à partir de `date`, 1 unité de `devise`
+ * vaut `taux` TND (devise pivot). Sert à convertir le chiffre d'affaires dans
+ * une devise de référence au taux en vigueur à la date de chaque document. */
+export const tauxChange = pgTable(
+  "taux_change",
+  {
+    id: serial().primaryKey(),
+    devise: text().notNull(),
+    date: date().notNull(),
+    taux: doublePrecision().notNull(),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [unique("taux_change_devise_date").on(t.devise, t.date)],
+);

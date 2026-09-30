@@ -5,7 +5,9 @@ import { commande, facture, factureCostLine, factureLigne } from "@/lib/db/schem
 import { client as clientTable } from "@/lib/db/schema/referentiel";
 import * as biz from "@/lib/domain/commande";
 import * as fc from "@/lib/domain/facturation-commande";
+import { type Devise, deviseOu, tauxTvaValide } from "@/lib/domain/montants";
 import { listCommandes } from "./commandes";
+import { recalculerTotauxFacture } from "./facturation";
 
 /* Écritures de la passerelle commande ↔ facture.
  *
@@ -14,14 +16,23 @@ import { listCommandes } from "./commandes";
 
 /* ─────────── B1 · facturer une commande ─────────── */
 
-export type CibleFacture = { num: string; type: string; pieces: number; total: number; date: string };
+export type CibleFacture = {
+  num: string;
+  type: string;
+  pieces: number;
+  /** Total HT. */
+  total: number;
+  date: string;
+  devise: Devise;
+  tauxTva: number;
+};
 
 /** Factures ouvertes du même client, pour proposer un regroupement.
  *
  * Regrouper est le cas courant : on facture six commandes du même client sur
  * une seule facture mensuelle. Sans cette liste, chaque commande créerait sa
  * propre facture et le client en recevrait six. */
-export async function facturesDuClient(clientNom: string): Promise<CibleFacture[]> {
+export async function facturesDuClient(clientNom: string, devise?: Devise): Promise<CibleFacture[]> {
   if (!clientNom.trim()) return [];
   const rows = await db
     .select({
@@ -32,6 +43,8 @@ export async function facturesDuClient(clientNom: string): Promise<CibleFacture[
       date: facture.date,
       marque: facture.marque,
       clientKey: facture.clientKey,
+      devise: facture.devise,
+      tauxTva: facture.tauxTva,
     })
     .from(facture)
     .where(and(eq(facture.type, "facture"), isNull(facture.deletedAt)));
@@ -40,7 +53,11 @@ export async function facturesDuClient(clientNom: string): Promise<CibleFacture[
   const slug = biz.slugClient(clientNom);
   return rows
     .filter((f) => biz.normaliserNom(f.marque) === cle || f.clientKey === slug)
-    .map(({ num, type, pieces, total, date }) => ({ num, type, pieces, total, date }))
+    // Une facture ne mélange pas les devises : on ne propose que la bonne.
+    .filter((f) => !devise || deviseOu(f.devise) === devise)
+    .map(({ num, type, pieces, total, date, devise: d, tauxTva }) => ({
+      num, type, pieces, total, date, devise: deviseOu(d), tauxTva,
+    }))
     .sort((a, b) => b.num.localeCompare(a.num, "fr", { numeric: true }));
 }
 
@@ -73,7 +90,7 @@ export type ResultatFacturation = {
  * à ce que la commande déclare — et c'est la marge qui s'en trouve fausse. */
 export async function facturerCommande(
   commandeId: number,
-  saisie: fc.SaisieFacturation & { cible?: string; numero?: string; date?: string },
+  saisie: fc.SaisieFacturation & { cible?: string; numero?: string; date?: string; tauxTva?: number },
 ): Promise<ResultatFacturation> {
   const ligneCmd = (await listCommandes({ includeArchived: true })).find((c) => c.id === commandeId);
   if (!ligneCmd) throw new Error("Commande introuvable");
@@ -86,8 +103,9 @@ export async function facturerCommande(
   const dateFacture = saisie.date || ligneCmd.dateLivraison || biz.todayISO();
 
   return db.transaction(async (tx) => {
+    const devise = deviseOu(ligneCmd.devise);
     const [existante] = await tx
-      .select({ id: facture.id, pieces: facture.pieces, total: facture.total })
+      .select({ id: facture.id, devise: facture.devise })
       .from(facture)
       .where(and(eq(facture.num, numero), eq(facture.type, "facture")));
 
@@ -95,16 +113,14 @@ export async function facturerCommande(
     let regroupee = false;
 
     if (existante) {
+      /* La facture garde sa devise et son taux de TVA : on y ajoute une
+       * ligne, on ne la réémet pas. Une commande dans une autre devise ne
+       * peut pas y entrer — le total n'aurait plus de sens. */
+      if (deviseOu(existante.devise) !== devise)
+        throw new Error(`La facture ${numero} est en ${existante.devise} — la commande est en ${devise}`);
       regroupee = true;
       factureId = existante.id;
-      await tx
-        .update(facture)
-        .set({
-          pieces: existante.pieces + brouillon.qte,
-          total: Math.round((existante.total + brouillon.ligne.mt) * 100) / 100,
-          deletedAt: null,
-        })
-        .where(eq(facture.id, factureId));
+      await tx.update(facture).set({ deletedAt: null }).where(eq(facture.id, factureId));
     } else {
       /* Le client de la facture est rattaché par sa clé quand elle existe :
        * sans ça la facture tombe dans « AUTRE » et fausse le CA par société.
@@ -128,8 +144,8 @@ export async function facturerCommande(
           date: dateFacture,
           clientKey: fiche?.key ?? null,
           marque: ligneCmd.client,
-          pieces: brouillon.qte,
-          total: brouillon.ligne.mt,
+          devise,
+          tauxTva: tauxTvaValide(saisie.tauxTva),
         })
         .returning({ id: facture.id });
       factureId = cree.id;
@@ -153,6 +169,9 @@ export async function facturerCommande(
         target: [factureCostLine.factureId, factureCostLine.lineIdx],
         set: { lieu: brouillon.cout.lieu, faconnier: brouillon.cout.faconnier, cout: brouillon.cout.cout },
       });
+
+    // Pièces, HT, TVA et TTC repartent des lignes : jamais d'incrément.
+    await recalculerTotauxFacture(tx, factureId);
 
     const [avant] = await tx.select().from(commande).where(eq(commande.id, commandeId));
     const numeros = [...new Set([...(avant?.facNums ?? []), numero])];

@@ -1,4 +1,5 @@
 import type { Tone } from "@/components/shared/status-badge";
+import { type Devise as DeviseMontant, arrondir } from "./montants";
 
 /* Encaissements clients et comptes fournisseurs.
  *
@@ -55,8 +56,15 @@ export type Reglement = { montant: number };
 
 const centimes = (n: number) => Math.round(n * 100) / 100;
 
-export const totalRegle = (reglements: Reglement[]) => centimes(reglements.reduce((s, r) => s + (r.montant || 0), 0));
-export const resteDu = (total: number, reglements: Reglement[]) => centimes(total - totalRegle(reglements));
+/* Arrondi à la devise de la facture : au millime pour le dinar, au centime
+ * sinon (défaut, comme avant l'arrivée des factures en TND). */
+const arrondiDevise = (n: number, devise?: DeviseMontant) => (devise ? arrondir(n, devise) : centimes(n));
+
+export const totalRegle = (reglements: Reglement[], devise?: DeviseMontant) =>
+  arrondiDevise(reglements.reduce((s, r) => s + (r.montant || 0), 0), devise);
+/** `total` est ce que le client doit : le TTC de la facture. */
+export const resteDu = (total: number, reglements: Reglement[], devise?: DeviseMontant) =>
+  arrondiDevise(total - totalRegle(reglements, devise), devise);
 
 export type StatutPaiement = "paye" | "partiel" | "retard" | "attente";
 

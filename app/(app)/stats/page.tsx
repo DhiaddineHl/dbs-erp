@@ -7,15 +7,20 @@ import { Progress } from "@/components/ui/progress";
 import { CaParClient } from "@/components/charts/ca-par-client";
 import { RepartitionProductionChart } from "@/components/charts/repartition-production";
 import { getStatsData } from "@/lib/services/dashboard";
+import { VueDeviseSelect } from "@/components/shared/vue-devise";
+import { devisesDe, formatMontant, formatMontants, parseVueDevise } from "@/lib/domain/montants";
 
-const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
+const arrondi = { decimales: 0 };
 
 /** Nombre de clients tracés : au-delà, l'axe devient une liste. */
 const TETE_CLIENTS = 8;
 
-export default async function StatsPage() {
-  const { rows, totals, repartition } = await getStatsData();
-  const tete = rows.filter((r) => r.ca > 0).slice(0, TETE_CLIENTS);
+export default async function StatsPage({ searchParams }: { searchParams: Promise<{ vue?: string }> }) {
+  const vue = parseVueDevise((await searchParams).vue);
+  const { rows, totals, repartition } = await getStatsData(vue);
+  // Le graphique ne mélange pas les devises : un par devise présente.
+  const devises = devisesDe(totals.ca);
+  const multi = devises.length > 1;
 
   return (
     <>
@@ -25,19 +30,37 @@ export default async function StatsPage() {
         description="Analyses par client, façonnier et chaîne"
       />
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <VueDeviseSelect />
+        {totals.nonConvertis > 0 && (
+          <span className="text-[11px] text-[var(--danger-d)]">
+            ⚠ {totals.nonConvertis} commande(s) exclue(s) faute de taux de change — voir Paramètres
+          </span>
+        )}
+      </div>
+
       <KpiGrid>
-        <KpiCard label="CA" value={eur(totals.ca)} icon={Euro} tone="brand" />
-        <KpiCard label="Marge" value={eur(totals.marge)} icon={BarChart3} tone="purple" />
+        <KpiCard label="CA (HT)" value={formatMontants(totals.ca, arrondi)} icon={Euro} tone="brand" />
+        <KpiCard label="Marge" value={formatMontants(totals.marge, arrondi)} icon={BarChart3} tone="purple" />
         <KpiCard label="Pièces" value={totals.pieces.toLocaleString("fr-FR")} icon={Package} tone="info" />
       </KpiGrid>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <SectionPanel
-          title={`CA par client — ${TETE_CLIENTS} premiers`}
-          icon={<Euro className="size-4 text-brand" />}
-        >
-          <CaParClient data={tete.map((r) => ({ client: r.unite, ca: r.ca, pieces: r.pieces }))} />
-        </SectionPanel>
+        {devises.map((d) => (
+          <SectionPanel
+            key={d}
+            title={`CA HT par client — ${TETE_CLIENTS} premiers${multi ? ` (${d})` : ""}`}
+            icon={<Euro className="size-4 text-brand" />}
+          >
+            <CaParClient
+              devise={d}
+              data={rows
+                .filter((r) => r.devise === d && r.ca > 0)
+                .slice(0, TETE_CLIENTS)
+                .map((r) => ({ client: r.unite, ca: r.ca, pieces: r.pieces }))}
+            />
+          </SectionPanel>
+        ))}
 
         <SectionPanel
           title="Répartition de la production"
@@ -54,7 +77,7 @@ export default async function StatsPage() {
 
       <SectionPanel title="Performance par client" flush>
         <DataTable
-          columns={["Unité", "Cmd actives", "Pièces", "Produit", "Avancement", "CA", "Marge"]}
+          columns={["Unité", "Cmd actives", "Pièces", "Produit", "Avancement", "CA HT", "Marge"]}
           rows={rows.map((s) => [
             <span key="u" className="font-semibold">{s.unite}</span>,
             <span key="c" className="tabular-nums">{s.cmd}</span>,
@@ -64,8 +87,10 @@ export default async function StatsPage() {
               <Progress value={s.av} className="h-1.5" />
               <span className="w-8 text-right text-[11px] tabular-nums">{s.av}%</span>
             </div>,
-            <span key="ca" className="tabular-nums">{eur(s.ca)}</span>,
-            <span key="mg" className="font-semibold tabular-nums text-success-foreground">{eur(s.marge)}</span>,
+            <span key="ca" className="tabular-nums">{formatMontant(s.ca, s.devise, arrondi)}</span>,
+            <span key="mg" className="font-semibold tabular-nums text-success-foreground">
+              {formatMontant(s.marge, s.devise, arrondi)}
+            </span>,
           ])}
         />
       </SectionPanel>

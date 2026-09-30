@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { ECRANS_CARNET } from "@/lib/revalidation";
 import { assertUser, userRole } from "@/lib/auth/server";
 import type { Divergence } from "@/lib/domain/facturation-commande";
+import { type Devise, estDevise } from "@/lib/domain/montants";
 import * as svc from "@/lib/services/facturation-commande";
 import { deleteCommandes, setArchived } from "@/lib/services/commandes";
 import { journaliser } from "@/lib/services/activite";
@@ -42,11 +43,11 @@ export async function peutFacturer(): Promise<boolean> {
 
 /* ─────────── B1 ─────────── */
 
-export async function chargerCibles(clientNom: string, commandeId: number) {
+export async function chargerCibles(clientNom: string, commandeId: number, devise?: Devise) {
   try {
     await assertUser();
     const [cibles, numero] = await Promise.all([
-      svc.facturesDuClient(clientNom),
+      svc.facturesDuClient(clientNom, devise && estDevise(devise) ? devise : undefined),
       svc.prochainNumeroPasserelle(),
     ]);
     return ok({ cibles, numero, commandeId });
@@ -57,7 +58,16 @@ export async function chargerCibles(clientNom: string, commandeId: number) {
 
 export async function facturerCommande(
   commandeId: number,
-  saisie: { qte: number; pu: number; ref?: string; desig?: string; cible?: string; numero?: string },
+  saisie: {
+    qte: number;
+    pu: number;
+    ref?: string;
+    desig?: string;
+    cible?: string;
+    numero?: string;
+    /** Taux de TVA (%) de la NOUVELLE facture ; ignoré en cas de regroupement. */
+    tauxTva?: number;
+  },
 ): Promise<Result<svc.ResultatFacturation>> {
   try {
     await exigerFacturation();

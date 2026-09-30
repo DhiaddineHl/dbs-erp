@@ -10,7 +10,8 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { LIBELLES_ORIGINE, type PointFacturation } from "@/lib/domain/graphiques";
-import { euros, eurosAxe } from "./format";
+import { montant, montantAxe } from "./format";
+import type { Devise } from "@/lib/domain/montants";
 
 /* Deux graphiques empilés plutôt qu'un seul à deux axes Y. L'original traçait
  * les barres du mois et la courbe de cumul sur la même échelle : le cumul
@@ -27,7 +28,8 @@ const config = {
 const MARGE_GAUCHE = { top: 8, right: 8, bottom: 0, left: 0 };
 const LARGEUR_AXE = 58;
 
-export function FacturationMensuelle({ data }: { data: PointFacturation[] }) {
+export function FacturationMensuelle({ data, devise = "EUR" }: { data: PointFacturation[]; devise?: Devise }) {
+  const axe = (n: number) => montantAxe(n, devise);
   if (!data.length) {
     return (
       <div className="flex h-[280px] items-center justify-center text-xs text-muted-foreground">
@@ -45,13 +47,13 @@ export function FacturationMensuelle({ data }: { data: PointFacturation[] }) {
             width={LARGEUR_AXE}
             tickLine={false}
             axisLine={false}
-            tickFormatter={eurosAxe}
+            tickFormatter={axe}
             tickMargin={4}
           />
           <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
           <ChartLegend verticalAlign="top" content={<ChartLegendContent className="pb-2 pt-0" />} />
           <ChartTooltip
-            content={<ChartTooltipContent formatter={formatLigne} />}
+            content={<ChartTooltipContent formatter={(v, n, it) => formatLigne(v, n, it, devise)} />}
           />
           {/* Le liseré blanc sépare les segments empilés sans ajouter de couleur. */}
           <Bar dataKey="interne" stackId="m" fill="var(--color-interne)" stroke="var(--card)" strokeWidth={1} maxBarSize={44} />
@@ -77,12 +79,12 @@ export function FacturationMensuelle({ data }: { data: PointFacturation[] }) {
             width={LARGEUR_AXE}
             tickLine={false}
             axisLine={false}
-            tickFormatter={eurosAxe}
+            tickFormatter={axe}
             tickMargin={4}
             tickCount={3}
           />
           <XAxis dataKey="label" hide />
-          <ChartTooltip content={<ChartTooltipContent formatter={formatLigne} />} />
+          <ChartTooltip content={<ChartTooltipContent formatter={(v, n, it) => formatLigne(v, n, it, devise)} />} />
           <Area
             dataKey="cumul"
             type="linear"
@@ -104,6 +106,7 @@ function formatLigne(
   value: unknown,
   name: unknown,
   item: { color?: string },
+  devise: Devise,
 ) {
   const cle = String(name) as keyof typeof config;
   return (
@@ -115,7 +118,7 @@ function formatLigne(
       <div className="flex flex-1 items-center justify-between gap-3 leading-none">
         <span className="text-muted-foreground">{config[cle]?.label ?? String(name)}</span>
         <span className="font-mono font-medium tabular-nums text-foreground">
-          {typeof value === "number" ? euros(value) : String(value)}
+          {typeof value === "number" ? montant(value, devise) : String(value)}
         </span>
       </div>
     </>

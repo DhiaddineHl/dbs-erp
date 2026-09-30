@@ -9,6 +9,7 @@ import {
   setCostLineAction,
 } from "@/lib/actions/facturation";
 import type { LigneCoutee } from "@/lib/domain/graphiques";
+import { type Devise, montantEnLettres as enLettres } from "@/lib/domain/montants";
 
 /* ═══════════════════ TYPES ═══════════════════ */
 export type Ligne = {
@@ -30,7 +31,14 @@ export type Facture = {
   marque: string;
   clientRaw: string;
   pieces: number;
+  /** Total hors taxes — base du CA et des marges. */
   total: number;
+  devise: Devise;
+  /** Taux de TVA (%) saisi à l'émission ; 0 = facture HT. */
+  tauxTva: number;
+  montantTva: number;
+  /** Ce que le client doit payer. */
+  totalTtc: number;
   fournitures: number;
   extras: Extra[];
   lignes: Ligne[];
@@ -184,40 +192,7 @@ export function clientAnalysis(all: Facture[], moisFilter?: string | null) {
 }
 
 /* ═══════════════════ MONTANT EN LETTRES ═══════════════════ */
-export function montantEnLettres(n: number): string {
-  const u = [
-    "", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf", "dix", "onze", "douze", "treize",
-    "quatorze", "quinze", "seize", "dix-sept", "dix-huit", "dix-neuf",
-  ];
-  const d = ["", "", "vingt", "trente", "quarante", "cinquante", "soixante", "soixante", "quatre-vingt", "quatre-vingt"];
-  function dix(x: number): string {
-    if (x < 20) return u[x];
-    const d1 = Math.floor(x / 10);
-    const u1 = x % 10;
-    if (d1 === 7) return d[6] + (u1 === 1 ? " et onze" : u1 > 0 ? "-" + u[10 + u1] : "-dix");
-    if (d1 === 9) return d[8] + "-" + u[10 + u1 > 19 ? u1 : 10 + u1];
-    return d[d1] + (u1 === 1 && d1 !== 8 ? " et un" : u1 > 0 ? "-" + u[u1] : d1 === 8 ? "s" : "");
-  }
-  function cent(x: number): string {
-    if (x < 100) return dix(x);
-    const c = Math.floor(x / 100);
-    const r = x % 100;
-    if (c === 1) return "cent" + (r > 0 ? " " + dix(r) : "");
-    return u[c] + " cent" + (r === 0 ? "s" : " " + dix(r));
-  }
-  function mille(x: number): string {
-    if (x < 1000) return cent(x);
-    const m = Math.floor(x / 1000);
-    const r = x % 1000;
-    return (m === 1 ? "mille" : cent(m) + " mille") + (r > 0 ? " " + cent(r) : "");
-  }
-  if (!n) return "zéro euro";
-  const ent = Math.floor(Math.abs(n));
-  const dec = Math.round((Math.abs(n) - ent) * 100);
-  let s = mille(ent) + " euro" + (ent > 1 ? "s" : "");
-  if (dec > 0) s += " et " + dix(dec) + " centime" + (dec > 1 ? "s" : "");
-  return s;
-}
+export const montantEnLettres = (n: number, devise: Devise = "EUR") => enLettres(n, devise);
 
 /* ═══════════════════ STORE HOOK (Postgres-backed) ═══════════════════ */
 export type FactStoreData = { factures: Facture[]; couts: Couts; deleted: Facture[] };

@@ -5,6 +5,7 @@ import { chaine, client, commande, commandePrixJournal, faconnier, modele, ofSup
 import type { Taille } from "@/lib/db/schema";
 import type { Tone } from "@/components/shared/status-badge";
 import * as biz from "@/lib/domain/commande";
+import { type Devise, type Montants, deviseOu, formatMontants } from "@/lib/domain/montants";
 import { getSetting } from "@/lib/services/permissions";
 import { couvertureTissuParCommande } from "@/lib/services/tissu";
 
@@ -68,6 +69,8 @@ export type CommandeRow = {
   tailles: Taille[];
   prixVente: number | null;
   prixFacon: number | null;
+  /** Devise des prix HT (EUR | TND). */
+  devise: Devise;
 
   /* derived money */
   ca: number;
@@ -130,9 +133,11 @@ export type ClientRow = {
   pays: string;
   tva: string;
   adresse: string;
-  /** Derived: active commandes and their CA. */
+  /** Derived: active commandes and their CA (HT), per currency. */
   cmd: number;
-  ca: number;
+  caParDevise: Montants;
+  /** CA formatted for display: "12 400 € · 3 100,000 DT". */
+  caLibelle: string;
 };
 
 export type FaconnierRow = {
@@ -267,6 +272,7 @@ export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow
         tailles: c.tailles,
         prixVente: c.prixVente,
         prixFacon: c.prixFacon,
+        devise: deviseOu(c.devise),
 
         ca: biz.chiffreAffaires(c),
         margeUnitaire: biz.margeUnitaire(c),
@@ -331,16 +337,27 @@ const QTE_PROPRE = sql`greatest(${commande.qte} - coalesce((select sum(sc.qte) f
  * part de la sienne, confiée ailleurs. Elle ne compte donc pas dans `cmd`,
  * mais son CA propre compte, puisqu'elle peut être vendue à son propre prix. */
 async function commandeAggregatsClient() {
+  // Groupé aussi par devise : des euros et des dinars ne s'additionnent pas.
   const rows = await db
     .select({
       clientId: commande.clientId,
+      devise: commande.devise,
       cmd: sql<number>`count(*) filter (where ${commande.parentId} is null)::int`,
       ca: sql<number>`coalesce(sum(coalesce(${commande.prixVente}, 0) * ${QTE_PROPRE}), 0)::float8`,
     })
     .from(commande)
     .where(eq(commande.archived, false))
-    .groupBy(commande.clientId);
-  return new Map(rows.filter((r) => r.clientId != null).map((r) => [r.clientId!, r]));
+    .groupBy(commande.clientId, commande.devise);
+  const out = new Map<number, { cmd: number; ca: Montants }>();
+  for (const r of rows) {
+    if (r.clientId == null) continue;
+    const a = out.get(r.clientId) ?? { cmd: 0, ca: {} };
+    const d = deviseOu(r.devise);
+    a.cmd += r.cmd;
+    a.ca[d] = (a.ca[d] ?? 0) + r.ca;
+    out.set(r.clientId, a);
+  }
+  return out;
 }
 
 /** Active commandes per façonnier: count + pieces left to produce.
@@ -380,7 +397,8 @@ export async function listClients(): Promise<ClientRow[]> {
     tva: c.tva,
     adresse: c.adresse,
     cmd: agg.get(c.id)?.cmd ?? 0,
-    ca: agg.get(c.id)?.ca ?? 0,
+    caParDevise: agg.get(c.id)?.ca ?? {},
+    caLibelle: formatMontants(agg.get(c.id)?.ca ?? {}, { decimales: 0 }),
   }));
 }
 
@@ -529,7 +547,7 @@ export async function idsSousCommandes(ids: number[], lien?: biz.LienSousCommand
  *   · la mère visée doit être une commande de premier niveau. */
 export async function insertSousCommandes(
   parentId: number,
-  valeurs: Omit<CommandeInput, "parentId" | "lienParent" | "modele" | "clientId">[],
+  valeurs: Omit<CommandeInput, "parentId" | "lienParent" | "modele" | "clientId" | "devise">[],
 ) {
   if (!valeurs.length) return [];
   const parent = await getCommande(parentId);
@@ -547,6 +565,7 @@ export async function insertSousCommandes(
         lienParent: "decoupe" as const,
         modele: parent.modele,
         clientId: parent.clientId,
+        devise: parent.devise,
       })),
     )
     .returning({ id: commande.id });
@@ -590,6 +609,9 @@ export async function regrouperSous(porteurId: number, ids: number[]): Promise<n
       throw new Error(`${l.ofNumber} est déjà rattaché à un autre OF — déliez-le d'abord`);
     if (dejaPortees.length === 0 && (await db.$count(commande, eq(commande.parentId, l.id))) > 0)
       throw new Error(`${l.ofNumber} porte lui-même des sous-commandes — déliez-les d'abord`);
+    // Le CA d'un groupe s'additionne : tous ses OF sont dans la même devise.
+    if (l.devise !== porteur.devise)
+      throw new Error(`${l.ofNumber} est en ${l.devise}, ${porteur.ofNumber} en ${porteur.devise} — regroupement impossible`);
   }
 
   const r = await db
@@ -658,10 +680,29 @@ export async function updateCommande(
     const [before] = await tx.select().from(commande).where(eq(commande.id, id));
     if (!before) throw new Error("Commande introuvable");
 
+    /* La devise porte sur les prix déjà facturés : la changer après coup
+     * ferait dire aux factures émises autre chose que la commande. Une part
+     * découpée suit la devise de sa mère — c'est la même vente. */
+    const changeDevise = patch.devise !== undefined && patch.devise !== before.devise;
+    if (changeDevise) {
+      if (before.parentId != null)
+        throw new Error("La devise d'une sous-commande suit celle de sa commande mère");
+      if ((await tx.$count(commande, and(eq(commande.parentId, id), eq(commande.lienParent, "regroupement")))) > 0)
+        throw new Error(`${before.ofNumber} porte un regroupement — déliez-le avant de changer sa devise`);
+      if (before.factureQte > 0)
+        throw new Error(`${before.ofNumber} est déjà (partiellement) facturée — sa devise ne peut plus changer`);
+    }
+
     await tx
       .update(commande)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(commande.id, id));
+
+    if (changeDevise)
+      await tx
+        .update(commande)
+        .set({ devise: patch.devise, updatedAt: new Date() })
+        .where(and(eq(commande.parentId, id), eq(commande.lienParent, "decoupe")));
 
     const mouvements = (["prixVente", "prixFacon"] as const)
       .filter((champ) => champ in patch && (patch[champ] ?? null) !== (before[champ] ?? null))

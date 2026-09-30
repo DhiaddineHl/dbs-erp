@@ -9,11 +9,11 @@ import { Input } from "@/components/ui/input";
 import { STATUTS_LOGISTIQUE, URGENCES_EXPORT, libelleMoisExport, type StatutLogistique } from "@/lib/domain/aval";
 import { cleDate } from "@/lib/domain/commande";
 import type { LignePrevision } from "@/lib/services/aval";
+import { type Montants, formatMontants } from "@/lib/domain/montants";
 import * as A from "@/lib/actions/aval";
 import { DateAction, Kpi, SelectAction, Tuiles } from "../aval/ui";
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
 const OPTIONS_LOG = (Object.keys(STATUTS_LOGISTIQUE) as StatutLogistique[]).map((k) => ({
   value: k,
@@ -183,7 +183,10 @@ export function PrevExportClient({
                       <td colSpan={10} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide">
                         {libelleMoisExport(mois)} — {lot.length} commande(s) ·{" "}
                         {nb.format(lot.reduce((s, l) => s + l.qte, 0))} pcs ·{" "}
-                        {eur.format(lot.reduce((s, l) => s + l.ca, 0))} €
+                        {formatMontants(
+                          lot.reduce<Montants>((m, l) => ({ ...m, [l.devise]: (m[l.devise] ?? 0) + l.ca }), {}),
+                          { decimales: 0 },
+                        )}
                       </td>
                     </tr>
                     {lot.map((l) => {

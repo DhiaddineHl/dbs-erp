@@ -1,5 +1,6 @@
 "use client";
 
+import { DEVISES } from "@/lib/domain/montants";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -255,7 +256,7 @@ export function DialogDoublons({ peutSupprimer, onFermer }: { peutSupprimer: boo
                               {nb.format(c.factureQte)}
                             </td>
                             <td className="px-2 py-1 tabular-nums">{dateFr(c.dateExport)}</td>
-                            <td className="px-2 py-1 text-right tabular-nums">{eur.format(c.ca)} €</td>
+                            <td className="px-2 py-1 text-right tabular-nums">{eur.format(c.ca)} {DEVISES[c.devise].symbole}</td>
                           </tr>
                         );
                       })}

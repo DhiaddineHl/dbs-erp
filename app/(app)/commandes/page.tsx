@@ -12,9 +12,11 @@ import { importCommandes, peutSupprimerCommandes } from "@/lib/actions/commandes
 import { peutFacturer } from "@/lib/actions/facturation-commande";
 import { CommandesClient } from "./commandes-client";
 import { NouvelleCommande } from "./nouvelle-commande";
+import { VueDeviseSelect } from "@/components/shared/vue-devise";
+import { DEVISES, devisesDe, formatMontants, parseVueDevise, totaliser } from "@/lib/domain/montants";
+import { listTauxChange } from "@/lib/services/taux-change";
 
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
-const money = (n: number) => `${eur.format(Math.round(n))} €`;
+const arrondi = { decimales: 0 };
 
 /* Gabarit d'import : uniquement les colonnes réellement lues.
  *
@@ -31,16 +33,19 @@ const GABARIT_EXEMPLES = [
   ["OF-2026-118", "PANTALON CHINO", "REF-2210", "Marine", "PE26", "MODA SRL", "", "800", "150", "24,00", "", "30/09/2026"],
 ];
 
-export default async function CommandesPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  const { q = "" } = await searchParams;
+export default async function CommandesPage({ searchParams }: { searchParams: Promise<{ q?: string; vue?: string }> }) {
+  const { q = "", vue: vueParam } = await searchParams;
+  // Montants séparés par devise, ou convertis dans la devise choisie (?vue=TND).
+  const vue = parseVueDevise(vueParam);
   /* Les archivées sont chargées avec le reste : l'écran sait les masquer, et
    * la case « Inclure les archivées » doit répondre sans aller-retour. */
-  const [CMDS, clients, faconniers, chaines, peutSupprimer] = await Promise.all([
+  const [CMDS, clients, faconniers, chaines, peutSupprimer, taux] = await Promise.all([
     listCommandes({ includeArchived: true }),
     listClients(),
     listFaconniers(),
     getChaines(),
     peutSupprimerCommandes(),
+    listTauxChange(),
   ]);
   const facturable = await peutFacturer();
   const actives = CMDS.filter((c) => !c.archived);
@@ -63,9 +68,15 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
    * découpée est présente ici avec sa mère ET ses parts, et compter les deux
    * gonflerait le CA de tout ce qui a été réparti. Sur une commande non
    * découpée, le propre est le tout — le chiffre ne bouge donc pas. */
-  const caEnCours = actives.reduce((s, c) => s + c.caPropre, 0);
-  const margeBrute = actives.reduce((s, c) => s + c.margePropre, 0);
-  const margePct = caEnCours > 0 ? Math.round((margeBrute / caEnCours) * 100) : 0;
+  /* Des euros et des dinars ne s'additionnent pas : par devise, ou convertis
+   * au taux du jour — une commande ouverte n'a pas encore de date de vente. */
+  const jour = new Date().toISOString().slice(0, 10);
+  const ca = totaliser(actives.map((c) => ({ devise: c.devise, montant: c.caPropre, date: jour })), vue, taux);
+  const marge = totaliser(actives.map((c) => ({ devise: c.devise, montant: c.margePropre, date: jour })), vue, taux);
+  const pcts = devisesDe(ca.montants)
+    .filter((d) => (ca.montants[d] ?? 0) > 0)
+    .map((d) => ({ d, pct: Math.round(((marge.montants[d] ?? 0) / ca.montants[d]!) * 100) }));
+  const multi = pcts.length > 1;
   const enRetard = actives.filter((c) => c.statutKey === "retard").length;
   /* Le compteur annonce des commandes, pas des lignes : une part n'est pas
    * une commande de plus pour le client. */
@@ -76,7 +87,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
   const csvRows = actives.map((c) => ({
     of: c.of, parentOf: c.parentOf, modele: c.modele, refArticle: c.refArticle, couleur: c.couleur, saison: c.saison,
     client: c.client, faconnier: c.faconnier, qte: c.qte, produit: c.produit,
-    prixVente: c.prixVente ?? "", prixFacon: c.prixFacon ?? "", margeTotale: Math.round(c.margeTotale),
+    prixVente: c.prixVente ?? "", prixFacon: c.prixFacon ?? "", devise: c.devise, margeTotale: Math.round(c.margeTotale),
     dateExport: c.dateExport, retard: c.retard[1], av: c.av, statut: c.statut[1],
   }));
 
@@ -105,6 +116,14 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
         }
       />
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <VueDeviseSelect />
+        {ca.nonConvertis > 0 && (
+          <span className="text-[11px] text-[var(--danger-d)]">
+            ⚠ {ca.nonConvertis} commande(s) exclue(s) faute de taux de change — voir Paramètres
+          </span>
+        )}
+      </div>
       <KpiGrid>
         <KpiCard
           label="Commandes actives"
@@ -117,13 +136,23 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
             ) : undefined
           }
         />
-        <KpiCard label="CA en cours" value={money(caEnCours)} icon={Euro} tone="success" />
+        <KpiCard label="CA en cours (HT)" value={formatMontants(ca.montants, arrondi)} icon={Euro} tone="success" />
         <KpiCard
           label="Marge brute"
-          value={money(margeBrute)}
+          value={formatMontants(marge.montants, arrondi)}
           icon={BarChart3}
           tone="purple"
-          sub={<StatusBadge tone={margePct >= 20 ? "success" : "warning"}>{margePct}%</StatusBadge>}
+          sub={
+            pcts.length ? (
+              <span className="flex flex-wrap gap-1">
+                {pcts.map(({ d, pct }) => (
+                  <StatusBadge key={d} tone={pct >= 20 ? "success" : "warning"}>
+                    {pct}%{multi ? ` (${DEVISES[d].symbole})` : ""}
+                  </StatusBadge>
+                ))}
+              </span>
+            ) : undefined
+          }
         />
         <KpiCard label="En retard" value={String(enRetard)} icon={TriangleAlert} tone="danger" />
       </KpiGrid>

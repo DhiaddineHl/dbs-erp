@@ -15,11 +15,11 @@ import { createClient, importClients } from "@/lib/actions/commandes";
 import { peutNettoyerReferentiel } from "@/lib/actions/referentiel";
 import { BoutonFusionClients } from "./fusion";
 
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
+import { type Montants, ajouterMontants, formatMontants } from "@/lib/domain/montants";
 
 export default async function ClientsPage() {
   const [CLIENTS, peutFusionner] = await Promise.all([listClients(), peutNettoyerReferentiel()]);
-  const caTotal = CLIENTS.reduce((s, c) => s + c.ca, 0);
+  const caTotal = CLIENTS.reduce<Montants>((m, c) => ajouterMontants(m, c.caParDevise), {});
   const cmdTotal = CLIENTS.reduce((s, c) => s + c.cmd, 0);
 
   return (
@@ -46,7 +46,7 @@ export default async function ClientsPage() {
 
       <KpiGrid>
         <KpiCard label="Clients" value={String(CLIENTS.length)} icon={Building2} tone="brand" />
-        <KpiCard label="CA portefeuille" value={`${eur.format(Math.round(caTotal))} €`} icon={Euro} tone="success" />
+        <KpiCard label="CA portefeuille" value={formatMontants(caTotal, { decimales: 0 })} icon={Euro} tone="success" />
         <KpiCard label="Commandes actives" value={String(cmdTotal)} icon={Package} tone="purple" />
       </KpiGrid>
 

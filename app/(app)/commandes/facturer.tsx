@@ -6,12 +6,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { resteAFacturer } from "@/lib/domain/facturation-commande";
+import { DEVISES, calculerTotaux, formatMontant } from "@/lib/domain/montants";
 import type { CommandeRow } from "@/lib/services/commandes";
 import type { CibleFacture } from "@/lib/services/facturation-commande";
 import * as F from "@/lib/actions/facturation-commande";
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
 const NOUVELLE = "__new__";
 
@@ -31,12 +31,14 @@ export function DialogFacturer({ commande, onFermer }: { commande: CommandeRow; 
   const [desig, setDesig] = useState(commande.note || commande.modele);
   const [cible, setCible] = useState(NOUVELLE);
   const [numero, setNumero] = useState("");
+  // TVA de la nouvelle facture : 0 % par défaut, saisie libre.
+  const [tauxTva, setTauxTva] = useState("0");
   const [cibles, setCibles] = useState<CibleFacture[]>([]);
   const [chargement, setChargement] = useState(true);
 
   useEffect(() => {
     let vivant = true;
-    F.chargerCibles(commande.client, commande.id).then((r) => {
+    F.chargerCibles(commande.client, commande.id, commande.devise).then((r) => {
       if (!vivant) return;
       if (r.ok && r.data) {
         setCibles(r.data.cibles);
@@ -47,10 +49,16 @@ export function DialogFacturer({ commande, onFermer }: { commande: CommandeRow; 
     return () => {
       vivant = false;
     };
-  }, [commande.client, commande.id]);
+  }, [commande.client, commande.id, commande.devise]);
 
   const qteRetenue = Math.min(reste, Math.max(1, Math.round(qte || 0)));
+  const devise = commande.devise;
+  const sym = DEVISES[devise].symbole;
   const montant = Math.round(qteRetenue * (pu || 0) * 100) / 100;
+  // Regroupée, la ligne prend le taux de la facture existante.
+  const cibleChoisie = cibles.find((f) => f.num === cible);
+  const tauxEffectif = cibleChoisie ? cibleChoisie.tauxTva : parseFloat(tauxTva.replace(",", ".")) || 0;
+  const tva = calculerTotaux({ montantsHt: [montant], tauxTva: tauxEffectif, devise });
   // Complète au regard de ce dont CETTE ligne répond : sur une commande
   // découpée, les parts se facturent chacune de leur côté.
   const complete = commande.factureQte + qteRetenue >= commande.qtePropre;
@@ -64,6 +72,7 @@ export function DialogFacturer({ commande, onFermer }: { commande: CommandeRow; 
         desig,
         cible: cible === NOUVELLE ? undefined : cible,
         numero: cible === NOUVELLE ? numero : undefined,
+        tauxTva: cible === NOUVELLE ? tauxEffectif : undefined,
       });
       if (!r.ok) {
         toast.error(r.error);
@@ -114,7 +123,7 @@ export function DialogFacturer({ commande, onFermer }: { commande: CommandeRow; 
               className="w-full rounded-md border border-input bg-card px-2 py-1.5 text-xs"
             />
           </Champ>
-          <Champ label="PU HT (€)">
+          <Champ label={`PU HT (${sym})`}>
             <input
               type="number"
               step="0.01"
@@ -148,14 +157,15 @@ export function DialogFacturer({ commande, onFermer }: { commande: CommandeRow; 
                 <option value={NOUVELLE}>➕ Nouvelle facture</option>
                 {cibles.map((f) => (
                   <option key={`${f.num}|${f.type}`} value={f.num}>
-                    Ajouter à {f.num} ({nb.format(f.pieces)} pcs · {eur.format(f.total)} €)
+                    Ajouter à {f.num} ({nb.format(f.pieces)} pcs · {formatMontant(f.total, f.devise)} HT
+                    {f.tauxTva > 0 ? ` · TVA ${f.tauxTva} %` : ""})
                   </option>
                 ))}
               </select>
             </Champ>
           </div>
           {cible === NOUVELLE && (
-            <div className="sm:col-span-2">
+            <>
               <Champ label="N° de facture (modifiable — suivez votre numérotation)">
                 <input
                   value={numero}
@@ -163,12 +173,29 @@ export function DialogFacturer({ commande, onFermer }: { commande: CommandeRow; 
                   className="w-full rounded-md border border-input bg-card px-2 py-1.5 text-xs"
                 />
               </Champ>
-            </div>
+              <Champ label="TVA (%) — 0 si non soumis">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={tauxTva}
+                  onChange={(e) => setTauxTva(e.target.value)}
+                  className="w-full rounded-md border border-input bg-card px-2 py-1.5 text-xs"
+                />
+              </Champ>
+            </>
           )}
         </div>
 
         <div className="rounded-lg bg-accent/40 px-3 py-2 text-xs">
-          Montant de la ligne : <b>{eur.format(montant)} €</b> ({nb.format(qteRetenue)} × {pu} €)
+          Montant de la ligne : <b>{formatMontant(montant, devise)} HT</b> ({nb.format(qteRetenue)} × {pu} {sym})
+          {tauxEffectif > 0 && (
+            <>
+              {" "}
+              · TVA {tauxEffectif} % {formatMontant(tva.montantTva, devise)} · <b>{formatMontant(tva.totalTtc, devise)} TTC</b>
+            </>
+          )}
           {complete ? (
             <span className="ml-2 text-success-foreground">— la commande sera soldée et archivée</span>
           ) : (

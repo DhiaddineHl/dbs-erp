@@ -82,6 +82,10 @@ export async function importerFacturation(src: Sauvegarde, r: Rapport) {
       date: dateOuNull(o.date) ?? "",
       clientKey,
       total: nombre(o.total),
+      // Reprise PilotPro : factures HT sans TVA, TTC = HT.
+      tauxTva: 0,
+      montantTva: 0,
+      totalTtc: nombre(o.total),
       poids: r.texte(o.poids),
       mp: r.texte(o.mp),
       pieces: entier(o.pieces) || (o.lignes ?? []).reduce((s, l) => s + entier(l.qte), 0),

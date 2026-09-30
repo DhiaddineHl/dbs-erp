@@ -7,6 +7,7 @@ import { EntityFormDialog, type ReglesFormulaire } from "@/components/shared/ent
 import { COMMANDE_FIELDS, COMMANDE_EDIT_FIELDS } from "@/lib/modules/forms";
 import { apercuCommande, erreurRepartition, montantSaisi, quantiteSaisie } from "@/lib/domain/commande";
 import { createCommande, updateCommandeRow } from "@/lib/actions/commandes";
+import { DEVISES, DEVISE_DEFAUT, deviseOu } from "@/lib/domain/montants";
 import type { CommandeRow } from "@/lib/services/commandes";
 import { EditeurSousCommandes, lireBrouillons, totalBrouillons } from "./sous-commandes";
 
@@ -60,6 +61,7 @@ function construireRegles(faconniers: Choix[], chaines: Choix[]): ReglesFormulai
 
     apercu: (v) => {
       const a = apercuCommande(v);
+      const sym = DEVISES[deviseOu(v.devise)].symbole;
       const sous = lireBrouillons(v.sousCommandes);
       const reparti = totalBrouillons(sous);
       if (a.vide && a.qte === 0) return null;
@@ -70,13 +72,13 @@ function construireRegles(faconniers: Choix[], chaines: Choix[]): ReglesFormulai
             📊 <b>{nb.format(a.qte)}</b> pcs
           </span>
           <span className="mr-3">
-            Marge unit. <b className={signe}>{dec.format(a.margeUnitaire)} €</b>
+            Marge unit. <b className={signe}>{dec.format(a.margeUnitaire)} {sym}</b>
           </span>
           <span className="mr-3">
-            Marge totale <b className={signe}>{eur.format(a.margeTotale)} €</b>
+            Marge totale <b className={signe}>{eur.format(a.margeTotale)} {sym}</b>
           </span>
           <span className="mr-3">
-            CA <b>{eur.format(a.ca)} €</b>
+            CA HT <b>{eur.format(a.ca)} {sym}</b>
           </span>
           <span>
             Taux <b className={signe}>{a.tauxPct}%</b>
@@ -123,6 +125,7 @@ export function NouvelleCommande({
       fields={COMMANDE_FIELDS}
       dynamicOptions={{ client: clients, faconnier: faconniers, chaineId: chaines }}
       regles={regles}
+      initialValues={{ devise: DEVISE_DEFAUT }}
       action={createCommande}
       successMessage="Commande créée"
     />
@@ -149,6 +152,7 @@ function construireReglesEdition(): ReglesFormulaire {
         : {},
     apercu: (v) => {
       const a = apercuCommande(v);
+      const sym = DEVISES[deviseOu(v.devise)].symbole;
       if (a.qte === 0) return null;
       const signe = a.margeUnitaire >= 0 ? "text-success-foreground" : "text-[var(--danger-d)]";
       return (
@@ -157,13 +161,13 @@ function construireReglesEdition(): ReglesFormulaire {
             📊 <b>{nb.format(a.qte)}</b> pcs
           </span>
           <span className="mr-3">
-            Marge unit. <b className={signe}>{dec.format(a.margeUnitaire)} €</b>
+            Marge unit. <b className={signe}>{dec.format(a.margeUnitaire)} {sym}</b>
           </span>
           <span className="mr-3">
-            Marge totale <b className={signe}>{eur.format(a.margeTotale)} €</b>
+            Marge totale <b className={signe}>{eur.format(a.margeTotale)} {sym}</b>
           </span>
           <span className="mr-3">
-            CA <b>{eur.format(a.ca)} €</b>
+            CA HT <b>{eur.format(a.ca)} {sym}</b>
           </span>
           <span>
             Taux <b className={signe}>{a.tauxPct}%</b>
@@ -205,6 +209,7 @@ export function ModifierCommande({
     qte: versChamp(commande.qte),
     prixVente: versChamp(commande.prixVente),
     prixFacon: versChamp(commande.prixFacon),
+    devise: commande.devise,
     consoTheo: versChamp(commande.consoTheo),
     receptTissu: commande.receptTissu,
     dateExport: commande.dateExport,

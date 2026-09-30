@@ -8,6 +8,17 @@ import {
   type Facture,
 } from "@/lib/facturation/store";
 import { type FactureForm, buildFactureDocHTML, printDocument } from "@/lib/facturation/print";
+import {
+  DEVISES,
+  DEVISE_DEFAUT,
+  type Devise,
+  arrondir,
+  LISTE_DEVISES,
+  calculerTotaux,
+  deviseOu,
+  formatMontant,
+  tauxTvaValide,
+} from "@/lib/domain/montants";
 
 type LineRow = { modele: string; desig: string; ref: string; couleur: string; qte: string; pu: string };
 const emptyLine = (): LineRow => ({ modele: "", desig: "", ref: "", couleur: "", qte: "", pu: "" });
@@ -39,6 +50,8 @@ function factToForm(f: Facture) {
     matieres: (f.matieres || []).join("\n"),
     fournitures: String(f.fournitures || 0),
     shipping: ship.toFixed(2),
+    devise: deviseOu(f.devise),
+    tauxTva: String(f.tauxTva || 0),
     lignes: (f.lignes.length ? f.lignes : [{}]).map((l) => ({
       modele: (l as Facture["lignes"][0]).modele || "",
       desig: (l as Facture["lignes"][0]).desig || "",
@@ -70,6 +83,10 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
   const [matieres, setMatieres] = useState(init?.matieres ?? "");
   const [fournitures, setFournitures] = useState(init?.fournitures ?? "0");
   const [shipping, setShipping] = useState(init?.shipping ?? "0");
+  const [devise, setDevise] = useState<Devise>(init?.devise ?? DEVISE_DEFAUT);
+  // Saisie par facture : 0 % par défaut, la facture reste alors hors taxes.
+  const [tauxTva, setTauxTva] = useState(init?.tauxTva ?? "0");
+  const sym = DEVISES[devise].symbole;
   const [lignes, setLignes] = useState<LineRow[]>(init?.lignes ?? [emptyLine()]);
   // when arriving via "Voir", open straight on the preview of the loaded facture
   const [preview, setPreview] = useState<string | null>(init ? buildFactureDocHTML(toFormData(init)) : null);
@@ -104,6 +121,8 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
     matieres,
     fournitures: parseFloat(fournitures) || 0,
     shipping: parseFloat(shipping) || 0,
+    devise,
+    tauxTva: tauxTvaValide(tauxTva),
     lignes: lignes
       .map((l) => {
         const q = parseFloat(l.qte) || 0;
@@ -111,6 +130,17 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
         return { modele: l.modele, desig: l.desig, ref: l.ref, couleur: l.couleur, qte: q, pu: p, mt: q * p };
       })
       .filter((r) => r.modele || r.qte),
+  });
+
+  // Récapitulatif en direct — le serveur refait le même calcul à l'enregistrement.
+  const recap = calculerTotaux({
+    montantsHt: [
+      ...lignes.map((l) => (parseFloat(l.qte) || 0) * (parseFloat(l.pu) || 0)),
+      parseFloat(fournitures) || 0,
+      parseFloat(shipping) || 0,
+    ],
+    tauxTva: tauxTvaValide(tauxTva),
+    devise,
   });
 
   const collect = (): Facture | null => {
@@ -125,12 +155,13 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
       .map((l) => {
         const q = parseFloat(l.qte) || 0;
         const p = parseFloat(l.pu) || 0;
-        return { modele: l.modele, desig: l.desig, ref: l.ref, couleur: l.couleur, qte: q, pu: p, mt: Math.round(q * p * 100) / 100 };
+        return { modele: l.modele, desig: l.desig, ref: l.ref, couleur: l.couleur, qte: q, pu: p, mt: arrondir(q * p, devise) };
       })
       .filter((r) => r.modele || r.qte);
     const fourn = parseFloat(fournitures) || 0;
     const ship = parseFloat(shipping) || 0;
-    const total = Math.round((rows.reduce((s, r) => s + r.mt, 0) + fourn + ship) * 100) / 100;
+    const taux = tauxTvaValide(tauxTva);
+    const t = calculerTotaux({ montantsHt: [...rows.map((r) => r.mt), fourn, ship], tauxTva: taux, devise });
     return {
       id,
       type,
@@ -139,7 +170,11 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
       marque: CLIENT_NAMES[client] || "",
       clientRaw: clientNom,
       pieces: rows.reduce((s, r) => s + r.qte, 0),
-      total,
+      total: t.totalHt,
+      devise,
+      tauxTva: taux,
+      montantTva: t.montantTva,
+      totalTtc: t.totalTtc,
       fournitures: fourn,
       extras: ship > 0 ? [{ label: "Shipping", mt: ship }] : [],
       lignes: rows,
@@ -169,6 +204,7 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
     setMatieres("");
     setFournitures("0");
     setShipping("0");
+    setTauxTva("0");
     setClientSel("");
     setDate(new Date().toISOString().split("T")[0]);
     setLignes([emptyLine()]);
@@ -214,6 +250,27 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
             <option value="FACTURE D'AVOIR">Facture d&apos;avoir</option>
             <option value="FACTURE PROFORMA">Facture proforma</option>
           </select>
+        </div>
+        <div className="form-group">
+          <label>Devise</label>
+          <select value={devise} onChange={(e) => setDevise(deviseOu(e.target.value))}>
+            {LISTE_DEVISES.map((d) => (
+              <option key={d} value={d}>
+                {d} ({DEVISES[d].symbole})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-group">
+          <label>TVA (%) — 0 si non soumis</label>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step="0.01"
+            value={tauxTva}
+            onChange={(e) => setTauxTva(e.target.value)}
+          />
         </div>
         <div className="form-group">
           <label>Incoterm</label>
@@ -264,8 +321,8 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
             <th style={{ width: 100 }}>Référence</th>
             <th style={{ width: 100 }}>Couleur</th>
             <th style={{ width: 60 }}>Qté</th>
-            <th style={{ width: 70 }}>P.U (€)</th>
-            <th style={{ width: 85 }}>Montant</th>
+            <th style={{ width: 70 }}>P.U HT ({sym})</th>
+            <th style={{ width: 85 }}>Montant HT</th>
             <th style={{ width: 30 }} />
           </tr>
         </thead>
@@ -293,7 +350,11 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
                   <input type="number" step="0.01" value={l.pu} onChange={(e) => setLine(i, "pu", e.target.value)} />
                 </td>
                 <td>
-                  <input readOnly value={mt ? mt.toFixed(2) : ""} style={{ background: "#FAFAF8", fontWeight: 600 }} />
+                  <input
+                    readOnly
+                    value={mt ? formatMontant(mt, devise, { symbole: false }) : ""}
+                    style={{ background: "#FAFAF8", fontWeight: 600 }}
+                  />
                 </td>
                 <td>
                   <button className="remove-btn" onClick={() => removeLine(i)}>
@@ -309,13 +370,23 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
         + Ajouter une ligne
       </button>
 
+      <div className="muted-note" style={{ textAlign: "right", fontSize: 12 }}>
+        Total HT <b>{formatMontant(recap.totalHt, devise)}</b>
+        {recap.montantTva > 0 && (
+          <>
+            {" · "}TVA {tauxTvaValide(tauxTva)} % <b>{formatMontant(recap.montantTva, devise)}</b>
+            {" · "}Total TTC <b>{formatMontant(recap.totalTtc, devise)}</b>
+          </>
+        )}
+      </div>
+
       <div className="form-grid" style={{ marginTop: 18 }}>
         <div className="form-group">
-          <label>Fournitures Tunisie (€)</label>
+          <label>Fournitures Tunisie HT ({sym})</label>
           <input type="number" step="0.01" value={fournitures} onChange={(e) => setFournitures(e.target.value)} />
         </div>
         <div className="form-group">
-          <label>Shipping / Ps OK Livraison (€)</label>
+          <label>Shipping / Ps OK Livraison HT ({sym})</label>
           <input type="number" step="0.01" value={shipping} onChange={(e) => setShipping(e.target.value)} />
         </div>
         <div className="form-group">
@@ -385,6 +456,8 @@ function toFormData(f: ReturnType<typeof factToForm>): FactureForm {
     matieres: f.matieres,
     fournitures: parseFloat(f.fournitures) || 0,
     shipping: parseFloat(f.shipping) || 0,
+    devise: f.devise,
+    tauxTva: tauxTvaValide(f.tauxTva),
     lignes: f.lignes
       .map((l) => {
         const q = parseFloat(l.qte) || 0;

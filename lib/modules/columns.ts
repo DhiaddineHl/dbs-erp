@@ -12,7 +12,7 @@ export const CLIENT_COLUMNS: Column[] = [
   { key: "pays", label: "Pays" },
   { key: "tva", label: "N° TVA" },
   { key: "cmd", label: "Commandes" },
-  { key: "ca", label: "CA total" },
+  { key: "caLibelle", label: "CA total HT" },
 ];
 
 export const COMMANDE_COLUMNS: Column[] = [
@@ -31,6 +31,7 @@ export const COMMANDE_COLUMNS: Column[] = [
   { key: "produit", label: "Produit" },
   { key: "prixVente", label: "P. vente" },
   { key: "prixFacon", label: "P. façon" },
+  { key: "devise", label: "Devise" },
   { key: "margeTotale", label: "Marge" },
   { key: "dateExport", label: "Export" },
   { key: "retard", label: "Retard" },

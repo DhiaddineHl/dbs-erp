@@ -1,4 +1,5 @@
 import type { CommandeRow } from "@/lib/services/commandes";
+import { DEVISES, type Montants, formatMontants } from "@/lib/domain/montants";
 import type { CleColonne } from "./colonnes";
 
 /* Liste de commandes imprimable.
@@ -11,7 +12,6 @@ const esc = (s: unknown) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 const dec = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFr = (iso: string | null) => (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-").reverse().join("/") : "—");
 
@@ -32,9 +32,9 @@ const COLONNES: Colonne[] = [
   { cle: "client", titre: "Client", valeur: (c) => c.client || "—" },
   { cle: "assigne", titre: "Assigné", valeur: (c) => c.faconnier || (c.chaine ? `${c.chaine} (interne)` : "Non assigné") },
   { cle: "qte", titre: "Qté", droite: true, valeur: (c) => nb.format(c.qte) },
-  { cle: "prixVente", titre: "P. vente", droite: true, valeur: (c) => (c.prixVente == null ? "—" : `${dec.format(c.prixVente)} €`) },
-  { cle: "prixFacon", titre: "P. façon", droite: true, valeur: (c) => (c.prixFacon == null ? "—" : `${dec.format(c.prixFacon)} €`) },
-  { cle: "margeTotale", titre: "Marge", droite: true, valeur: (c) => `${dec.format(c.margeUnitaire)} €` },
+  { cle: "prixVente", titre: "P. vente", droite: true, valeur: (c) => (c.prixVente == null ? "—" : `${dec.format(c.prixVente)} ${DEVISES[c.devise].symbole}`) },
+  { cle: "prixFacon", titre: "P. façon", droite: true, valeur: (c) => (c.prixFacon == null ? "—" : `${dec.format(c.prixFacon)} ${DEVISES[c.devise].symbole}`) },
+  { cle: "margeTotale", titre: "Marge", droite: true, valeur: (c) => `${dec.format(c.margeUnitaire)} ${DEVISES[c.devise].symbole}` },
   { cle: "dateExport", titre: "Export", valeur: (c) => dateFr(c.dateExport) },
   { cle: "retard", titre: "Retard", droite: true, valeur: (c) => c.retard[1] },
   { cle: "av", titre: "Avancement", droite: true, valeur: (c) => `${c.av} %` },
@@ -51,8 +51,13 @@ export function imprimerSelection(lignes: CommandeRow[], masquees: ReadonlySet<C
      elle-même. Sans cela le pied de page annoncerait deux fois les pièces
      réparties. Sur une liste sans découpe, le propre est le tout. */
   const totalQte = lignes.reduce((s, c) => s + c.qtePropre, 0);
-  const totalCa = lignes.reduce((s, c) => s + c.caPropre, 0);
-  const totalMarge = lignes.reduce((s, c) => s + c.margePropre, 0);
+  // Par devise : des euros et des dinars ne s'additionnent pas.
+  const totalCa: Montants = {};
+  const totalMarge: Montants = {};
+  for (const c of lignes) {
+    totalCa[c.devise] = (totalCa[c.devise] ?? 0) + c.caPropre;
+    totalMarge[c.devise] = (totalMarge[c.devise] ?? 0) + c.margePropre;
+  }
   const nbMeres = lignes.filter((c) => c.parentId == null).length;
   const nbParts = lignes.length - nbMeres;
   const montreQte = cols.some((c) => c.cle === "qte");
@@ -82,8 +87,8 @@ export function imprimerSelection(lignes: CommandeRow[], masquees: ReadonlySet<C
     `Édité le ${new Date().toLocaleDateString("fr-FR")}`,
     `${nbMeres} commande(s)` + (nbParts ? ` · ${nbParts} sous-commande(s)` : ""),
     montreQte ? `${nb.format(totalQte)} pièces` : "",
-    montrePrix ? `CA ${eur.format(totalCa)} €` : "",
-    montrePrix ? `Marge ${eur.format(totalMarge)} €` : "",
+    montrePrix ? `CA HT ${formatMontants(totalCa)}` : "",
+    montrePrix ? `Marge ${formatMontants(totalMarge)}` : "",
   ]
     .filter(Boolean)
     .join(" · ");

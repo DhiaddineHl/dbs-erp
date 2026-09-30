@@ -3,6 +3,7 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { client, commande, facture, factureCostLine, factureExtra, factureLigne, faconnier } from "@/lib/db/schema";
 import * as biz from "@/lib/domain/commande";
+import { type Devise, calculerTotaux, deviseOu, tauxTvaValide } from "@/lib/domain/montants";
 
 /* ─────────── Domain shapes (match the existing client store) ─────────── */
 export type Ligne = { modele: string; desig: string; ref: string; couleur: string; qte: number; pu: number; mt: number };
@@ -15,7 +16,13 @@ export type FactureDomain = {
   marque: string;
   clientRaw: string;
   pieces: number;
+  /** Total hors taxes (base du CA). */
   total: number;
+  devise: Devise;
+  /** Taux de TVA (%) saisi à l'émission, 0 par défaut. */
+  tauxTva: number;
+  montantTva: number;
+  totalTtc: number;
   fournitures: number;
   extras: Extra[];
   lignes: Ligne[];
@@ -54,6 +61,10 @@ function mapFacture(row: {
   clientRaw: string;
   pieces: number;
   total: number;
+  devise: string;
+  tauxTva: number;
+  montantTva: number;
+  totalTtc: number;
   fournitures: number;
   poids: string;
   mp: string;
@@ -72,6 +83,10 @@ function mapFacture(row: {
     clientRaw: row.clientRaw,
     pieces: row.pieces,
     total: row.total,
+    devise: deviseOu(row.devise),
+    tauxTva: row.tauxTva,
+    montantTva: row.montantTva,
+    totalTtc: row.totalTtc,
     fournitures: row.fournitures,
     extras: row.extras.map((e) => ({ label: e.label, mt: e.mt })),
     lignes: [...row.lignes]
@@ -135,8 +150,54 @@ export async function getCostLines(): Promise<Record<string, { lines: Record<num
   return out;
 }
 
+/** HT, TVA et TTC d'une facture à partir de ce qu'elle contient : lignes,
+ * fournitures et frais annexes (shipping). Recalculé côté serveur à chaque
+ * écriture — les totaux envoyés par le navigateur ne font jamais foi. */
+export function totauxFacture(f: {
+  lignes: { mt: number }[];
+  extras: { mt: number }[];
+  fournitures: number;
+  tauxTva: number;
+  devise: Devise;
+}) {
+  return calculerTotaux({
+    montantsHt: [...f.lignes.map((l) => l.mt), ...f.extras.map((e) => e.mt), f.fournitures || 0],
+    tauxTva: f.tauxTva,
+    devise: f.devise,
+  });
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Recalcule et enregistre les totaux d'une facture depuis ses lignes en base.
+ * À appeler après tout ajout ou retrait de ligne. */
+export async function recalculerTotauxFacture(tx: Tx, factureId: number) {
+  const [f] = await tx
+    .select({ fournitures: facture.fournitures, tauxTva: facture.tauxTva, devise: facture.devise })
+    .from(facture)
+    .where(eq(facture.id, factureId));
+  if (!f) return;
+  const [lignes, extras] = await Promise.all([
+    tx.select({ mt: factureLigne.mt, qte: factureLigne.qte }).from(factureLigne).where(eq(factureLigne.factureId, factureId)),
+    tx.select({ mt: factureExtra.mt }).from(factureExtra).where(eq(factureExtra.factureId, factureId)),
+  ]);
+  const t = totauxFacture({ lignes, extras, fournitures: f.fournitures, tauxTva: f.tauxTva, devise: deviseOu(f.devise) });
+  await tx
+    .update(facture)
+    .set({
+      pieces: lignes.reduce((s, l) => s + l.qte, 0),
+      total: t.totalHt,
+      montantTva: t.montantTva,
+      totalTtc: t.totalTtc,
+    })
+    .where(eq(facture.id, factureId));
+}
+
 /** Insert/replace a full invoice (header + lignes + extras). Returns its db id. */
 export async function saveFacture(f: FactureDomain): Promise<number> {
+  const devise = deviseOu(f.devise);
+  const tauxTva = tauxTvaValide(f.tauxTva);
+  const t = totauxFacture({ ...f, devise, tauxTva });
   return db.transaction(async (tx) => {
     const header = {
       num: f.id,
@@ -146,7 +207,11 @@ export async function saveFacture(f: FactureDomain): Promise<number> {
       marque: f.marque,
       clientRaw: f.clientRaw,
       pieces: f.pieces,
-      total: f.total,
+      total: t.totalHt,
+      devise,
+      tauxTva,
+      montantTva: t.montantTva,
+      totalTtc: t.totalTtc,
       fournitures: f.fournitures,
       poids: f.poids,
       mp: f.mp,

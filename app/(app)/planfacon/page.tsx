@@ -5,11 +5,11 @@ import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { requireUser } from "@/lib/auth/server";
 import { libelleMoisExport } from "@/lib/domain/aval";
 import { getPlanFaconnier } from "@/lib/services/aval";
+import { type Montants, ajouterMontants, formatMontants } from "@/lib/domain/montants";
 import { Kpi, Tuiles } from "../aval/ui";
 import { LigneFaconnier } from "./ligne-faconnier";
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
 /* Plan façonnier mensuel : qui doit livrer quoi, et quand.
  *
@@ -22,7 +22,7 @@ export default async function PlanFaconPage() {
 
   const totalRestant = plans.reduce((s, p) => s + p.total.restant, 0);
   const totalQte = plans.reduce((s, p) => s + p.total.qte, 0);
-  const totalCa = plans.reduce((s, p) => s + p.total.ca, 0);
+  const totalCa = plans.reduce<Montants>((m, p) => ajouterMontants(m, p.total.ca), {});
   const nonAssigne = plans.find((p) => p.faconnier === "Non assigné");
 
   return (
@@ -49,7 +49,7 @@ export default async function PlanFaconPage() {
         />
       </Tuiles>
 
-      <SectionPanel title={`Charge par mois — ${eur.format(totalCa)} € de CA planifié`} flush>
+      <SectionPanel title={`Charge par mois — ${formatMontants(totalCa, { decimales: 0 })} de CA HT planifié`} flush>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>

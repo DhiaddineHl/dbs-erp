@@ -99,6 +99,10 @@ export const bl = pgTable(
     /** draft | sent | invoiced */
     statut: text().notNull().default("draft"),
     note: text().notNull().default(""),
+    /** Devise des lignes (celle des commandes livrées) : EUR | TND. */
+    devise: text().notNull().default("EUR"),
+    /** Taux de TVA saisi à l'émission (%), 0 par défaut. Les prix restent HT. */
+    tauxTva: doublePrecision().notNull().default(0),
     createdAt: timestamp().notNull().defaultNow(),
   },
   (t) => [index("bl_client_idx").on(t.clientId), index("bl_statut_idx").on(t.statut)],

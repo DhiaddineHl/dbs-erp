@@ -147,6 +147,8 @@
 .fac .facture-table tbody tr:nth-child(even) td { background:#FAFAF8; }
 .fac .facture-table td.r { text-align:right; font-family:var(--mono); } .fac .facture-table td.c { text-align:center; }
 .fac .facture-table tfoot td { padding:8px 10px; font-weight:700; font-size:11px; border-top:2px solid var(--navy); }
+.fac .facture-table tfoot tr.tva td { border-top:1px solid var(--border, #E2DDD5); font-weight:600; }
+.fac .facture-table tfoot tr.ttc td { border-top:1px solid var(--border, #E2DDD5); background:#FAFAF8; }
 .fac .lettres-block { background:var(--fac-light); border-left:4px solid var(--gold); border-radius:0 6px 6px 0; padding:9px 14px; font-size:10px; font-style:italic; font-weight:600; margin-bottom:14px; }
 .fac .facture-footer { display:grid; grid-template-columns:1fr 1fr; gap:16px; border-top:1px solid var(--border); padding-top:12px; }
 .fac .footer-block .footer-title { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--slate); margin-bottom:5px; }

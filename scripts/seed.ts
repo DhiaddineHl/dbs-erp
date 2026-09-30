@@ -173,6 +173,8 @@ async function seedFacturation() {
       clientRaw: f.clientRaw,
       pieces: f.pieces,
       total: f.total,
+      // Historique HT sans TVA : le client doit exactement le HT.
+      totalTtc: f.total,
       fournitures: f.fournitures,
       poids: f.poids,
       mp: f.mp,

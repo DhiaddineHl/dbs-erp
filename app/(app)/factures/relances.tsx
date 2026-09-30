@@ -1,7 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CLIENT_NAMES, fdate, nb } from "@/lib/facturation/store";
+import { CLIENT_NAMES, fdate } from "@/lib/facturation/store";
+import { type Montants, formatMontant, formatMontants } from "@/lib/domain/montants";
+
+/** Reste dû par devise — des dinars et des euros ne s'additionnent pas. */
+const restesParDevise = (fs: EncaissementRow[]): Montants =>
+  fs.reduce<Montants>((m, f) => ({ ...m, [f.devise]: (m[f.devise] ?? 0) + f.reste }), {});
 import { libelleEcheance } from "@/lib/domain/finance";
 import type { EncaissementRow } from "@/lib/services/finance";
 
@@ -40,13 +45,13 @@ export function Relances({
       .map(([client, factures]) => ({
         client,
         factures: factures.slice().sort((a, b) => (a.echeance || "").localeCompare(b.echeance || "")),
-        total: factures.reduce((s, f) => s + f.reste, 0),
+        total: restesParDevise(factures),
         pireRetard: Math.max(...factures.map((f) => f.joursRetard ?? 0)),
       }))
       .sort((a, b) => b.pireRetard - a.pireRetard);
   }, [concernees]);
 
-  const totalDu = parClient.reduce((s, c) => s + c.total, 0);
+  const totalDu = restesParDevise(concernees);
   const compte = comptes[0]?.libelle ?? "(coordonnées bancaires à préciser)";
 
   return (
@@ -54,7 +59,7 @@ export function Relances({
       <div className="kpi-grid">
         <Kpi label="Clients à relancer" valeur={String(parClient.length)} />
         <Kpi label="Factures concernées" valeur={String(concernees.length)} classe="gold" />
-        <Kpi label="Total restant dû" valeur={`${nb(totalDu)} €`} classe="red" />
+        <Kpi label="Total restant dû" valeur={formatMontants(totalDu)} classe="red" />
         <Kpi
           label="Retard maximum"
           valeur={parClient.length ? `${parClient[0].pireRetard} j` : "—"}
@@ -85,7 +90,7 @@ export function Relances({
             <div className="table-wrap" key={groupe.client} style={{ marginBottom: 18 }}>
               <div className="table-header">
                 <div className="table-title">
-                  {groupe.client} — {nb(groupe.total)} € dus
+                  {groupe.client} — {formatMontants(groupe.total)} dus
                   {groupe.pireRetard > 0 && (
                     <span className="tag tag-red" style={{ marginLeft: 8 }}>
                       {groupe.pireRetard} j de retard
@@ -128,8 +133,8 @@ export function Relances({
                       <td className={(f.joursRetard ?? 0) > 0 ? "neg" : undefined}>
                         {libelleEcheance(f.joursRetard ?? 0)}
                       </td>
-                      <td style={{ textAlign: "right" }}>{nb(f.total)} €</td>
-                      <td style={{ textAlign: "right", fontWeight: 700 }}>{nb(f.reste)} €</td>
+                      <td style={{ textAlign: "right" }}>{formatMontant(f.total, f.devise)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 700 }}>{formatMontant(f.reste, f.devise)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -180,10 +185,10 @@ function construireEmail(client: string, factures: EncaissementRow[], compte: st
   const lignes = factures
     .map(
       (f) =>
-        `  • Facture ${f.num} du ${fdate(f.date)} — échéance ${fdate(f.echeance)} (${libelleEcheance(f.joursRetard ?? 0)}) — montant ${nb(f.total)} € — reste dû ${nb(f.reste)} €`,
+        `  • Facture ${f.num} du ${fdate(f.date)} — échéance ${fdate(f.echeance)} (${libelleEcheance(f.joursRetard ?? 0)}) — montant TTC ${formatMontant(f.total, f.devise)} — reste dû ${formatMontant(f.reste, f.devise)}`,
     )
     .join("\n");
-  const total = factures.reduce((s, f) => s + f.reste, 0);
+  const total = restesParDevise(factures);
 
   const corps = [
     "Bonjour,",
@@ -194,7 +199,7 @@ function construireEmail(client: string, factures: EncaissementRow[], compte: st
     "",
     lignes,
     "",
-    `Total restant dû : ${nb(total)} €`,
+    `Total restant dû : ${formatMontants(total)}`,
     "",
     `Nous vous remercions de bien vouloir procéder au règlement${echues ? " dans les meilleurs délais" : " à l'échéance"}, ou de nous communiquer la date de paiement prévue.`,
     `Virement à effectuer sur : ${compte}.`,

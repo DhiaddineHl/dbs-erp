@@ -10,7 +10,8 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { CLE_AUTRES, type MargesFaconniers } from "@/lib/domain/graphiques";
-import { euros, eurosAxe } from "./format";
+import { montant, montantAxe } from "./format";
+import type { Devise } from "@/lib/domain/montants";
 
 /* Palette catégorielle figée : la couleur suit le façonnier, pas son rang du
  * mois. « Autres » prend le gris de repli — un agrégat n'est pas une entité. */
@@ -25,7 +26,8 @@ const TEINTES = [
 
 const teinte = (cle: string, i: number) => (cle === CLE_AUTRES ? "var(--chart-vide)" : TEINTES[i % TEINTES.length]);
 
-export function MargesFaconniersChart({ marges }: { marges: MargesFaconniers }) {
+export function MargesFaconniersChart({ marges, devise = "EUR" }: { marges: MargesFaconniers; devise?: Devise }) {
+  const axe = (n: number) => montantAxe(n, devise);
   const { data, series } = marges;
 
   if (!data.length || !series.length) {
@@ -44,7 +46,7 @@ export function MargesFaconniersChart({ marges }: { marges: MargesFaconniers }) 
     <ChartContainer config={config} className="h-[240px] w-full">
       <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }} accessibilityLayer>
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
-        <YAxis width={48} tickLine={false} axisLine={false} tickFormatter={eurosAxe} tickMargin={4} />
+        <YAxis width={48} tickLine={false} axisLine={false} tickFormatter={axe} tickMargin={4} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
         <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />} />
         <ChartTooltip
@@ -59,7 +61,7 @@ export function MargesFaconniersChart({ marges }: { marges: MargesFaconniers }) 
                   <div className="flex flex-1 items-center justify-between gap-3 leading-none">
                     <span className="text-muted-foreground">{config[String(name)]?.label ?? String(name)}</span>
                     <span className="font-mono font-medium tabular-nums text-foreground">
-                      {typeof value === "number" ? euros(value) : String(value)}
+                      {typeof value === "number" ? montant(value, devise) : String(value)}
                     </span>
                   </div>
                 </>

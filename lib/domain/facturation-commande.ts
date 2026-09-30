@@ -1,4 +1,5 @@
 import { cleRapprochement, estSousTraitee } from "./commande";
+import { type Devise, arrondir } from "./montants";
 
 /* Passerelle commande → facture.
  *
@@ -27,6 +28,8 @@ export type CommandeAFacturer = {
   factureQte: number;
   prixVente: number | null;
   prixFacon: number | null;
+  /** Devise des prix ; fixe l'arrondi de la ligne (centime, millime). EUR à défaut. */
+  devise?: Devise;
 };
 
 /** Ce qu'il reste à facturer sur une commande. Jamais négatif : une commande
@@ -92,7 +95,7 @@ export function preparerFacturation(c: CommandeAFacturer, saisie: SaisieFacturat
       couleur: c.couleur ?? "",
       qte,
       pu,
-      mt: centimes(qte * pu),
+      mt: arrondir(qte * pu, c.devise ?? "EUR"),
     },
     cout: sousTraitee
       ? { lieu: "faconnier", faconnier: c.faconnier, cout: c.prixFacon }

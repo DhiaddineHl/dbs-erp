@@ -2,9 +2,10 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CLIENT_NAMES, fdate, nb } from "@/lib/facturation/store";
+import { CLIENT_NAMES, fdate } from "@/lib/facturation/store";
 import { MODES_PAIEMENT, STATUT_PAIEMENT, balanceAgee } from "@/lib/domain/finance";
 import type { EncaissementRow } from "@/lib/services/finance";
+import { DEVISES, type Devise, type Montants, LISTE_DEVISES, formatMontant, formatMontants } from "@/lib/domain/montants";
 import * as A from "@/lib/actions/finance";
 
 type Compte = { id: number; libelle: string };
@@ -44,40 +45,56 @@ export function Encaissements({
     });
   }, [lignes, q, statut]);
 
+  /* Par devise : une facture en dinars et une en euros ne se somment pas.
+   * On encaisse le TTC ; le HT n'est rappelé que pour mémoire. */
   const totaux = useMemo(() => {
-    const t = { ht: 0, encaisse: 0, reste: 0 };
+    const t = { ht: {} as Montants, ttc: {} as Montants, encaisse: {} as Montants, reste: {} as Montants };
+    const plus = (m: Montants, d: Devise, v: number) => (m[d] = (m[d] ?? 0) + v);
     for (const l of filtrees) {
-      t.ht += l.total;
-      t.encaisse += l.regle;
-      t.reste += Math.max(0, l.reste);
+      plus(t.ht, l.devise, l.totalHt);
+      plus(t.ttc, l.devise, l.total);
+      plus(t.encaisse, l.devise, l.regle);
+      plus(t.reste, l.devise, Math.max(0, l.reste));
     }
     return t;
   }, [filtrees]);
 
   const ligneOuverte = ouverte === null ? null : (lignes.find((l) => l.factureId === ouverte) ?? null);
 
-  const ba = useMemo(
+  const balances = useMemo(
     () =>
-      balanceAgee(
-        filtrees.map((l) => ({
-          facture: { type: l.type, date: l.date, total: l.total, paiement: l.paiement },
-          reste: l.reste,
-        })),
-      ),
+      LISTE_DEVISES.filter((d) => filtrees.some((l) => l.devise === d)).map((devise) => ({
+        devise,
+        ba: balanceAgee(
+          filtrees
+            .filter((l) => l.devise === devise)
+            .map((l) => ({
+              facture: { type: l.type, date: l.date, total: l.total, paiement: l.paiement },
+              reste: l.reste,
+            })),
+        ),
+      })),
     [filtrees],
   );
+  const echu: Montants = {};
+  const plus90: Montants = {};
+  for (const { devise, ba } of balances) {
+    echu[devise] = ba.total - ba.nonEchu;
+    plus90[devise] = ba.plus90;
+  }
+  const aDesEchus = balances.some(({ ba }) => ba.total - ba.nonEchu > 0.005);
 
   return (
     <div className="page">
       <div className="kpi-grid">
-        <Kpi label="Total HT facturé" valeur={`${nb(totaux.ht)} €`} />
-        <Kpi label="Encaissé" valeur={`${nb(totaux.encaisse)} €`} classe="green" />
-        <Kpi label="Reste à encaisser" valeur={`${nb(totaux.reste)} €`} classe="gold" />
+        <Kpi label="Total TTC facturé" valeur={formatMontants(totaux.ttc)} sub={`HT : ${formatMontants(totaux.ht)}`} />
+        <Kpi label="Encaissé" valeur={formatMontants(totaux.encaisse)} classe="green" />
+        <Kpi label="Reste à encaisser" valeur={formatMontants(totaux.reste)} classe="gold" />
         <Kpi
           label="Dont échu"
-          valeur={`${nb(ba.total - ba.nonEchu)} €`}
-          classe={ba.total - ba.nonEchu > 0 ? "red" : "green"}
-          sub={`${nb(ba.plus90)} € à plus de 90 jours`}
+          valeur={formatMontants(echu)}
+          classe={aDesEchus ? "red" : "green"}
+          sub={`${formatMontants(plus90)} à plus de 90 jours`}
         />
       </div>
 
@@ -88,6 +105,7 @@ export function Encaissements({
         <table>
           <thead>
             <tr>
+              {balances.length > 1 && <th>Devise</th>}
               <th>Non échu</th>
               <th>0 – 30 j</th>
               <th>31 – 60 j</th>
@@ -97,14 +115,17 @@ export function Encaissements({
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td>{nb(ba.nonEchu)} €</td>
-              <td>{nb(ba.j0_30)} €</td>
-              <td>{nb(ba.j31_60)} €</td>
-              <td>{nb(ba.j61_90)} €</td>
-              <td className={ba.plus90 > 0 ? "neg" : undefined}>{nb(ba.plus90)} €</td>
-              <td style={{ textAlign: "right", fontWeight: 700 }}>{nb(ba.total)} €</td>
-            </tr>
+            {balances.map(({ devise, ba }) => (
+              <tr key={devise}>
+                {balances.length > 1 && <td>{devise}</td>}
+                <td>{formatMontant(ba.nonEchu, devise)}</td>
+                <td>{formatMontant(ba.j0_30, devise)}</td>
+                <td>{formatMontant(ba.j31_60, devise)}</td>
+                <td>{formatMontant(ba.j61_90, devise)}</td>
+                <td className={ba.plus90 > 0 ? "neg" : undefined}>{formatMontant(ba.plus90, devise)}</td>
+                <td style={{ textAlign: "right", fontWeight: 700 }}>{formatMontant(ba.total, devise)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -129,7 +150,7 @@ export function Encaissements({
       <div className="table-wrap">
         <div className="table-header">
           <div className="table-title">
-            {filtrees.length} facture(s) — reste {nb(totaux.reste)} €
+            {filtrees.length} facture(s) — reste {formatMontants(totaux.reste)}
           </div>
         </div>
         <table>
@@ -139,7 +160,7 @@ export function Encaissements({
               <th>Date</th>
               <th>Échéance</th>
               <th>Client</th>
-              <th style={{ textAlign: "right" }}>Montant HT</th>
+              <th style={{ textAlign: "right" }}>Montant TTC</th>
               <th style={{ textAlign: "right" }}>Encaissé</th>
               <th style={{ textAlign: "right" }}>Reste</th>
               <th style={{ textAlign: "center" }}>Statut</th>
@@ -169,12 +190,14 @@ export function Encaissements({
                       )}
                     </td>
                     <td>{CLIENT_NAMES[l.clientKey] || l.marque || l.clientKey}</td>
-                    <td style={{ textAlign: "right" }}>{nb(l.total)}</td>
+                    <td style={{ textAlign: "right" }} title={l.tauxTva > 0 ? `HT ${formatMontant(l.totalHt, l.devise)} + TVA ${l.tauxTva} %` : "Sans TVA"}>
+                      {formatMontant(l.total, l.devise)}
+                    </td>
                     <td style={{ textAlign: "right" }} className={l.regle > 0 ? "pos" : undefined}>
-                      {nb(l.regle)}
+                      {formatMontant(l.regle, l.devise)}
                     </td>
                     <td style={{ textAlign: "right", fontWeight: 700 }} className={l.reste > 0.005 ? "neg" : undefined}>
-                      {nb(Math.max(0, l.reste))}
+                      {formatMontant(Math.max(0, l.reste), l.devise)}
                     </td>
                     <td style={{ textAlign: "center" }}>
                       <span className={`tag ${CLASSE_STATUT[l.statut]}`}>{st.label}</span>
@@ -237,7 +260,7 @@ function ModalReglements({
   onFait: (m: string) => void;
 }) {
   const [date, setDate] = useState(auj());
-  const [montant, setMontant] = useState(Math.max(0, ligne.reste).toFixed(2));
+  const [montant, setMontant] = useState(Math.max(0, ligne.reste).toFixed(DEVISES[ligne.devise].decimales));
   const [mode, setMode] = useState<string>(MODES_PAIEMENT[0]);
   const [compteId, setCompteId] = useState<string>(comptes[0] ? String(comptes[0].id) : "");
   const [ref, setRef] = useState("");
@@ -270,8 +293,8 @@ function ModalReglements({
           <div>
             <div className="dh-title">RÈGLEMENTS — FACTURE N°{ligne.num}</div>
             <div className="dh-sub">
-              Montant {nb(ligne.total)} € · encaissé {nb(ligne.regle)} € · reste{" "}
-              {nb(Math.max(0, ligne.reste))} €
+              Montant TTC {formatMontant(ligne.total, ligne.devise)} · encaissé {formatMontant(ligne.regle, ligne.devise)}{" "}
+              · reste {formatMontant(Math.max(0, ligne.reste), ligne.devise)}
               {ligne.echeance && ` · échéance ${fdate(ligne.echeance)}`}
             </div>
           </div>
@@ -300,7 +323,7 @@ function ModalReglements({
                     <td>{r.mode}</td>
                     <td>{r.compte || "—"}</td>
                     <td>{r.ref || "—"}</td>
-                    <td style={{ textAlign: "right", fontWeight: 700 }}>{nb(r.montant)} €</td>
+                    <td style={{ textAlign: "right", fontWeight: 700 }}>{formatMontant(r.montant, ligne.devise)}</td>
                     <td>
                       <button
                         className="btn btn-danger btn-sm"
@@ -326,8 +349,8 @@ function ModalReglements({
                 <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
               <div className="form-group">
-                <label>Montant (€)</label>
-                <input type="number" step="0.01" value={montant} onChange={(e) => setMontant(e.target.value)} />
+                <label>Montant ({DEVISES[ligne.devise].symbole})</label>
+                <input type="number" step={ligne.devise === "TND" ? "0.001" : "0.01"} value={montant} onChange={(e) => setMontant(e.target.value)} />
               </div>
               <div className="form-group">
                 <label>Mode</label>

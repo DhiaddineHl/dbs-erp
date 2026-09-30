@@ -15,6 +15,7 @@ import {
   nb,
   nbI,
 } from "./store";
+import { DEVISES, type Devise, calculerTotaux, formatMontant } from "@/lib/domain/montants";
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -35,33 +36,45 @@ export type FactureForm = {
   matieres: string;
   fournitures: number;
   shipping: number;
+  devise: Devise;
+  /** Taux de TVA (%) ; 0 = facture hors taxes, mise en page inchangée. */
+  tauxTva: number;
   lignes: { modele: string; desig: string; ref: string; couleur: string; qte: number; pu: number; mt: number }[];
 };
 
 export function buildFactureDocHTML(d: FactureForm): string {
   const rows = d.lignes.filter((r) => r.modele || r.qte);
-  const totalHT = rows.reduce((s, r) => s + r.mt, 0) + d.fournitures + d.shipping;
+  const { devise } = d;
+  const sym = DEVISES[devise].symbole;
+  const m = (n: number) => formatMontant(n, devise, { symbole: false });
+  const t = calculerTotaux({
+    montantsHt: [...rows.map((r) => r.mt), d.fournitures, d.shipping],
+    tauxTva: d.tauxTva,
+    devise,
+  });
+  const avecTva = t.montantTva !== 0 || d.tauxTva > 0;
   const pcs = rows.reduce((s, r) => s + r.qte, 0);
-  const lettres = montantEnLettres(totalHT);
+  // Le client paie le TTC : c'est lui qui s'écrit en lettres.
+  const lettres = montantEnLettres(t.totalTtc, devise);
 
   let lignesHTML = rows
     .map(
       (r) =>
         `<tr><td><strong>${esc(r.modele)}</strong></td><td>${esc(r.desig)}</td><td>${esc(r.ref)}</td><td>${esc(
           r.couleur,
-        )}</td><td class="c">${r.qte || ""}</td><td class="r">${r.pu ? nb(r.pu) : ""}</td><td class="r">${nb(
+        )}</td><td class="c">${r.qte || ""}</td><td class="r">${r.pu ? m(r.pu) : ""}</td><td class="r">${m(
           r.mt,
-        )} €</td></tr>`,
+        )} ${sym}</td></tr>`,
     )
     .join("");
   if (d.shipping > 0)
-    lignesHTML += `<tr><td colspan="6" style="font-style:italic;color:#6B7589">Shipping</td><td class="r">${nb(
+    lignesHTML += `<tr><td colspan="6" style="font-style:italic;color:#6B7589">Shipping</td><td class="r">${m(
       d.shipping,
-    )} €</td></tr>`;
+    )} ${sym}</td></tr>`;
   if (d.fournitures > 0)
-    lignesHTML += `<tr><td colspan="6" style="font-style:italic;color:#6B7589">Fournitures Tunisie</td><td class="r">${nb(
+    lignesHTML += `<tr><td colspan="6" style="font-style:italic;color:#6B7589">Fournitures Tunisie</td><td class="r">${m(
       d.fournitures,
-    )} €</td></tr>`;
+    )} ${sym}</td></tr>`;
 
   return `<div class="facture-doc"><div class="facture-stripe"></div><div class="facture-body">
     <div class="facture-header"><div class="facture-emetteur">
@@ -80,11 +93,19 @@ export function buildFactureDocHTML(d: FactureForm): string {
       )}</p></div></div>
     <table class="facture-table"><thead><tr>
       <th style="width:130px">Nom du modèle</th><th style="width:75px">Désignation</th><th style="width:95px">Référence</th>
-      <th style="width:95px">Couleur</th><th class="c" style="width:45px">Qté</th><th class="r" style="width:60px">P.U. €</th><th class="r" style="width:80px">Montant</th></tr></thead>
+      <th style="width:95px">Couleur</th><th class="c" style="width:45px">Qté</th><th class="r" style="width:60px">P.U. ${sym}</th><th class="r" style="width:80px">Montant</th></tr></thead>
       <tbody>${lignesHTML}</tbody>
-      <tfoot><tr><td colspan="4"><strong>TOTAL</strong></td><td class="c"><strong>${pcs}</strong></td><td></td><td class="r"><strong>${nb(
-        totalHT,
-      )} €</strong></td></tr></tfoot></table>
+      <tfoot><tr><td colspan="4"><strong>${avecTva ? "TOTAL HT" : "TOTAL"}</strong></td><td class="c"><strong>${pcs}</strong></td><td></td><td class="r"><strong>${m(
+        t.totalHt,
+      )} ${sym}</strong></td></tr>${
+        avecTva
+          ? `<tr class="tva"><td colspan="6" class="r">TVA ${nb(d.tauxTva).replace(/,00$/, "")} %</td><td class="r">${m(
+              t.montantTva,
+            )} ${sym}</td></tr><tr class="ttc"><td colspan="6" class="r"><strong>TOTAL TTC</strong></td><td class="r"><strong>${m(
+              t.totalTtc,
+            )} ${sym}</strong></td></tr>`
+          : ""
+      }</tfoot></table>
     <div class="lettres-block">LA PRÉSENTE FACTURE EST ARRÊTÉE À LA SOMME DE :<br>${esc(lettres).toUpperCase()}</div>
     <div class="facture-footer">
       <div class="footer-block"><div class="footer-title">Expédition</div><p>
@@ -112,8 +133,10 @@ function reportHeader(titre: string, periode: string) {
     `<span class="r-period">${esc(periode)}</span>`
   );
 }
-const reportFooter = () =>
-  `<div class="r-foot"><span>DBS Fashion — Document interne de gestion</span><span>Facturation export HT en euros</span></div>`;
+const reportFooter = (devise: Devise) =>
+  `<div class="r-foot"><span>DBS Fashion — Document interne de gestion</span><span>Montants hors taxes, en ${esc(
+    DEVISES[devise].unite[1],
+  )}</span></div>`;
 
 export function buildReportHTML(
   type: string,
@@ -121,7 +144,12 @@ export function buildReportHTML(
   all: Facture[],
   couts: Couts,
   clientKey: string,
+  /** Devise de tous les montants reçus (un groupe de la vue devise). */
+  devise: Devise = "EUR",
 ): string {
+  const sym = DEVISES[devise].symbole;
+  const fm = (n: number) => formatMontant(n, devise);
+  const fmn = (n: number) => formatMontant(n, devise, { symbole: false });
   const periode = mois ? `${MOIS_FR[mois]} 2026` : "Année 2026";
   const inPeriod = (f: Facture) => !mois || f.date.substring(5, 7) === mois;
   let html = "";
@@ -136,26 +164,26 @@ export function buildReportHTML(
     const ana = clientAnalysis(all, mois || null);
     html =
       reportHeader("Synthèse générale de facturation", periode) +
-      `<div class="r-kpis"><div class="r-kpi"><div class="l">CA net HT</div><div class="v">${nb(net)} €</div></div>` +
+      `<div class="r-kpis"><div class="r-kpi"><div class="l">CA net HT</div><div class="v">${fm(net)}</div></div>` +
       `<div class="r-kpi"><div class="l">Factures / Avoirs</div><div class="v">${fs.length} / ${avs.length}</div></div>` +
       `<div class="r-kpi"><div class="l">Pièces livrées</div><div class="v">${nbI(pcs)}</div></div>` +
-      `<div class="r-kpi"><div class="l">PMP global</div><div class="v">${nb(ana.tot.pmp)} €/pc</div></div></div>` +
-      `<h2>Répartition par client</h2><table><thead><tr><th>Client</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net €</th><th class="r">% CA</th><th class="r">PMP €/pc</th></tr></thead><tbody>` +
+      `<div class="r-kpi"><div class="l">PMP global</div><div class="v">${fm(ana.tot.pmp)}/pc</div></div></div>` +
+      `<h2>Répartition par client</h2><table><thead><tr><th>Client</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net ${sym}</th><th class="r">% CA</th><th class="r">PMP ${sym}/pc</th></tr></thead><tbody>` +
       ana.rows
         .map(
           (r) =>
             `<tr><td><strong>${esc(r.name)}</strong></td><td class="r">${r.n}</td><td class="r">${nbI(
               r.pcs,
-            )}</td><td class="r">${nb(r.ca)}</td><td class="r">${r.pctCA.toFixed(1)}%</td><td class="r">${nb(
+            )}</td><td class="r">${fmn(r.ca)}</td><td class="r">${r.pctCA.toFixed(1)}%</td><td class="r">${fmn(
               r.pmp,
             )}</td></tr>`,
         )
         .join("") +
       `<tr class="total-row"><td>TOTAL</td><td class="r">${ana.tot.n}</td><td class="r">${nbI(
         ana.tot.pcs,
-      )}</td><td class="r">${nb(ana.tot.ca)}</td><td class="r">100%</td><td class="r">${nb(ana.tot.pmp)}</td></tr>` +
+      )}</td><td class="r">${fmn(ana.tot.ca)}</td><td class="r">100%</td><td class="r">${fmn(ana.tot.pmp)}</td></tr>` +
       `</tbody></table>` +
-      `<h2>Évolution mensuelle</h2><table><thead><tr><th>Mois</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net €</th><th class="r">Cumul €</th></tr></thead><tbody>` +
+      `<h2>Évolution mensuelle</h2><table><thead><tr><th>Mois</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net ${sym}</th><th class="r">Cumul ${sym}</th></tr></thead><tbody>` +
       (() => {
         const byM: Record<string, { n: number; pcs: number; ca: number }> = {};
         all
@@ -178,40 +206,40 @@ export function buildReportHTML(
           .sort()
           .map(([mm, v]) => {
             cumul += v.ca;
-            return `<tr><td>${MOIS_FR[mm]}</td><td class="r">${v.n}</td><td class="r">${nbI(v.pcs)}</td><td class="r">${nb(
+            return `<tr><td>${MOIS_FR[mm]}</td><td class="r">${v.n}</td><td class="r">${nbI(v.pcs)}</td><td class="r">${fmn(
               v.ca,
-            )}</td><td class="r">${nb(cumul)}</td></tr>`;
+            )}</td><td class="r">${fmn(cumul)}</td></tr>`;
           })
           .join("");
       })() +
       `</tbody></table>` +
-      reportFooter();
+      reportFooter(devise);
   }
 
   if (type === "clients") {
     const ana = clientAnalysis(all, mois || null);
     html =
       reportHeader("Rapport par client — CA, pièces, prix moyen pondéré", periode) +
-      `<table><thead><tr><th>Client</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net €</th><th class="r">% du CA</th><th class="r">PMP €/pc</th><th class="r">CA moy./facture €</th><th class="r">Fournitures €</th><th class="r">Fourn. % CA</th></tr></thead><tbody>` +
+      `<table><thead><tr><th>Client</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net ${sym}</th><th class="r">% du CA</th><th class="r">PMP ${sym}/pc</th><th class="r">CA moy./facture ${sym}</th><th class="r">Fournitures ${sym}</th><th class="r">Fourn. % CA</th></tr></thead><tbody>` +
       ana.rows
         .map(
           (r) =>
             `<tr><td><strong>${esc(r.name)}</strong></td><td class="r">${r.n}</td><td class="r">${nbI(
               r.pcs,
-            )}</td><td class="r">${nb(r.ca)}</td><td class="r">${r.pctCA.toFixed(1)}%</td><td class="r">${nb(
+            )}</td><td class="r">${fmn(r.ca)}</td><td class="r">${r.pctCA.toFixed(1)}%</td><td class="r">${fmn(
               r.pmp,
-            )}</td><td class="r">${nb(r.caMoyen)}</td><td class="r">${nb(r.fourn)}</td><td class="r">${r.fournPct.toFixed(
+            )}</td><td class="r">${fmn(r.caMoyen)}</td><td class="r">${fmn(r.fourn)}</td><td class="r">${r.fournPct.toFixed(
               1,
             )}%</td></tr>`,
         )
         .join("") +
       `<tr class="total-row"><td>TOTAL</td><td class="r">${ana.tot.n}</td><td class="r">${nbI(
         ana.tot.pcs,
-      )}</td><td class="r">${nb(ana.tot.ca)}</td><td class="r">100%</td><td class="r">${nb(
+      )}</td><td class="r">${fmn(ana.tot.ca)}</td><td class="r">100%</td><td class="r">${fmn(
         ana.tot.pmp,
-      )}</td><td class="r">${nb(ana.tot.caMoyen)}</td><td></td><td class="r">${ana.tot.fournPct.toFixed(1)}%</td></tr>` +
+      )}</td><td class="r">${fmn(ana.tot.caMoyen)}</td><td></td><td class="r">${ana.tot.fournPct.toFixed(1)}%</td></tr>` +
       `</tbody></table><div style="font-size:9.5px;color:#6B7589;margin-top:8px">PMP = prix moyen pondéré par les quantités : Σ(Quantité × P.U.) ÷ Σ(Quantités). Les avoirs sont déduits du CA net.</div>` +
-      reportFooter();
+      reportFooter(devise);
   }
 
   if (type === "mensuel") {
@@ -221,10 +249,10 @@ export function buildReportHTML(
     html =
       reportHeader("Rapport mensuel — liste des factures", periode) +
       `<div class="r-kpis"><div class="r-kpi"><div class="l">Documents</div><div class="v">${fs.length}</div></div>` +
-      `<div class="r-kpi"><div class="l">CA net</div><div class="v">${nb(tot)} €</div></div>` +
+      `<div class="r-kpi"><div class="l">CA net</div><div class="v">${fm(tot)}</div></div>` +
       `<div class="r-kpi"><div class="l">Pièces</div><div class="v">${nbI(pcs)}</div></div>` +
-      `<div class="r-kpi"><div class="l">PMP</div><div class="v">${pcs ? nb(tot / pcs) : "—"} €/pc</div></div></div>` +
-      `<table><thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Type</th><th class="r">Pièces</th><th class="r">Fournitures €</th><th class="r">Montant HT €</th></tr></thead><tbody>` +
+      `<div class="r-kpi"><div class="l">PMP</div><div class="v">${pcs ? fmn(tot / pcs) : "—"} ${sym}/pc</div></div></div>` +
+      `<table><thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Type</th><th class="r">Pièces</th><th class="r">Fournitures ${sym}</th><th class="r">Montant HT ${sym}</th></tr></thead><tbody>` +
       fs
         .map(
           (f) =>
@@ -232,15 +260,15 @@ export function buildReportHTML(
               CLIENT_NAMES[f.client] || f.client,
             )}</td><td>${f.type === "avoir" ? "Avoir" : "Facture"}</td><td class="r">${nbI(
               f.pieces,
-            )}</td><td class="r">${f.fournitures ? nb(f.fournitures) : "—"}</td><td class="r">${
+            )}</td><td class="r">${f.fournitures ? fmn(f.fournitures) : "—"}</td><td class="r">${
               f.type === "avoir" ? "−" : ""
-            }${nb(f.total)}</td></tr>`,
+            }${fmn(f.total)}</td></tr>`,
         )
         .join("") +
-      `<tr class="total-row"><td colspan="4">TOTAL NET</td><td class="r">${nbI(pcs)}</td><td></td><td class="r">${nb(
+      `<tr class="total-row"><td colspan="4">TOTAL NET</td><td class="r">${nbI(pcs)}</td><td></td><td class="r">${fmn(
         tot,
       )}</td></tr></tbody></table>` +
-      reportFooter();
+      reportFooter(devise);
   }
 
   if (type === "client_detail") {
@@ -262,24 +290,24 @@ export function buildReportHTML(
     html =
       reportHeader("Relevé client — " + (CLIENT_NAMES[clientKey] || clientKey), periode) +
       `<div class="r-kpis"><div class="r-kpi"><div class="l">Documents</div><div class="v">${fs.length}</div></div>` +
-      `<div class="r-kpi"><div class="l">CA net</div><div class="v">${nb(tot)} €</div></div>` +
+      `<div class="r-kpi"><div class="l">CA net</div><div class="v">${fm(tot)}</div></div>` +
       `<div class="r-kpi"><div class="l">Pièces</div><div class="v">${nbI(pcs)}</div></div>` +
-      `<div class="r-kpi"><div class="l">PMP</div><div class="v">${sQ ? nb(sQP / sQ) : "—"} €/pc</div></div></div>` +
-      `<table><thead><tr><th>N°</th><th>Date</th><th>Modèles</th><th class="r">Pièces</th><th class="r">Fournit. €</th><th class="r">Montant HT €</th></tr></thead><tbody>` +
+      `<div class="r-kpi"><div class="l">PMP</div><div class="v">${sQ ? fmn(sQP / sQ) : "—"} ${sym}/pc</div></div></div>` +
+      `<table><thead><tr><th>N°</th><th>Date</th><th>Modèles</th><th class="r">Pièces</th><th class="r">Fournit. ${sym}</th><th class="r">Montant HT ${sym}</th></tr></thead><tbody>` +
       fs
         .map(
           (f) =>
             `<tr><td>${fid(f)}</td><td>${fdate(f.date)}</td><td style="font-size:9.5px">${esc(
               [...new Set(f.lignes.map((l) => l.modele))].slice(0, 4).join(", ") || "—",
             )}</td><td class="r">${nbI(f.pieces)}</td><td class="r">${
-              f.fournitures ? nb(f.fournitures) : "—"
-            }</td><td class="r">${f.type === "avoir" ? "−" : ""}${nb(f.total)}</td></tr>`,
+              f.fournitures ? fmn(f.fournitures) : "—"
+            }</td><td class="r">${f.type === "avoir" ? "−" : ""}${fmn(f.total)}</td></tr>`,
         )
         .join("") +
-      `<tr class="total-row"><td colspan="3">TOTAL NET</td><td class="r">${nbI(pcs)}</td><td></td><td class="r">${nb(
+      `<tr class="total-row"><td colspan="3">TOTAL NET</td><td class="r">${nbI(pcs)}</td><td></td><td class="r">${fmn(
         tot,
       )}</td></tr></tbody></table>` +
-      reportFooter();
+      reportFooter(devise);
   }
 
   if (type === "faconniers") {
@@ -316,14 +344,14 @@ export function buildReportHTML(
       });
     html =
       reportHeader("Rapport façonniers & marges de sous-traitance", periode) +
-      `<div class="r-kpis"><div class="r-kpi"><div class="l">CA interne</div><div class="v">${nb(agg.interne.ca)} €</div></div>` +
-      `<div class="r-kpi"><div class="l">CA façonniers</div><div class="v">${nb(agg.faconnier.ca)} €</div></div>` +
-      `<div class="r-kpi"><div class="l">Marge sur façon</div><div class="v">${nb(
+      `<div class="r-kpis"><div class="r-kpi"><div class="l">CA interne</div><div class="v">${fm(agg.interne.ca)}</div></div>` +
+      `<div class="r-kpi"><div class="l">CA façonniers</div><div class="v">${fm(agg.faconnier.ca)}</div></div>` +
+      `<div class="r-kpi"><div class="l">Marge sur façon</div><div class="v">${fm(
         agg.faconnier.ca - agg.faconnier.cout,
-      )} €</div></div>` +
-      `<div class="r-kpi"><div class="l">Non renseigné</div><div class="v">${nb(agg.nd.ca)} €</div></div></div>` +
+      )}</div></div>` +
+      `<div class="r-kpi"><div class="l">Non renseigné</div><div class="v">${fm(agg.nd.ca)}</div></div></div>` +
       `<h2>Détail par façonnier</h2>` +
-      `<table><thead><tr><th>Façonnier</th><th class="r">Articles</th><th class="r">Pièces</th><th class="r">CA facturé €</th><th class="r">Coût façon €</th><th class="r">Marge €</th><th class="r">Marge %</th><th class="r">Coût moy./pc</th></tr></thead><tbody>` +
+      `<table><thead><tr><th>Façonnier</th><th class="r">Articles</th><th class="r">Pièces</th><th class="r">CA facturé ${sym}</th><th class="r">Coût façon ${sym}</th><th class="r">Marge ${sym}</th><th class="r">Marge %</th><th class="r">Coût moy./pc</th></tr></thead><tbody>` +
       (Object.keys(byFacon).length
         ? Object.entries(byFacon)
             .sort((a, b) => b[1].ca - a[1].ca)
@@ -331,16 +359,16 @@ export function buildReportHTML(
               const mg = v.ca - v.cout;
               return `<tr><td><strong>${esc(k)}</strong></td><td class="r">${v.n}</td><td class="r">${nbI(
                 v.pcs,
-              )}</td><td class="r">${nb(v.ca)}</td><td class="r">${nb(v.cout)}</td><td class="r">${nb(
+              )}</td><td class="r">${fmn(v.ca)}</td><td class="r">${fmn(v.cout)}</td><td class="r">${fmn(
                 mg,
               )}</td><td class="r">${v.ca ? ((mg / v.ca) * 100).toFixed(1) : "—"}%</td><td class="r">${
-                v.pcs ? nb(v.cout / v.pcs) : "—"
+                v.pcs ? fmn(v.cout / v.pcs) : "—"
               }</td></tr>`;
             })
             .join("")
         : `<tr><td colspan="8" style="text-align:center;color:#6B7589">Aucune saisie façonnier — renseignez les articles dans «Marges par facture»</td></tr>`) +
       `</tbody></table><div style="font-size:9.5px;color:#6B7589;margin-top:8px">Basé sur vos saisies article par article. La production interne est valorisée au prix facturé (marge nulle par convention).</div>` +
-      reportFooter();
+      reportFooter(devise);
   }
 
   return html;
@@ -370,6 +398,8 @@ const FACTURE_CSS = `
   .facture-table tbody tr:nth-child(even) td{background:#FAFAF8}
   .facture-table td.r{text-align:right;font-family:monospace}.facture-table td.c{text-align:center}
   .facture-table tfoot td{padding:8px 10px;font-weight:700;font-size:11px;border-top:2px solid #0F1F3D}
+  .facture-table tfoot tr.tva td{border-top:1px solid #E2DDD5;font-weight:600}
+  .facture-table tfoot tr.ttc td{border-top:1px solid #E2DDD5;background:#FAFAF8}
   .lettres-block{background:#FAFAF8;border-left:4px solid #C9A227;border-radius:0 6px 6px 0;padding:9px 14px;font-size:10px;font-style:italic;font-weight:600;margin-bottom:14px}
   .facture-footer{display:grid;grid-template-columns:1fr 1fr;gap:16px;border-top:1px solid #E2DDD5;padding-top:12px}
   .footer-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6B7589;margin-bottom:5px}

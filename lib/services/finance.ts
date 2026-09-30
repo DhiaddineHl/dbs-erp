@@ -9,7 +9,9 @@ import {
   reglement,
 } from "@/lib/db/schema";
 import * as fin from "@/lib/domain/finance";
-import { getSetting, setSetting } from "@/lib/services/permissions";
+import { getSetting } from "@/lib/services/permissions";
+import { type Devise, deviseOu, tauxA } from "@/lib/domain/montants";
+import { enregistrerTauxChange, listTauxChange } from "@/lib/services/taux-change";
 
 /* ─────────── encaissements ─────────── */
 
@@ -32,7 +34,11 @@ export type EncaissementRow = {
   date: string;
   clientKey: string;
   marque: string;
+  /** Ce que le client doit : total TTC de la facture. */
   total: number;
+  totalHt: number;
+  tauxTva: number;
+  devise: Devise;
   paiement: string;
   echeance: string;
   joursRetard: number | null;
@@ -67,7 +73,9 @@ export async function listEncaissements(): Promise<EncaissementRow[]> {
     .filter((f) => f.type === "facture")
     .map((f) => {
       const rs = parFacture.get(f.id) ?? [];
-      const facts = { type: f.type, date: f.date, total: f.total, paiement: f.paiement };
+      const devise = deviseOu(f.devise);
+      // On encaisse le TTC ; le HT ne sert qu'au chiffre d'affaires.
+      const facts = { type: f.type, date: f.date, total: f.totalTtc, paiement: f.paiement };
       return {
         factureId: f.id,
         num: f.num,
@@ -75,12 +83,15 @@ export async function listEncaissements(): Promise<EncaissementRow[]> {
         date: f.date,
         clientKey: f.clientKey ?? "",
         marque: f.marque,
-        total: f.total,
+        total: f.totalTtc,
+        totalHt: f.total,
+        tauxTva: f.tauxTva,
+        devise,
         paiement: f.paiement,
         echeance: fin.dateEcheance(f.date, f.paiement) ?? "",
         joursRetard: fin.joursRetard(f.date, f.paiement, now),
-        regle: fin.totalRegle(rs),
-        reste: fin.resteDu(f.total, rs),
+        regle: fin.totalRegle(rs, devise),
+        reste: fin.resteDu(f.totalTtc, rs, devise),
         statut: fin.statutPaiement(facts, rs, now),
         reglements: rs.map((r) => ({
           id: r.id, factureId: r.factureId, date: r.date, montant: r.montant, mode: r.mode,
@@ -155,8 +166,16 @@ export type CompteFournisseurRow = {
   transactions: TransactionRow[];
 };
 
-export const getTauxEur = () => getSetting<number>("tauxEur", 3.34);
-export const setTauxEur = (taux: number) => setSetting("tauxEur", taux);
+/* Le taux EUR du grand livre est le dernier de l'historique des taux de
+ * change (Paramètres) : une seule source pour la conversion des soldes
+ * fournisseurs et celle du chiffre d'affaires. */
+export async function getTauxEur(): Promise<number> {
+  const t = tauxA("EUR", new Date().toISOString().slice(0, 10), await listTauxChange());
+  return t ?? (await getSetting<number>("tauxEur", 3.34));
+}
+/** Modifier le taux depuis le grand livre l'inscrit à la date du jour. */
+export const setTauxEur = (taux: number) =>
+  enregistrerTauxChange({ devise: "EUR", date: new Date().toISOString().slice(0, 10), taux });
 
 export async function listComptesFournisseurs(): Promise<CompteFournisseurRow[]> {
   const [comptes, transactions, taux] = await Promise.all([

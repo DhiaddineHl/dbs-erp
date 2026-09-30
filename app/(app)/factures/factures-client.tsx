@@ -14,7 +14,6 @@ import {
   fid,
   getLine,
   lignesCoutees,
-  nb,
   nbI,
   typeLabel,
   typeTagClass,
@@ -30,6 +29,19 @@ import { DetailModal } from "./detail-modal";
 import { Generateur } from "./generateur";
 import { BoutonVentiler } from "./ventilation";
 import { buildReportHTML, printDocument } from "@/lib/facturation/print";
+import { type GroupeDevise, vueFactures } from "@/lib/facturation/vue";
+import { VueDeviseSelect, useVueDevise } from "@/components/shared/vue-devise";
+import {
+  DEVISES,
+  type Devise,
+  type TauxChange,
+  formatMontant,
+  formatMontants,
+  totaliser,
+} from "@/lib/domain/montants";
+
+/** Symbole et formateur d'une devise — chaque groupe affiche la sienne. */
+const formateurs = (d: Devise) => ({ sym: DEVISES[d].symbole, fm: (n: number) => formatMontant(n, d) });
 
 type Tab = "dashboard" | "registre" | "generateur" | "encaissements" | "relances" | "marges" | "stats" | "rapports";
 
@@ -44,6 +56,9 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "rapports", label: "Rapports", icon: "🖨" },
 ];
 
+/** Onglets de chiffre d'affaires : ceux qui suivent la vue devise. */
+const TABS_CA: Tab[] = ["dashboard", "registre", "marges", "stats", "rapports"];
+
 const BAR_COLORS = ["#0F1F3D", "#C9A227", "#2A5C45", "#6B7589", "#C0392B", "#1A6B8A", "#8B5E3C", "#444"];
 
 type Props = {
@@ -52,10 +67,13 @@ type Props = {
   deleted: Facture[];
   encaissements: EncaissementRow[];
   comptes: { id: number; libelle: string }[];
+  taux: TauxChange[];
 };
 
-export default function FacturesClient({ factures, couts, deleted, encaissements, comptes }: Props) {
+export default function FacturesClient({ factures, couts, deleted, encaissements, comptes, taux }: Props) {
   const store = useFactStore({ factures, couts, deleted });
+  const vue = useVueDevise();
+  const vueF = vueFactures(store.all(), store.couts, vue, taux);
   const [tab, setTab] = useState<Tab>("dashboard");
   const [detail, setDetail] = useState<Facture | null>(null);
   const [seed, setSeed] = useState<{ facture: Facture | null; key: number }>({ facture: null, key: 0 });
@@ -103,14 +121,40 @@ export default function FacturesClient({ factures, couts, deleted, encaissements
         ))}
       </div>
 
-      {tab === "dashboard" && <Dashboard store={store} onSeeAll={() => setTab("registre")} />}
-      {tab === "registre" && <Registre store={store} onView={viewFacture} onMarges={setDetail} toast={toast} />}
+      {TABS_CA.includes(tab) && (
+        <div className="page" style={{ paddingBottom: 0 }}>
+          <VueDeviseSelect />
+          {vueF.nonConverties.length > 0 && (
+            <div className="info-box" style={{ marginTop: 8 }}>
+              ⚠ {vueF.nonConverties.length} document(s) exclu(s) : aucun taux de change connu pour leur devise (
+              {[...new Set(vueF.nonConverties.map((f) => f.devise))].join(", ")}). Renseignez-le dans Paramètres.
+            </div>
+          )}
+        </div>
+      )}
+      {tab === "dashboard" && (
+        <ParDevise vue={vueF.groupes}>{(g) => <Dashboard groupe={g} onSeeAll={() => setTab("registre")} />}</ParDevise>
+      )}
+      {tab === "registre" && (
+        <Registre store={store} taux={taux} onView={viewFacture} onMarges={setDetail} toast={toast} />
+      )}
       {tab === "generateur" && <Generateur key={seed.key} store={store} seed={seed.facture} toast={toast} />}
-      {tab === "marges" && <Marges store={store} onOpen={setDetail} />}
+      {tab === "marges" && (
+        <ParDevise vue={vueF.groupes}>
+          {(g) => (
+            <Marges
+              groupe={g}
+              // En vue convertie la ligne affichée est une copie : on ouvre l'originale,
+              // dont les coûts se saisissent dans sa propre devise.
+              onOpen={(f) => setDetail(store.findFact(f.id, f.type) ?? f)}
+            />
+          )}
+        </ParDevise>
+      )}
       {tab === "encaissements" && <Encaissements lignes={encaissements} comptes={comptes} toast={toast} />}
       {tab === "relances" && <Relances lignes={encaissements} comptes={comptes} toast={toast} />}
-      {tab === "stats" && <Stats store={store} />}
-      {tab === "rapports" && <Rapports store={store} />}
+      {tab === "stats" && <ParDevise vue={vueF.groupes}>{(g) => <Stats groupe={g} />}</ParDevise>}
+      {tab === "rapports" && <ParDevise vue={vueF.groupes}>{(g) => <Rapports groupe={g} />}</ParDevise>}
 
       {detail && (
         <DetailModal
@@ -127,9 +171,36 @@ export default function FacturesClient({ factures, couts, deleted, encaissements
   );
 }
 
+/* ═══════════════════ GROUPES PAR DEVISE ═══════════════════ */
+/** Un écran de chiffre d'affaires par devise ; un seul quand tout est converti. */
+function ParDevise({ vue, children }: { vue: GroupeDevise[]; children: (g: GroupeDevise) => React.ReactNode }) {
+  if (vue.length === 0)
+    return (
+      <div className="page">
+        <div className="info-box">Aucun document.</div>
+      </div>
+    );
+  if (vue.length === 1) return <>{children(vue[0])}</>;
+  return (
+    <>
+      {vue.map((g) => (
+        <section key={g.devise}>
+          <div className="page" style={{ paddingBottom: 0 }}>
+            <div className="section-title">
+              Montants en {g.devise} ({DEVISES[g.devise].symbole}) — {g.factures.length} document(s)
+            </div>
+          </div>
+          {children(g)}
+        </section>
+      ))}
+    </>
+  );
+}
+
 /* ═══════════════════ DASHBOARD ═══════════════════ */
-function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void }) {
-  const all = store.all();
+function Dashboard({ groupe, onSeeAll }: { groupe: GroupeDevise; onSeeAll: () => void }) {
+  const all = groupe.factures;
+  const { sym, fm } = formateurs(groupe.devise);
   const fs = all.filter((f) => f.type === "facture");
   const avsArr = all.filter((f) => f.type === "avoir");
   const ca = fs.reduce((s, f) => s + f.total, 0);
@@ -143,7 +214,7 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
   all
     .filter((f) => f.type !== "proforma" && f.lignes.length)
     .forEach((f) => {
-      const m = factureMarge(store.couts, f);
+      const m = factureMarge(groupe.couts, f);
       if (m.statut === "complete") nC++;
       else if (m.statut === "partielle") nP++;
     });
@@ -175,21 +246,21 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
     <div className="page">
       <div className="kpi-grid">
         <div className="kpi-card">
-          <div className="kpi-label">CA export net 2026</div>
-          <div className="kpi-value">{nb(net)} €</div>
+          <div className="kpi-label">CA net HT 2026</div>
+          <div className="kpi-value">{fm(net)}</div>
           <div className="kpi-sub">
-            {fs.length} factures − {avsArr.length} avoirs ({nb(av)} €)
+            {fs.length} factures − {avsArr.length} avoirs ({fm(av)})
           </div>
         </div>
         <div className="kpi-card">
           <div className="kpi-label">Pièces livrées</div>
           <div className="kpi-value gold">{nbI(pcs)}</div>
-          <div className="kpi-sub">PMP global {nb(net / pcs)} €/pièce</div>
+          <div className="kpi-sub">PMP global {fm(net / pcs)}/pièce</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-label">Fournitures facturées</div>
           <div className="kpi-value" style={{ color: "var(--slate)" }}>
-            {nb(fourn)} €
+            {fm(fourn)}
           </div>
           <div className="kpi-sub">{((fourn / net) * 100).toFixed(1)}% du CA net</div>
         </div>
@@ -204,7 +275,7 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
 
       <div className="chart-grid">
         <div className="chart-card">
-          <div className="chart-title">CA net par client (€ HT)</div>
+          <div className="chart-title">CA net par client ({sym} HT)</div>
           {sorted.map(([k, v], i) => (
             <div className="bar-row" key={k}>
               <div className="bar-label">{CLIENT_NAMES[k] || k}</div>
@@ -214,7 +285,7 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
                   style={{ width: `${((v / maxCA) * 100).toFixed(1)}%`, background: BAR_COLORS[i % BAR_COLORS.length] }}
                 />
               </div>
-              <div className="bar-value">{nb(v)} €</div>
+              <div className="bar-value">{fm(v)}</div>
             </div>
           ))}
         </div>
@@ -230,7 +301,7 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
                 <div className="bar-track">
                   <div className="bar-fill" style={{ width: `${((v / maxM) * 100).toFixed(1)}%`, background: "var(--navy)" }} />
                 </div>
-                <div className="bar-value">{nb(v)} €</div>
+                <div className="bar-value">{fm(v)}</div>
               </div>
             ))}
         </div>
@@ -246,9 +317,9 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
               <th>Client</th>
               <th>Factures</th>
               <th>Pièces</th>
-              <th>CA net (€)</th>
+              <th>CA net ({sym})</th>
               <th>% du CA</th>
-              <th>PMP (€/pièce)</th>
+              <th>PMP ({sym}/pièce)</th>
               <th>CA moyen / facture</th>
               <th>Fournit. % CA</th>
             </tr>
@@ -262,7 +333,7 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
                 <td className="mono">{r.n}</td>
                 <td className="mono">{nbI(r.pcs)}</td>
                 <td className="mono" style={{ fontWeight: 700 }}>
-                  {nb(r.ca)} €
+                  {fm(r.ca)}
                 </td>
                 <td>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -273,9 +344,9 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
                   </div>
                 </td>
                 <td className="mono" style={{ fontWeight: 700, color: "var(--gold)" }}>
-                  {nb(r.pmp)} €
+                  {fm(r.pmp)}
                 </td>
-                <td className="mono">{nb(r.caMoyen)} €</td>
+                <td className="mono">{fm(r.caMoyen)}</td>
                 <td className="mono">{r.fournPct.toFixed(1)}%</td>
               </tr>
             ))}
@@ -290,14 +361,14 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
                 <strong>{nbI(ana.tot.pcs)}</strong>
               </td>
               <td className="mono">
-                <strong>{nb(ana.tot.ca)} €</strong>
+                <strong>{fm(ana.tot.ca)}</strong>
               </td>
               <td />
               <td className="mono">
-                <strong>{nb(ana.tot.pmp)} €</strong>
+                <strong>{fm(ana.tot.pmp)}</strong>
               </td>
               <td className="mono">
-                <strong>{nb(ana.tot.caMoyen)} €</strong>
+                <strong>{fm(ana.tot.caMoyen)}</strong>
               </td>
               <td className="mono">
                 <strong>{ana.tot.fournPct.toFixed(1)}%</strong>
@@ -339,7 +410,7 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
                 </td>
                 <td className="mono" style={{ fontWeight: 700, color: f.type === "avoir" ? "var(--red)" : undefined }}>
                   {f.type === "avoir" ? "−" : ""}
-                  {nb(f.total)} €
+                  {fm(f.total)}
                 </td>
               </tr>
             ))}
@@ -353,11 +424,13 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
 /* ═══════════════════ REGISTRE ═══════════════════ */
 function Registre({
   store,
+  taux,
   onView,
   onMarges,
   toast,
 }: {
   store: FactStore;
+  taux: TauxChange[];
   onView: (f: Facture) => void;
   onMarges: (f: Facture) => void;
   toast: (m: string) => void;
@@ -383,9 +456,15 @@ function Registre({
       return (!q || txt.includes(q.toLowerCase())) && (!cl || f.client === cl) && (!ty || f.type === ty) && (!mo || f.date.substring(5, 7) === mo);
     })
     .sort((a, b) => b.date.localeCompare(a.date));
-  const tot =
-    res.filter((f) => f.type === "facture").reduce((s, f) => s + f.total, 0) -
-    res.filter((f) => f.type === "avoir").reduce((s, f) => s + f.total, 0);
+  // CA net HT des documents filtrés, selon la vue devise (séparé ou converti).
+  const vue = useVueDevise();
+  const tot = totaliser(
+    res
+      .filter((f) => f.type !== "proforma")
+      .map((f) => ({ devise: f.devise, date: f.date, montant: f.type === "avoir" ? -f.total : f.total })),
+    vue,
+    taux,
+  );
 
   return (
     <div className="page">
@@ -417,7 +496,8 @@ function Registre({
       <div className="table-wrap">
         <div className="table-header">
           <div className="table-title">
-            {res.length} documents — CA net {nb(tot)} €
+            {res.length} documents — CA net HT {formatMontants(tot.montants)}
+            {tot.nonConvertis > 0 && ` (${tot.nonConvertis} non converti(s))`}
           </div>
           <BoutonVentiler toast={toast} />
           {store.deleted.length > 0 && (
@@ -441,6 +521,8 @@ function Registre({
               <th>Pièces</th>
               <th>Fournitures</th>
               <th>Montant HT</th>
+              <th>TVA</th>
+              <th>Total TTC</th>
               <th>Type</th>
               <th style={{ width: 220 }} />
             </tr>
@@ -456,10 +538,17 @@ function Registre({
                   <strong>{CLIENT_NAMES[f.client] || f.client}</strong>
                 </td>
                 <td className="mono">{nbI(f.pieces)}</td>
-                <td className="mono">{f.fournitures ? nb(f.fournitures) + " €" : "—"}</td>
+                <td className="mono">{f.fournitures ? formatMontant(f.fournitures, f.devise) : "—"}</td>
                 <td className="mono" style={{ fontWeight: 700, color: f.type === "avoir" ? "var(--red)" : undefined }}>
                   {f.type === "avoir" ? "−" : ""}
-                  {nb(f.total)} €
+                  {formatMontant(f.total, f.devise)}
+                </td>
+                <td className="mono">
+                  {f.tauxTva > 0 ? `${f.tauxTva} % · ${formatMontant(f.montantTva, f.devise)}` : "—"}
+                </td>
+                <td className="mono">
+                  {f.type === "avoir" ? "−" : ""}
+                  {formatMontant(f.totalTtc, f.devise)}
                 </td>
                 <td>
                   <span className={`tag ${typeTagClass(f.type)}`}>{typeLabel(f.type)}</span>
@@ -495,11 +584,13 @@ function Registre({
 }
 
 /* ═══════════════════ MARGES ═══════════════════ */
-function Marges({ store, onOpen }: { store: FactStore; onOpen: (f: Facture) => void }) {
+function Marges({ groupe, onOpen }: { groupe: GroupeDevise; onOpen: (f: Facture) => void }) {
   const [q, setQ] = useState("");
   const [cl, setCl] = useState("");
   const [st, setSt] = useState("");
-  const all = store.all();
+  const all = groupe.factures;
+  const couts = groupe.couts;
+  const { sym, fm } = formateurs(groupe.devise);
   const clients = [...new Set(all.map((f) => f.client))];
 
   const summaryFs = all.filter((f) => f.type !== "proforma" && f.lignes.length);
@@ -509,7 +600,7 @@ function Marges({ store, onOpen }: { store: FactStore; onOpen: (f: Facture) => v
   let margeR = 0;
   let n = 0;
   summaryFs.forEach((f) => {
-    const m = factureMarge(store.couts, f);
+    const m = factureMarge(couts, f);
     if (m.marge !== null) {
       caR += caNet(f);
       coutR += m.cout!;
@@ -524,7 +615,7 @@ function Marges({ store, onOpen }: { store: FactStore; onOpen: (f: Facture) => v
     .filter((f) => f.type !== "proforma")
     .filter((f) => {
       const txt = (f.id + " " + (CLIENT_NAMES[f.client] || "")).toLowerCase();
-      const m = factureMarge(store.couts, f);
+      const m = factureMarge(couts, f);
       return (!q || txt.includes(q.toLowerCase())) && (!cl || f.client === cl) && (!st || m.statut === st);
     })
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -549,18 +640,18 @@ function Marges({ store, onOpen }: { store: FactStore; onOpen: (f: Facture) => v
         </div>
         <div className="marge-card">
           <div className="mc-label">CA renseigné</div>
-          <div className="mc-val">{nb(caR)} €</div>
+          <div className="mc-val">{fm(caR)}</div>
         </div>
         <div className="marge-card">
           <div className="mc-label">Coûts (production + fournitures)</div>
           <div className="mc-val" style={{ color: "var(--gold)" }}>
-            {nb(coutR + fournR)} €
+            {fm(coutR + fournR)}
           </div>
         </div>
         <div className="marge-card">
           <div className="mc-label">Marge totale</div>
           <div className="mc-val" style={{ color: margeR >= 0 ? "var(--green)" : "var(--red)" }}>
-            {nb(margeR)} €
+            {fm(margeR)}
           </div>
           <div className="mc-sub">{pct.toFixed(1)}% du CA renseigné</div>
           <div className="progress-bar">
@@ -595,17 +686,17 @@ function Marges({ store, onOpen }: { store: FactStore; onOpen: (f: Facture) => v
               <th>Date</th>
               <th>Client</th>
               <th>Articles</th>
-              <th>CA HT (€)</th>
-              <th>Fournit. (€)</th>
-              <th>Coût production (€)</th>
-              <th>Marge (€)</th>
+              <th>CA HT ({sym})</th>
+              <th>Fournit. ({sym})</th>
+              <th>Coût production ({sym})</th>
+              <th>Marge ({sym})</th>
               <th>Marge %</th>
               <th>Saisie</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((f) => {
-              const m = factureMarge(store.couts, f);
+              const m = factureMarge(couts, f);
               const isAv = f.type === "avoir";
               const clickable = f.lignes.length > 0;
               return (
@@ -619,13 +710,13 @@ function Marges({ store, onOpen }: { store: FactStore; onOpen: (f: Facture) => v
                   </td>
                   <td className="mono">{f.lignes.length}</td>
                   <td className="mono" style={{ fontWeight: 600, color: isAv ? "var(--red)" : undefined }}>
-                    {nb(caNet(f))} €
+                    {fm(caNet(f))}
                   </td>
-                  <td className="mono">{f.fournitures ? nb(f.fournitures) : "—"}</td>
-                  <td className="mono">{m.cout !== null ? nb(m.cout) + " €" : "—"}</td>
+                  <td className="mono">{f.fournitures ? fm(f.fournitures) : "—"}</td>
+                  <td className="mono">{m.cout !== null ? fm(m.cout) : "—"}</td>
                   <td>
                     {m.marge !== null ? (
-                      <span className={m.marge >= 0 ? "pos" : "neg"}>{nb(m.marge)} €</span>
+                      <span className={m.marge >= 0 ? "pos" : "neg"}>{fm(m.marge)}</span>
                     ) : (
                       <span style={{ color: "var(--slate)" }}>—</span>
                     )}
@@ -664,7 +755,8 @@ function Marges({ store, onOpen }: { store: FactStore; onOpen: (f: Facture) => v
 }
 
 /* ═══════════════════ STATS ═══════════════════ */
-function Stats({ store }: { store: FactStore }) {
+function Stats({ groupe }: { groupe: GroupeDevise }) {
+  const { sym, fm } = formateurs(groupe.devise);
   const agg = {
     interne: { ca: 0, cout: 0, pcs: 0, n: 0 },
     faconnier: { ca: 0, cout: 0, pcs: 0, n: 0 },
@@ -672,8 +764,7 @@ function Stats({ store }: { store: FactStore }) {
   };
   const byFacon: Record<string, { n: number; pcs: number; ca: number; cout: number }> = {};
   const byClient: Record<string, { n: number; pcs: number; ca: number; fourn: number; cout: number; hasCost: boolean }> = {};
-  store
-    .all()
+  groupe.factures
     .filter((f) => f.type !== "proforma")
     .forEach((f) => {
       const sign = f.type === "avoir" ? -1 : 1;
@@ -686,7 +777,7 @@ function Stats({ store }: { store: FactStore }) {
         byClient[k].fourn += f.fournitures || 0;
       }
       f.lignes.forEach((l, i) => {
-        const c = getLine(store.couts, f, i);
+        const c = getLine(groupe.couts, f, i);
         const cp = c.lieu === "interne" ? l.pu : c.cout !== "" ? parseFloat(c.cout) : NaN;
         const lineCA = l.mt * sign;
         if (c.lieu && !isNaN(cp)) {
@@ -713,7 +804,7 @@ function Stats({ store }: { store: FactStore }) {
       });
     });
 
-  const lignes = lignesCoutees(store.all(), store.couts);
+  const lignes = lignesCoutees(groupe.factures, groupe.couts);
   const facturation = facturationMensuelle(lignes);
   const marges = margesFaconniers(lignes);
 
@@ -730,23 +821,23 @@ function Stats({ store }: { store: FactStore }) {
         <div className="kpi-card">
           <div className="kpi-label">Production interne DBS</div>
           <div className="kpi-value" style={{ color: "var(--navy)" }}>
-            {nb(agg.interne.ca)} €
+            {fm(agg.interne.ca)}
           </div>
           <div className="kpi-sub">
-            {agg.interne.n} articles · {nbI(agg.interne.pcs)} pcs · marge {nb(agg.interne.ca - agg.interne.cout)} €
+            {agg.interne.n} articles · {nbI(agg.interne.pcs)} pcs · marge {fm(agg.interne.ca - agg.interne.cout)}
           </div>
         </div>
         <div className="kpi-card">
           <div className="kpi-label">Sous-traité façonniers</div>
-          <div className="kpi-value gold">{nb(agg.faconnier.ca)} €</div>
+          <div className="kpi-value gold">{fm(agg.faconnier.ca)}</div>
           <div className="kpi-sub">
-            {agg.faconnier.n} articles · {nbI(agg.faconnier.pcs)} pcs · marge {nb(agg.faconnier.ca - agg.faconnier.cout)} €
+            {agg.faconnier.n} articles · {nbI(agg.faconnier.pcs)} pcs · marge {fm(agg.faconnier.ca - agg.faconnier.cout)}
           </div>
         </div>
         <div className="kpi-card">
           <div className="kpi-label">Non renseigné</div>
           <div className="kpi-value" style={{ color: "var(--slate)" }}>
-            {nb(agg.nd.ca)} €
+            {fm(agg.nd.ca)}
           </div>
           <div className="kpi-sub">{agg.nd.n} articles à classer («Marges par facture»)</div>
         </div>
@@ -767,7 +858,7 @@ function Stats({ store }: { store: FactStore }) {
               <div className="bar-track">
                 <div className="bar-fill" style={{ width: `${((val / maxP) * 100).toFixed(1)}%`, background: color }} />
               </div>
-              <div className="bar-value">{nb(val)} €</div>
+              <div className="bar-value">{fm(val)}</div>
             </div>
           ))}
           {agg.interne.ca + agg.faconnier.ca > 0 && (
@@ -788,7 +879,7 @@ function Stats({ store }: { store: FactStore }) {
                     style={{ width: `${((Math.abs(v) / maxCM) * 100).toFixed(1)}%`, background: v >= 0 ? "var(--green)" : "var(--red)" }}
                   />
                 </div>
-                <div className="bar-value">{nb(v)} €</div>
+                <div className="bar-value">{fm(v)}</div>
               </div>
             ))
           ) : (
@@ -804,11 +895,11 @@ function Stats({ store }: { store: FactStore }) {
       <div className="chart-grid">
         <div className="chart-card">
           <div className="chart-title">Facturation mensuelle par origine de production</div>
-          <FacturationMensuelle data={facturation} />
+          <FacturationMensuelle data={facturation} devise={groupe.devise} />
         </div>
         <div className="chart-card">
           <div className="chart-title">Marge sur coût façon, par façonnier</div>
-          <MargesFaconniersChart marges={marges} />
+          <MargesFaconniersChart marges={marges} devise={groupe.devise} />
           <div style={{ marginTop: 8, fontSize: 11, color: "var(--slate)" }}>
             Montant facturé moins la façon payée. Ni le tissu, ni les fournitures, ni la coupe ne
             sont déduits : ce n&apos;est pas la marge nette.
@@ -843,10 +934,10 @@ function Stats({ store }: { store: FactStore }) {
                     </td>
                     <td className="mono">{v.n}</td>
                     <td className="mono">{nbI(v.pcs)}</td>
-                    <td className="mono">{nb(v.ca)} €</td>
-                    <td className="mono">{nb(v.cout)} €</td>
-                    <td className={`mono ${v.ca - v.cout >= 0 ? "pos" : "neg"}`}>{nb(v.ca - v.cout)} €</td>
-                    <td className="mono">{v.pcs ? nb(v.cout / v.pcs) + " €" : "—"}</td>
+                    <td className="mono">{fm(v.ca)}</td>
+                    <td className="mono">{fm(v.cout)}</td>
+                    <td className={`mono ${v.ca - v.cout >= 0 ? "pos" : "neg"}`}>{fm(v.ca - v.cout)}</td>
+                    <td className="mono">{v.pcs ? fm(v.cout / v.pcs) : "—"}</td>
                   </tr>
                 ))
             ) : (
@@ -870,10 +961,10 @@ function Stats({ store }: { store: FactStore }) {
               <th>Client</th>
               <th>Factures</th>
               <th>Pièces</th>
-              <th>CA net (€)</th>
-              <th>Fournitures (€)</th>
-              <th>Coûts saisis (€)</th>
-              <th>Marge (€)</th>
+              <th>CA net ({sym})</th>
+              <th>Fournitures ({sym})</th>
+              <th>Coûts saisis ({sym})</th>
+              <th>Marge ({sym})</th>
             </tr>
           </thead>
           <tbody>
@@ -889,13 +980,13 @@ function Stats({ store }: { store: FactStore }) {
                     <td className="mono">{v.n}</td>
                     <td className="mono">{nbI(v.pcs)}</td>
                     <td className="mono" style={{ fontWeight: 600 }}>
-                      {nb(v.ca)} €
+                      {fm(v.ca)}
                     </td>
-                    <td className="mono">{nb(v.fourn)} €</td>
-                    <td className="mono">{v.hasCost ? nb(v.cout) + " €" : "—"}</td>
+                    <td className="mono">{fm(v.fourn)}</td>
+                    <td className="mono">{v.hasCost ? fm(v.cout) : "—"}</td>
                     <td>
                       {marge !== null ? (
-                        <span className={marge >= 0 ? "pos" : "neg"}>{nb(marge)} €</span>
+                        <span className={marge >= 0 ? "pos" : "neg"}>{fm(marge)}</span>
                       ) : (
                         <span style={{ color: "var(--slate)" }}>à renseigner</span>
                       )}
@@ -911,15 +1002,15 @@ function Stats({ store }: { store: FactStore }) {
 }
 
 /* ═══════════════════ RAPPORTS ═══════════════════ */
-function Rapports({ store }: { store: FactStore }) {
-  const all = store.all();
+function Rapports({ groupe }: { groupe: GroupeDevise }) {
+  const all = groupe.factures;
   const clients = [...new Set(all.map((f) => f.client))];
   const [type, setType] = useState("synthese");
   const [client, setClient] = useState(clients[0] || "");
   const [mois, setMois] = useState("");
   const [html, setHtml] = useState("");
 
-  const generate = () => setHtml(buildReportHTML(type, mois, all, store.couts, client));
+  const generate = () => setHtml(buildReportHTML(type, mois, all, groupe.couts, client, groupe.devise));
 
   const moisOpts = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
   const moisNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];

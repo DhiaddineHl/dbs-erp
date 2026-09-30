@@ -5,6 +5,7 @@ import { revaliderCarnet } from "@/lib/revalidation";
 import * as XLSX from "xlsx";
 import { assertUser, userRole } from "@/lib/auth/server";
 import * as biz from "@/lib/domain/commande";
+import { type Devise, deviseOu, estDevise } from "@/lib/domain/montants";
 import * as svc from "@/lib/services/commandes";
 import * as gpao from "@/lib/services/gpao";
 import * as fournitures from "@/lib/services/fournitures";
@@ -353,6 +354,7 @@ export async function createCommande(d: Data): Promise<Result> {
       tailles,
       prixVente: parseMontant(d.prixVente),
       prixFacon: apercu.interne ? parseMontant(d.prixVente) : parseMontant(d.prixFacon),
+      devise: deviseOu(d.devise),
       consoTheo: parseMontant(d.consoTheo),
       receptTissu: parseDate(d.receptTissu),
       dateExport: parseDate(d.dateExport),
@@ -398,6 +400,10 @@ export async function updateCommandeRow(id: number, patch: Data): Promise<Result
           break;
         case "chaineId":
           out.chaineId = v ? Number(v) : null;
+          break;
+        case "devise":
+          if (!estDevise(v)) return { ok: false, error: `Devise inconnue : ${v}` };
+          out.devise = v;
           break;
         case "qte":
         case "produit":
@@ -612,6 +618,7 @@ export async function importCommandes(formData: FormData): Promise<ImportResult>
         qte: parseEntier(d.qte),
         prixVente: parseMontant(d.prixVente),
         prixFacon: parseMontant(d.prixFacon),
+        devise: deviseOu(d.devise?.trim().toUpperCase()),
         produit: parseEntier(d.produit),
         dateExport: parseDate(d.dateExport),
       });
@@ -728,6 +735,7 @@ export type GroupeDoublon = {
     couleur: string;
     qte: number;
     ca: number;
+    devise: Devise;
     produit: number;
     factureQte: number;
     dateExport: string;
@@ -758,6 +766,7 @@ export async function listerDoublons(): Promise<Retour<GroupeDoublon[]>> {
           couleur: c.couleur,
           qte: c.qte,
           ca: c.ca,
+          devise: c.devise,
           produit: c.produit,
           factureQte: c.factureQte,
           dateExport: c.dateExport,

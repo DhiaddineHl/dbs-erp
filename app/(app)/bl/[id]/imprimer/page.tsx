@@ -3,9 +3,9 @@ import { requireUser } from "@/lib/auth/server";
 import { STATUTS_BL, type StatutBl } from "@/lib/domain/aval";
 import { getBl } from "@/lib/services/aval";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
+import { formatMontant } from "@/lib/domain/montants";
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-").reverse().join("/") : iso || "—");
 
 /* Bon de livraison — le document qui accompagne physiquement la marchandise.
@@ -19,6 +19,8 @@ export default async function BlImprimerPage({ params }: { params: Promise<{ id:
 
   const s = STATUTS_BL[b.statut as StatutBl] ?? STATUTS_BL.draft;
   const chiffre = b.lignes.some((l) => l.prixUnitaire > 0);
+  const fm = (n: number) => formatMontant(n, b.devise);
+  const avecTva = chiffre && b.tauxTva > 0;
 
   return (
     <div className="mx-auto max-w-4xl bg-white p-8 text-[13px] text-neutral-900 print:p-0">
@@ -86,8 +88,8 @@ export default async function BlImprimerPage({ params }: { params: Promise<{ id:
               <td className="py-1.5 pr-1 text-right font-bold tabular-nums">{nb.format(l.qteLivree)}</td>
               {chiffre && (
                 <>
-                  <td className="py-1.5 pr-1 text-right tabular-nums">{eur.format(l.prixUnitaire)} €</td>
-                  <td className="py-1.5 pr-1 text-right font-semibold tabular-nums">{eur.format(l.montant)} €</td>
+                  <td className="py-1.5 pr-1 text-right tabular-nums">{fm(l.prixUnitaire)}</td>
+                  <td className="py-1.5 pr-1 text-right font-semibold tabular-nums">{fm(l.montant)}</td>
                 </>
               )}
             </tr>
@@ -96,18 +98,34 @@ export default async function BlImprimerPage({ params }: { params: Promise<{ id:
         <tfoot>
           <tr className="border-t-2 border-neutral-900">
             <th colSpan={4} className="py-2 pl-1 text-left uppercase">
-              Total
+              {avecTva ? "Total HT" : "Total"}
             </th>
             <td className="py-2 pr-1 text-right text-[15px] font-extrabold tabular-nums">{nb.format(b.totalQte)}</td>
             {chiffre && (
               <>
                 <td />
                 <td className="py-2 pr-1 text-right text-[15px] font-extrabold tabular-nums">
-                  {eur.format(b.totalHt)} €
+                  {fm(b.totalHt)}
                 </td>
               </>
             )}
           </tr>
+          {avecTva && (
+            <>
+              <tr className="border-t border-neutral-200">
+                <th colSpan={6} className="py-1.5 pr-1 text-right font-semibold">
+                  TVA {b.tauxTva} %
+                </th>
+                <td className="py-1.5 pr-1 text-right font-semibold tabular-nums">{fm(b.montantTva)}</td>
+              </tr>
+              <tr className="border-t border-neutral-300 bg-neutral-50">
+                <th colSpan={6} className="py-2 pr-1 text-right uppercase">
+                  Total TTC
+                </th>
+                <td className="py-2 pr-1 text-right text-[15px] font-extrabold tabular-nums">{fm(b.totalTtc)}</td>
+              </tr>
+            </>
+          )}
         </tfoot>
       </table>
 

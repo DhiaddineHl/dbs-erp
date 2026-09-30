@@ -11,8 +11,8 @@ import {
   factureMarge,
   fdate,
   getLine,
-  nb,
 } from "@/lib/facturation/store";
+import { DEVISES, formatMontant } from "@/lib/domain/montants";
 import { reattribuerClientAction, suggererClientAction } from "@/lib/actions/facturation";
 import type { SuggestionClient } from "@/lib/services/facturation";
 
@@ -31,6 +31,10 @@ export function DetailModal({
 }) {
   const m = factureMarge(couts, f);
   const ca = caNet(f);
+  // Montants et coûts saisis dans la devise de la facture.
+  const sym = DEVISES[f.devise].symbole;
+  const fm = (n: number) => formatMontant(n, f.devise);
+  const fmn = (n: number) => formatMontant(n, f.devise, { symbole: false });
 
   const onLieu = (i: number, v: string) => {
     setLine(f, i, "lieu", v);
@@ -61,6 +65,7 @@ export function DetailModal({
             </div>
             <div className="dh-sub">
               {(CLIENT_NAMES[f.client] || f.client) + " — " + fdate(f.date) + " — " + f.lignes.length + " article(s)"}
+              {f.tauxTva > 0 && ` — TVA ${f.tauxTva} % : ${fm(f.montantTva)} · TTC ${fm(f.totalTtc)}`}
             </div>
           </div>
           <button className="detail-close" onClick={onClose}>
@@ -73,23 +78,23 @@ export function DetailModal({
         <div className="detail-body">
           <div className="detail-kpis">
             <div className="dk">
-              <div className="dk-label">CA facturé</div>
-              <div className="dk-val">{nb(ca)} €</div>
+              <div className="dk-label">CA facturé HT</div>
+              <div className="dk-val">{fm(ca)}</div>
             </div>
             <div className="dk">
               <div className="dk-label">Fournitures</div>
               <div className="dk-val" style={{ color: "var(--gold)" }}>
-                {nb(f.fournitures || 0)} €
+                {fm(f.fournitures || 0)}
               </div>
             </div>
             <div className="dk">
               <div className="dk-label">Coût production saisi</div>
-              <div className="dk-val">{m.cout !== null ? nb(m.cout) + " €" : "—"}</div>
+              <div className="dk-val">{m.cout !== null ? fm(m.cout) : "—"}</div>
             </div>
             <div className="dk">
               <div className="dk-label">Marge facture</div>
               <div className="dk-val" style={{ color: m.marge !== null && m.marge < 0 ? "var(--red)" : "var(--green)" }}>
-                {m.marge !== null ? `${nb(m.marge)} € (${m.pct!.toFixed(1)}%)` : "—"}
+                {m.marge !== null ? `${fm(m.marge)} (${m.pct!.toFixed(1)}%)` : "—"}
               </div>
             </div>
           </div>
@@ -101,7 +106,7 @@ export function DetailModal({
                 <th style={{ width: 75 }}>Désig.</th>
                 <th style={{ width: 100 }}>Référence</th>
                 <th style={{ width: 55 }}>Qté</th>
-                <th style={{ width: 65 }}>P.U. €</th>
+                <th style={{ width: 65 }}>P.U. {sym}</th>
                 <th style={{ width: 85 }}>Montant</th>
                 <th className="intern" style={{ width: 120 }}>
                   Fabriqué chez
@@ -110,7 +115,7 @@ export function DetailModal({
                   Façonnier
                 </th>
                 <th className="intern" style={{ width: 95 }}>
-                  Coût/pc €
+                  Coût/pc {sym}
                 </th>
                 <th style={{ width: 95 }}>Coût total</th>
                 <th style={{ width: 95 }}>Marge ligne</th>
@@ -132,9 +137,9 @@ export function DetailModal({
                     <td>{l.desig || ""}</td>
                     <td className="mono">{l.ref || ""}</td>
                     <td className="lm">{l.qte}</td>
-                    <td className="lm">{nb(l.pu)}</td>
+                    <td className="lm">{fmn(l.pu)}</td>
                     <td className="lm">
-                      <strong>{nb(l.mt)}</strong>
+                      <strong>{fmn(l.mt)}</strong>
                     </td>
                     <td className="intern">
                       <select value={c.lieu} onChange={(e) => onLieu(i, e.target.value)}>
@@ -170,10 +175,10 @@ export function DetailModal({
                         onChange={(e) => setLine(f, i, "cout", e.target.value)}
                       />
                     </td>
-                    <td className="lm">{coutT !== null ? nb(coutT) + " €" : "—"}</td>
+                    <td className="lm">{coutT !== null ? fm(coutT) : "—"}</td>
                     <td className="lm">
                       {margeL !== null ? (
-                        <span className={margeL >= 0 ? "pos" : "neg"}>{nb(margeL)} €</span>
+                        <span className={margeL >= 0 ? "pos" : "neg"}>{fm(margeL)}</span>
                       ) : (
                         "—"
                       )}
@@ -198,7 +203,7 @@ export function DetailModal({
           <div className="df-marge">
             {m.marge !== null ? (
               <>
-                Marge : <span className={m.marge >= 0 ? "pos" : "neg"}>{nb(m.marge)} €</span>
+                Marge : <span className={m.marge >= 0 ? "pos" : "neg"}>{fm(m.marge)}</span>
               </>
             ) : (
               "Renseignez les coûts pour voir la marge"

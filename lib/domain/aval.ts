@@ -1,5 +1,6 @@
 import type { Tone } from "@/components/shared/status-badge";
 import { cleRapprochement } from "./commande";
+import type { Devise, Montants } from "./montants";
 
 /* Flux aval — contrôles de cohérence, machine à états du magasin, et le
  * rapprochement facturation qui referme la boucle commande ↔ facture. */
@@ -341,7 +342,8 @@ export type ChargeMois = {
   nbCommandes: number;
   qte: number;
   restant: number;
-  ca: number;
+  /** CA HT par devise — des euros et des dinars ne s'additionnent pas. */
+  ca: Montants;
 };
 
 export type CommandeConfiee = {
@@ -354,11 +356,12 @@ export type CommandeConfiee = {
   produit: number;
   restant: number;
   ca: number;
+  devise: Devise;
 };
 
 export type PlanFaconnier = {
   faconnier: string;
-  total: { nbCommandes: number; qte: number; restant: number; ca: number };
+  total: { nbCommandes: number; qte: number; restant: number; ca: Montants };
   parMois: Record<string, ChargeMois>;
   /** Détail : la liste des commandes confiées à ce façonnier. */
   commandes: CommandeConfiee[];
@@ -370,6 +373,8 @@ export type LigneCharge = {
   qte: number;
   produit: number;
   ca: number;
+  /** Devise de `ca` ; EUR à défaut. */
+  devise?: Devise;
   /** Détail commande (pour la liste des confiées). */
   of?: string;
   modele?: string;
@@ -385,20 +390,21 @@ export function planFaconnier(lignes: LigneCharge[]): PlanFaconnier[] {
   for (const l of lignes) {
     const f = parFaconnier.get(l.faconnier) ?? {
       faconnier: l.faconnier,
-      total: { nbCommandes: 0, qte: 0, restant: 0, ca: 0 },
+      total: { nbCommandes: 0, qte: 0, restant: 0, ca: {} },
       parMois: {} as Record<string, ChargeMois>,
       commandes: [] as CommandeConfiee[],
     };
     const restant = Math.max(0, l.qte - l.produit);
-    const m = (f.parMois[l.mois] ??= { mois: l.mois, nbCommandes: 0, qte: 0, restant: 0, ca: 0 });
+    const devise = l.devise ?? "EUR";
+    const m = (f.parMois[l.mois] ??= { mois: l.mois, nbCommandes: 0, qte: 0, restant: 0, ca: {} });
     m.nbCommandes++;
     m.qte += l.qte;
     m.restant += restant;
-    m.ca += l.ca;
+    m.ca[devise] = (m.ca[devise] ?? 0) + l.ca;
     f.total.nbCommandes++;
     f.total.qte += l.qte;
     f.total.restant += restant;
-    f.total.ca += l.ca;
+    f.total.ca[devise] = (f.total.ca[devise] ?? 0) + l.ca;
     f.commandes.push({
       of: l.of ?? "",
       modele: l.modele ?? "",
@@ -409,6 +415,7 @@ export function planFaconnier(lignes: LigneCharge[]): PlanFaconnier[] {
       produit: l.produit,
       restant,
       ca: l.ca,
+      devise,
     });
     parFaconnier.set(l.faconnier, f);
   }

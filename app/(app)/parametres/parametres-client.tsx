@@ -16,6 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NAV_STRUCTURE } from "@/lib/nav";
 import type { RoleRow } from "@/lib/services/permissions";
+import type { TauxChangeRow } from "@/lib/services/taux-change";
+import { TauxChangePanel } from "./taux-change";
 import {
   createUserAction,
   creerRoleAction,
@@ -35,11 +37,13 @@ export function ParametresClient({
   matrix,
   roles,
   prixFacon,
+  taux,
 }: {
   users: ManagedUser[];
   matrix: PermMatrix;
   roles: RoleRow[];
   prixFacon: number;
+  taux: TauxChangeRow[];
 }) {
   const router = useRouter();
   const [userDialog, setUserDialog] = useState<{ open: boolean; edit: ManagedUser | null }>({ open: false, edit: null });
@@ -91,6 +95,8 @@ export function ParametresClient({
           </div>
         </div>
       </SectionPanel>
+
+      <TauxChangePanel taux={taux} />
 
       {/* ── Données ── */}
       <SectionPanel title="Données" icon="🗄">
