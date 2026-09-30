@@ -1,4 +1,5 @@
 import "server-only";
+import type { Cloture } from "@/lib/domain/commande";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { client, commande, tissuMouvement } from "@/lib/db/schema";
@@ -47,6 +48,8 @@ export type MatiereCommandeRow = {
   lots: string[];
   etat: tx.EtatMatiereCommande;
   propositions: PropositionLot[];
+  /** Livrée / facturée : rangée par défaut dans l'onglet. */
+  cloture: Cloture;
 };
 
 /** Toutes les commandes qui portent leur matière (les OF rattachés sont
@@ -76,7 +79,8 @@ export async function vueMatiereCommandes(): Promise<{ commandes: MatiereCommand
       affecteParCommande.set(a.commandeId, e);
     }
   }
-  const candidats = lots.map((l) => ({
+  // Un lot archivé ou épuisé ne se propose plus.
+  const candidats = lots.filter((l) => !l.rangement).map((l) => ({
     id: l.id, identifiant: l.identifiant, client: l.client, reference: l.reference, couleur: l.couleur,
     libre: l.bilan.libre, controle: l.controle, unite: l.unite,
   }));
@@ -106,6 +110,7 @@ export async function vueMatiereCommandes(): Promise<{ commandes: MatiereCommand
       lancee: r.lancee,
       consoTheo: r.consoTheo,
       lots: aff.lots,
+      cloture: r.cloture,
       etat,
       propositions: etat.manque > 0
         ? props.slice(0, 4).map((p) => ({

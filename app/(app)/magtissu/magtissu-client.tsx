@@ -9,12 +9,13 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { dashboardTissu, totauxRouleaux, type GroupeReliquats, type RouleauControle } from "@/lib/domain/tissu";
+import { dashboardTissu, refusSuppressionLot, totauxRouleaux, type GroupeReliquats, type RouleauControle } from "@/lib/domain/tissu";
 import type { LotRow } from "@/lib/services/tissu";
 import type { MatiereCommandeRow } from "@/lib/services/matiere-tissu";
 import * as A from "@/lib/actions/tissu";
 import { SENS, type SensRouleau } from "@/lib/domain/rouleau";
 import type { RouleauRow } from "@/lib/services/rouleaux";
+import { BasculeRangees, PastilleCloture } from "@/components/shared/bascule-rangees";
 import { KpisRouleaux, OngletRouleaux, RouleauxDuLot, type BonSortieResume, type IndicateursAffiches } from "./rouleaux-ui";
 
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
@@ -82,10 +83,12 @@ export function MagasinTissu({
     () => dashboardTissu(lots.map((l) => ({ quantiteRecue: l.quantiteRecue, bilan: l.bilan, statutKind: l.statut.kind }))),
     [lots],
   );
-  const aReclamer = lots.filter((l) => l.ecarts.aReclamer && l.bilan.consomme <= 0).length;
-  const nonControles = lots.filter((l) => !l.controle && l.bilan.disponible > 0).length;
-  const aDemander = parCommande.filter((c) => c.etat.niveau === "manque");
-  const couvrables = parCommande.filter((c) => c.etat.niveau === "stock").length;
+  const aReclamer = lots.filter((l) => !l.rangement && l.ecarts.aReclamer && l.bilan.consomme <= 0).length;
+  const nonControles = lots.filter((l) => !l.rangement && !l.controle && l.bilan.disponible > 0).length;
+  // Une commande livrée ou facturée ne réclame plus de tissu : hors indicateurs.
+  const enCours = parCommande.filter((c) => !c.cloture);
+  const aDemander = enCours.filter((c) => c.etat.niveau === "manque");
+  const couvrables = enCours.filter((c) => c.etat.niveau === "stock").length;
   const nbReliquats = reliquats.reduce((s, g) => s + g.lots.length, 0);
 
   return (
@@ -167,25 +170,32 @@ export function MagasinTissu({
 
 function OngletCommandes({ rows, q, peutSaisir }: { rows: MatiereCommandeRow[]; q: string; peutSaisir: boolean }) {
   const run = useRunner();
+  const [voirRangees, setVoirRangees] = useState(false);
   const n = q.trim().toLowerCase();
-  const vus = rows.filter((r) => !n || `${r.of} ${r.client} ${r.modele} ${r.couleur} ${r.refArticle} ${r.lots.join(" ")}`.toLowerCase().includes(n));
-  const clientsADemander = [...new Set(rows.filter((r) => r.etat.aDemander > 0).map((r) => r.client).filter(Boolean))];
+  const nbRangees = rows.filter((r) => r.cloture).length;
+  const vus = rows.filter(
+    (r) => (voirRangees || !r.cloture) && (!n || `${r.of} ${r.client} ${r.modele} ${r.couleur} ${r.refArticle} ${r.lots.join(" ")}`.toLowerCase().includes(n)),
+  );
+  const clientsADemander = [...new Set(rows.filter((r) => !r.cloture && r.etat.aDemander > 0).map((r) => r.client).filter(Boolean))];
 
   return (
     <SectionPanel
       title={`Tissu par commande (${vus.length})`}
       flush
       actions={
-        clientsADemander.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-            <span className="font-semibold text-muted-foreground">📨 Demande de complément :</span>
-            {clientsADemander.map((c) => (
-              <Link key={c} href={`/magtissu/complement?client=${encodeURIComponent(c)}`} target="_blank" className="rounded-md border border-[var(--danger)] px-2 py-1 font-semibold text-[var(--danger-d)] hover:bg-[var(--danger-l)]">
-                {c}
-              </Link>
-            ))}
-          </div>
-        )
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <BasculeRangees nombre={nbRangees} visibles={voirRangees} onChange={setVoirRangees} />
+          {clientsADemander.length > 0 && (
+            <>
+              <span className="font-semibold text-muted-foreground">📨 Demande de complément :</span>
+              {clientsADemander.map((c) => (
+                <Link key={c} href={`/magtissu/complement?client=${encodeURIComponent(c)}`} target="_blank" className="rounded-md border border-[var(--danger)] px-2 py-1 font-semibold text-[var(--danger-d)] hover:bg-[var(--danger-l)]">
+                  {c}
+                </Link>
+              ))}
+            </>
+          )}
+        </div>
       }
     >
       <div className="border-b px-3 py-2 text-[11px] text-muted-foreground">
@@ -223,6 +233,7 @@ function OngletCommandes({ rows, q, peutSaisir }: { rows: MatiereCommandeRow[]; 
                   <tr key={r.id} className={`border-b align-top ${urgent ? "bg-[var(--danger-l)]/40" : ""}`}>
                     <td className="px-3 py-2">
                       <b>{r.of}</b>
+                      <PastilleCloture cloture={r.cloture} />
                       <div className="text-[10px] text-muted-foreground">{r.client}</div>
                       {r.lancee && <StatusBadge tone="purple">lancée</StatusBadge>}
                     </td>
@@ -301,9 +312,12 @@ function OngletCommandes({ rows, q, peutSaisir }: { rows: MatiereCommandeRow[]; 
 /* ═══════════ lots ═══════════ */
 
 function OngletLots({ lots, q, commandes, peutSaisir }: { lots: LotRow[]; q: string; commandes: Choix[]; peutSaisir: boolean }) {
-  const [filtre, setFiltre] = useState<"stock" | "reclamer" | "controle" | "tous">("stock");
+  const [filtre, setFiltre] = useState<"stock" | "reclamer" | "controle" | "tous" | "archives">("stock");
   const n = q.trim().toLowerCase();
-  const vus = lots.filter((l) => {
+  /* Lots rangés (archivés à la main, ou épuisés d'office) : hors des listes de
+     travail, consultables dans « Archivés ». */
+  const ranges = lots.filter((l) => l.rangement);
+  const vus = (filtre === "archives" ? ranges : lots.filter((l) => !l.rangement)).filter((l) => {
     if (n && !`${l.identifiant} ${l.couleur} ${l.reference} ${l.saison} ${l.client} ${l.blClient}`.toLowerCase().includes(n)) return false;
     if (filtre === "stock") return l.bilan.disponible > 0.001;
     if (filtre === "reclamer") return l.ecarts.aReclamer;
@@ -321,7 +335,8 @@ function OngletLots({ lots, q, commandes, peutSaisir }: { lots: LotRow[]; q: str
               ["stock", "En stock"],
               ["controle", "À contrôler"],
               ["reclamer", "Écart BL / défauts"],
-              ["tous", "Tous"],
+              ["tous", "Tous (actifs)"],
+              ["archives", `🗄 Archivés (${ranges.length})`],
             ] as const
           ).map(([k, l]) => (
             <button key={k} onClick={() => setFiltre(k)} className={`rounded-full px-2.5 py-1 font-semibold ${filtre === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"}`}>
@@ -331,8 +346,16 @@ function OngletLots({ lots, q, commandes, peutSaisir }: { lots: LotRow[]; q: str
         </div>
       }
     >
+      {filtre === "archives" && (
+        <div className="border-b bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+          Un lot <b>épuisé</b> (plus rien au magasin, rien en coupe) est archivé d&apos;office — un retour en stock le fait revenir tout seul. Les
+          autres ont été archivés à la main (« Ressortir » pour les remettre dans les listes). Rien n&apos;est effacé : historique, rouleaux et bilans restent consultables.
+        </div>
+      )}
       {vus.length === 0 ? (
-        <div className="py-10 text-center text-xs text-muted-foreground">Aucun lot. Créez une réception tissu pour commencer.</div>
+        <div className="py-10 text-center text-xs text-muted-foreground">
+          {filtre === "archives" ? "Aucun lot archivé." : "Aucun lot. Créez une réception tissu pour commencer."}
+        </div>
       ) : (
         <div className="divide-y">
           {vus.map((l) => (
@@ -350,6 +373,8 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
   const b = l.bilan;
   const codeRouleau = new Map(l.rouleaux.map((r) => [r.id, r.code]));
   const ctl = controleDe(l.controle);
+  // Supprimer = erreur de réception seulement (rien n'est sorti) ; sinon on archive.
+  const supprimable = !refusSuppressionLot(l.mouvements);
   return (
     <div>
       <button onClick={() => setOuvert((v) => !v)} className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/40">
@@ -361,6 +386,7 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
         <StatusBadge tone={ctl.tone}>{ctl.label}</StatusBadge>
         {l.ecarts.aReclamer && <StatusBadge tone="danger">⚠ {l.ecarts.manque > 0 ? `manque ${q2.format(l.ecarts.manque)} ${l.unite}` : "écart BL"}</StatusBadge>}
         <StatusBadge tone={l.statut.tone}>{l.statut.label}</StatusBadge>
+        {l.rangement === "archive" && <StatusBadge tone="neutral">🗄 Archivé</StatusBadge>}
         <span className="ml-auto flex gap-3 text-xs tabular-nums">
           <span title="Reçu (mesuré)">Reçu <b>{q2.format(b.recu)}</b></span>
           <span title="Affecté" className="text-warning-foreground">Aff. <b>{q2.format(b.affecte)}</b></span>
@@ -422,13 +448,24 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
           {/* ── rouleaux physiques (QR) ── */}
           <RouleauxDuLot lot={l} peutSaisir={peutSaisir} />
 
-          {/* ── descriptif ── */}
+          {/* ── descriptif : tout se modifie, sauf les quantités (elles se
+              corrigent par un mouvement, pour garder l'historique juste) ── */}
           {peutSaisir && (
-            <div className="grid gap-2 sm:grid-cols-4">
-              <ChampLot label="Identifiant" valeur={l.identifiant} actif onSave={(v) => A.majLot(l.id, "identifiant", v)} />
-              <ChampLot label="Référence" valeur={l.reference} actif onSave={(v) => A.majLot(l.id, "reference", v)} />
-              <ChampLot label="Couleur" valeur={l.couleur} actif onSave={(v) => A.majLot(l.id, "couleur", v)} />
-              <ChampLot label="Saison" valeur={l.saison} actif onSave={(v) => A.majLot(l.id, "saison", v)} />
+            <div className="rounded-lg border bg-card p-3">
+              <div className="mb-2 text-[11px] font-bold uppercase text-muted-foreground">✏️ Modifier le lot</div>
+              <div className="grid gap-2 sm:grid-cols-4">
+                <ChampLot label="Identifiant" valeur={l.identifiant} actif onSave={(v) => A.majLot(l.id, "identifiant", v)} />
+                <ChampLot label="Référence" valeur={l.reference} actif onSave={(v) => A.majLot(l.id, "reference", v)} />
+                <ChampLot label="Couleur" valeur={l.couleur} actif onSave={(v) => A.majLot(l.id, "couleur", v)} />
+                <ChampLot label="Code couleur" valeur={l.codeCouleur} actif onSave={(v) => A.majLot(l.id, "codeCouleur", v)} />
+                <ChampLot label="Composition" valeur={l.composition} actif onSave={(v) => A.majLot(l.id, "composition", v)} />
+                <ChampLot label="Lot fournisseur (bain)" valeur={l.lotFournisseur} actif onSave={(v) => A.majLot(l.id, "lotFournisseur", v)} />
+                <ChampLot label="Saison" valeur={l.saison} actif onSave={(v) => A.majLot(l.id, "saison", v)} />
+                <ChampLot label="Note" valeur={l.note} actif onSave={(v) => A.majLot(l.id, "note", v)} />
+              </div>
+              <div className="mt-1.5 text-[10.5px] text-muted-foreground">
+                Chaque champ s&apos;enregistre en quittant la case (ou Entrée). Le métrage reçu ne se tape pas ici : corrigez-le par un ajustement (lot) ou une correction (rouleau).
+              </div>
             </div>
           )}
 
@@ -538,9 +575,43 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
               <Link href={`/magtissu/etiquettes?ids=${l.id}`} target="_blank" className="font-semibold text-brand hover:underline">
                 🏷 Étiquette QR
               </Link>
-              {peutSaisir && b.consomme <= 0 && b.affecte <= 0 && l.rouleaux.every((r) => !r.valide) && (
-                <button onClick={() => run(() => A.supprimerLot(l.id), "Lot supprimé", `Supprimer le lot ${l.identifiant} ?`)} className="text-[var(--danger-d)] hover:underline">
-                  Supprimer ce lot
+              {peutSaisir && l.archive && (
+                <button onClick={() => run(() => A.archiverLot(l.id, false), `Lot ${l.identifiant} ressorti des archives`)} className="font-semibold text-brand hover:underline">
+                  ↩ Ressortir des archives
+                </button>
+              )}
+              {peutSaisir && !l.rangement && (
+                <button
+                  onClick={() =>
+                    run(
+                      () => A.archiverLot(l.id, true),
+                      `Lot ${l.identifiant} archivé`,
+                      b.disponible > 0.001
+                        ? `Il reste ${q2.format(b.disponible)} ${l.unite} en stock sur ${l.identifiant}.\nL'archiver quand même ? (Il quitte les listes ; rien n'est effacé.)`
+                        : `Archiver le lot ${l.identifiant} ?`,
+                    )
+                  }
+                  className="font-semibold text-muted-foreground hover:underline"
+                >
+                  🗄 Archiver
+                </button>
+              )}
+              {peutSaisir && supprimable && (
+                <button
+                  onClick={() => {
+                    const detail = [
+                      l.rouleaux.length ? `ses ${l.rouleaux.length} rouleau(x) et leurs étiquettes QR` : "",
+                      l.affectations.length ? `ses ${l.affectations.length} affectation(s) aux commandes` : "",
+                    ].filter(Boolean);
+                    const motif = prompt(
+                      `Supprimer le lot ENTIER ${l.identifiant}${detail.length ? ` (avec ${detail.join(" et ")})` : ""} ?\n` +
+                        `À réserver aux erreurs de réception : c'est définitif.\nMotif (obligatoire) :`,
+                    );
+                    if (motif?.trim()) void run(() => A.supprimerLot(l.id, motif), `Lot ${l.identifiant} supprimé`);
+                  }}
+                  className="font-semibold text-[var(--danger-d)] hover:underline"
+                >
+                  🗑 Supprimer le lot
                 </button>
               )}
             </span>

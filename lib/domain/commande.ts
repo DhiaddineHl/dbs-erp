@@ -133,6 +133,31 @@ export function statutEffectif(c: CommandeFacts, ctx: StatutContexte = {}): Stat
 /** True once the commande is fully invoiced — the condition that archives it. */
 export const estLivree = (c: CommandeFacts) => c.qte > 0 && (c.factureQte || 0) >= c.qte;
 
+/* ─────────── commande « sortie du circuit » ───────────
+ *
+ * Nomenclature, magasin tissu et magasin fournitures n'ont plus rien à faire
+ * d'une commande déjà partie chez le client ou déjà facturée : elle encombre
+ * la vue. On ne la supprime pas (elle reste consultable d'un clic) — on la
+ * range. Une seule règle, partagée par tous les écrans.
+ *
+ * « facturee » : au moins une facture la porte. On ne demande pas que la
+ *   facture couvre toute la quantité : à l'export on livre rarement le nombre
+ *   exact commandé (995 sur 1 000) et la commande est pourtant soldée.
+ * « livree »   : expédiée (BL couvrant la quantité, ou marquée expédiée),
+ *   exportée (date d'export réelle saisie), statut « Livrée » posé à la main,
+ *   ou archivée. */
+export type Cloture = "" | "livree" | "facturee";
+
+export type FaitsCloture = CommandeFacts & { magasinExpedie?: boolean; statutLog?: string };
+
+export function clotureCommande(c: FaitsCloture): Cloture {
+  if ((c.factureQte || 0) > 0) return "facturee";
+  if (c.archived || c.magasinExpedie || c.statutLog === "expedie" || c.dateExportReel || c.statutManuel === "livree") return "livree";
+  return "";
+}
+
+export const CLOTURE_LABEL: Record<Exclude<Cloture, "">, string> = { livree: "Livrée", facturee: "Facturée" };
+
 /* ─────────── lateness ─────────── */
 
 export type Retard = { jours: number | null; tone: Tone; label: string };

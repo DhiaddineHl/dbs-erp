@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   analyserInventaire,
   bilanRouleau,
+  sortiesPourBon,
   filtrerRouleaux,
   formatCodeRouleau,
   indicateurs,
@@ -191,5 +192,22 @@ describe("lieu de sortie", () => {
     assert.equal(estSousTraitant("DBS"), false);
     assert.equal(estSousTraitant("interne"), false);
     assert.equal(estSousTraitant("Atelier Sud"), true);
+  });
+});
+
+describe("sortiesPourBon — bon après coup", () => {
+  const m = (id: number, sens: string, o: Partial<{ destination: string; faconnierNom: string; bon: string; annuleId: number | null }> = {}) => ({
+    id, sens, quantite: 10, destination: "soustraitant", faconnierNom: "Atelier Nour", bon: "", annuleId: null, ...o,
+  });
+  it("aucune sortie : rien à porter", () => assert.equal(sortiesPourBon([m(1, "mise_en_stock")]), null));
+  it("réunit les sorties sans bon vers le même sous-traitant", () => {
+    const r = sortiesPourBon([m(1, "sortie", { destination: "coupe", faconnierNom: "" }), m(2, "sortie"), m(3, "retour"), m(4, "sortie")]);
+    assert.deepEqual(r?.aPorter.map((x) => x.id), [2, 4]);
+    assert.equal(r?.lieu, "chez Atelier Nour");
+  });
+  it("ignore une sortie annulée et signale le bon existant", () => {
+    const r = sortiesPourBon([m(1, "sortie", { bon: "BST-2026-004" }), m(2, "sortie"), m(3, "annulation", { annuleId: 2 })]);
+    assert.equal(r?.dejaSur, "BST-2026-004");
+    assert.equal(r?.aPorter.length, 0);
   });
 });

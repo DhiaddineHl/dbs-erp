@@ -294,6 +294,56 @@ export async function sortieGroupee(input: {
   }
 }
 
+/** UN bon pour des rouleaux DÉJÀ sortis (cochés dans l'onglet Rouleaux),
+ * sortis un par un au scan. Rien ne bouge en stock : on inscrit seulement le
+ * n° de bon sur leurs mouvements de sortie qui n'en ont pas encore (le verrou
+ * en base n'autorise que ce passage « sans bon → BST-… », jamais un
+ * changement de bon). Un bon = un seul destinataire. Si tous les rouleaux
+ * sont déjà sur un même bon, on le rend pour réimpression. */
+export async function bonPourRouleaux(codes: string[]): Promise<Result<{ numero: string; n: number; nouveau: boolean }>> {
+  try {
+    await auteurTissu();
+    const liste = [...new Set((codes ?? []).map((c) => rl.lireScan(c)?.code ?? c.trim()).filter(Boolean))];
+    if (!liste.length) return { ok: false, error: "Cochez au moins un rouleau sorti." };
+    const res = await db.transaction(async (t) => {
+      const rs = await t.select({ id: tissuRouleau.id, code: tissuRouleau.code }).from(tissuRouleau).where(inArray(tissuRouleau.code, liste)).for("update");
+      if (rs.length !== liste.length) throw new Error("Un rouleau coché est introuvable.");
+      const ms = await t
+        .select({
+          id: tissuMouvement.id, rouleauId: tissuMouvement.rouleauId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite,
+          annuleId: tissuMouvement.annuleId, destination: tissuMouvement.destination, faconnierNom: tissuMouvement.faconnierNom, bon: tissuMouvement.bon,
+        })
+        .from(tissuMouvement)
+        .where(inArray(tissuMouvement.rouleauId, rs.map((r) => r.id)))
+        .orderBy(asc(tissuMouvement.id));
+      const aPorter: number[] = [];
+      const lieux = new Set<string>();
+      const bonsExistants = new Set<string>();
+      for (const r of rs) {
+        const s = rl.sortiesPourBon(ms.filter((m) => m.rouleauId === r.id));
+        if (!s) throw new Error(`${r.code} n'est jamais sorti du magasin : faites d'abord sa sortie (scan ou sortie groupée).`);
+        lieux.add(s.lieu);
+        if (s.aPorter.length) aPorter.push(...s.aPorter.map((m) => m.id));
+        else bonsExistants.add(s.dejaSur);
+      }
+      if (lieux.size > 1) throw new Error(`Un bon = un seul destinataire. Les rouleaux cochés sont partis à des endroits différents : ${[...lieux].join(", ")}.`);
+      if (!aPorter.length) {
+        // Tous déjà sur un bon : réimpression, si c'est le même.
+        if (bonsExistants.size === 1) return { numero: [...bonsExistants][0], n: rs.length, nouveau: false };
+        throw new Error(`Ces rouleaux figurent déjà sur des bons différents : ${[...bonsExistants].join(", ")}.`);
+      }
+      if (bonsExistants.size) throw new Error(`Certains rouleaux sont déjà sur le bon ${[...bonsExistants].join(", ")} : décochez-les (ou réimprimez ce bon).`);
+      const numero = await prochainNumeroBon(t);
+      await t.update(tissuMouvement).set({ bon: numero }).where(inArray(tissuMouvement.id, aPorter));
+      return { numero, n: rs.length, nouveau: true };
+    });
+    revalider();
+    return { ok: true, numero: res.numero, n: res.n, nouveau: res.nouveau };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 /** Contrôle d'un rouleau AVANT de l'ajouter à une sortie groupée (scan). */
 export async function verifierPourSortie(scan: string): Promise<Result<{ code: string; disponible: number; lot: string; tissu: string; unite: string }>> {
   try {

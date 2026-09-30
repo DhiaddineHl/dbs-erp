@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { apercuCommande, montantSaisi, quantiteSaisie } from "./commande";
+import { apercuCommande, clotureCommande, montantSaisi, quantiteSaisie } from "./commande";
 
 /* Les règles de saisie du carnet de commandes.
  *
@@ -133,5 +133,17 @@ describe("apercuCommande — bandeau vide", () => {
     assert.equal(a.ca, 0);
     assert.equal(a.margeTotale, 0);
     assert.equal(a.tauxPct, 100, "le taux reste celui du prix unitaire");
+  });
+});
+
+describe("clotureCommande — commandes à ranger", () => {
+  const base = { qte: 1000, produit: 0, factureQte: 0, prixVente: null, prixFacon: null, dateExport: null, dateExportReel: null, receptTissu: null, archived: false, statutManuel: null };
+  it("en cours : rien", () => assert.equal(clotureCommande(base), ""));
+  it("facturée même partiellement (995 / 1000)", () => assert.equal(clotureCommande({ ...base, factureQte: 995 }), "facturee"));
+  it("expédiée, exportée ou livrée à la main", () => {
+    assert.equal(clotureCommande({ ...base, magasinExpedie: true }), "livree");
+    assert.equal(clotureCommande({ ...base, dateExportReel: "2026-09-01" }), "livree");
+    assert.equal(clotureCommande({ ...base, statutManuel: "livree" }), "livree");
+    assert.equal(clotureCommande({ ...base, statutLog: "pret" }), "");
   });
 });

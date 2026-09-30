@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ScannerQr } from "@/components/shared/scanner-qr";
+import { ScannerQr, type RetourScan } from "@/components/shared/scanner-qr";
+import { bipScan } from "@/components/shared/son";
 import { sortieGroupee, verifierPourSortie } from "@/lib/actions/rouleaux";
 import { ChoixSortie, lieuComplet, type CmdSortie, type Lieu, type SousTraitant } from "../choix-sortie";
 
@@ -29,21 +30,42 @@ export function SortieGroupee({
   const [lieu, setLieu] = useState<Lieu>({ commandeId: null, destination: "soustraitant", faconnierId: null });
   const [motif, setMotif] = useState("");
   const [lignes, setLignes] = useState<Ligne[]>([]);
-  const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
+  const [message, setMessage] = useState<{ ton: RetourScan["ton"]; texte: string } | null>(null);
   const [fait, setFait] = useState<{ numero: string; n: number; metrage: number } | null>(null);
   const deja = useRef(new Set<string>());
+  /* Texte brut du QR → code rouleau : un QR resté devant l'objectif n'est
+     pas renvoyé au serveur à chaque passage. */
+  const bruts = useRef(new Map<string, string>());
+  const [retour, setRetour] = useState<RetourScan | null>(null);
+  const cle = useRef(0);
+  /* Scan en rafale : les lectures s'enchaînent plus vite que le serveur ne
+     répond. On les traite une par une, dans l'ordre, pour qu'un même rouleau
+     lu deux fois de suite ne passe pas deux fois le contrôle « déjà scanné ». */
+  const file = useRef<Promise<void>>(Promise.resolve());
 
-  const ajouter = async (brut: string) => {
+  const signaler = (ton: RetourScan["ton"], texte: string) => {
+    cle.current += 1;
+    setRetour({ cle: cle.current, ton, texte });
+    setMessage({ ton, texte });
+    bipScan(ton);
+    if (ton === "erreur") navigator.vibrate?.([80, 60, 80]);
+  };
+
+  const traiter = async (brut: string) => {
+    const connu = bruts.current.get(brut.trim());
+    if (connu && deja.current.has(connu)) return signaler("deja", `${connu} déjà scanné`);
     const r = await verifierPourSortie(brut);
-    if (!r.ok) {
-      navigator.vibrate?.([80, 60, 80]);
-      return setMessage({ ok: false, texte: r.error });
-    }
-    if (deja.current.has(r.code)) return setMessage({ ok: false, texte: `${r.code} est déjà dans la liste.` });
+    if (!r.ok) return signaler("erreur", r.error);
+    bruts.current.set(brut.trim(), r.code);
+    if (deja.current.has(r.code)) return signaler("deja", `${r.code} déjà scanné`);
     deja.current.add(r.code);
-    navigator.vibrate?.(60);
     setLignes((l) => [{ code: r.code, disponible: r.disponible, lot: r.lot, tissu: r.tissu, unite: r.unite, quantite: String(r.disponible) }, ...l]);
-    setMessage({ ok: true, texte: `✔ ${r.code} ajouté (${nb.format(r.disponible)} ${r.unite})` });
+    signaler("ok", `✔ ${r.code} · ${nb.format(r.disponible)} ${r.unite}`);
+  };
+
+  const ajouter = (brut: string) => {
+    file.current = file.current.then(() => traiter(brut)).catch(() => signaler("erreur", "Réseau indisponible : rescannez ce rouleau."));
+    return file.current;
   };
 
   // Rouleaux présélectionnés au bureau (onglet Rouleaux → Sortie groupée).
@@ -51,9 +73,7 @@ export function SortieGroupee({
   useEffect(() => {
     const codes = initiaux.current;
     initiaux.current = [];
-    (async () => {
-      for (const c of codes) await ajouter(c);
-    })();
+    for (const c of codes) void ajouter(c);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -82,6 +102,9 @@ export function SortieGroupee({
             setFait(null);
             setLignes([]);
             deja.current.clear();
+            bruts.current.clear();
+            setRetour(null);
+            setMessage(null);
             setEtape(1);
             router.refresh();
           }}
@@ -133,8 +156,17 @@ export function SortieGroupee({
       <button onClick={() => setEtape(1)} className="w-full rounded-2xl bg-amber-50 px-4 py-3 text-left text-sm">
         <b>{cmd?.label ?? "Sans commande"}</b> · <b>{lieuTexte}</b> <span className="text-slate-500">(modifier)</span>
       </button>
-      <ScannerQr onCode={ajouter} occupe={pending} />
-      {message && <div className={`rounded-xl px-3 py-2 text-sm font-semibold ${message.ok ? "bg-emerald-50 text-emerald-900" : "bg-red-100 text-red-900"}`}>{message.texte}</div>}
+      {/* Caméra ouverte d'office et qui RESTE ouverte : on passe les rouleaux
+          devant l'objectif les uns après les autres, sans toucher l'écran.
+          Bip + cadre vert = ajouté, orange = déjà scanné, rouge = refusé. */}
+      <ScannerQr
+        onCode={ajouter}
+        occupe={pending}
+        autoCamera
+        retour={retour}
+        compteur={`${lignes.length} rouleau${lignes.length > 1 ? "x" : ""} · ${nb.format(total)} m`}
+      />
+      {message && <div className={`rounded-xl px-3 py-2 text-sm font-semibold ${message.ton === "ok" ? "bg-emerald-50 text-emerald-900" : message.ton === "deja" ? "bg-amber-50 text-amber-900" : "bg-red-100 text-red-900"}`}>{message.texte}</div>}
       <div className="divide-y rounded-2xl bg-white">
         {lignes.length === 0 && <div className="px-4 py-6 text-center text-sm text-slate-500">Scannez les rouleaux qui partent.</div>}
         {lignes.map((l, i) => (
@@ -154,6 +186,7 @@ export function SortieGroupee({
             <button
               onClick={() => {
                 deja.current.delete(l.code);
+                for (const [b, c] of bruts.current) if (c === l.code) bruts.current.delete(b);
                 setLignes((s) => s.filter((_, j) => j !== i));
               }}
               className="rounded-xl bg-slate-100 px-3 py-2 text-slate-500"

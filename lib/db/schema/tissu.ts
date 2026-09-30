@@ -94,6 +94,12 @@ export const tissuLot = pgTable(
     /** Contrôle rouleau par rouleau (facultatif). */
     rouleaux: jsonb().$type<RouleauControle[]>().notNull().default([]),
     note: text().notNull().default(""),
+    /** Rangé à la main (reste inutilisable, lot clos…) : sort des listes de
+     * travail, reste consultable dans « Archivés ». Un lot ÉPUISÉ est rangé
+     * d'office, sans ce drapeau (voir lib/domain/tissu → rangementLot). */
+    archive: boolean().notNull().default(false),
+    archiveLe: timestamp(),
+    archivePar: text().notNull().default(""),
     createdAt: timestamp().notNull().defaultNow(),
   },
   (t) => [

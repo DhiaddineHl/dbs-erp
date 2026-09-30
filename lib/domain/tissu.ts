@@ -430,3 +430,31 @@ export function reliquats(lots: LotReliquat[]): GroupeReliquats[] {
   }
   return [...groupes.values()].sort((a, b) => a.client.localeCompare(b.client) || b.saison.localeCompare(a.saison));
 }
+
+/* ─────────── lot : supprimer (erreur de saisie) ou archiver (vécu) ───────────
+ *
+ * SUPPRIMER efface le lot, ses rouleaux et son historique : ce n'est permis
+ * que pour une ERREUR de réception — tant que le tissu n'a jamais quitté le
+ * magasin ni été rendu (réceptionner, ranger, déplacer, corriger un métrage ne
+ * compte pas : rien n'est parti). Dès qu'une sortie, une consommation, un
+ * retour ou un rendu existe (non annulé), l'historique doit rester : on
+ * ARCHIVE. Remplace l'ancienne règle (« aucun rouleau réceptionné »), qui
+ * interdisait d'effacer un lot mal saisi dès son premier scan au magasin. */
+const SENS_VECUS = new Set(["sortie", "retour", "consommation", "chute", "rendu", "retour_fournisseur"]);
+
+export function refusSuppressionLot(mouvements: MouvementFait[]): string | null {
+  const annules = new Set(mouvements.filter((m) => m.sens === "annulation" && m.annuleId != null).map((m) => m.annuleId));
+  const vecu = mouvements.find((m) => SENS_VECUS.has(m.sens) && !(m.id != null && annules.has(m.id)));
+  if (!vecu) return null;
+  return "Ce lot a déjà servi (sortie, consommation, retour ou rendu) : son historique doit rester. Archivez-le plutôt.";
+}
+
+/** Lot RANGÉ hors des listes de travail : archivé à la main, ou épuisé
+ * (plus rien au magasin, rien dehors en coupe) — alors d'office, sans geste :
+ * un retour en stock le fait réapparaître tout seul. */
+export type RangementLot = "" | "archive" | "epuise";
+export function rangementLot(l: { archive: boolean; bilan: BilanLot; enCoupe: number }): RangementLot {
+  if (l.archive) return "archive";
+  if (l.bilan.recu > 0 && l.bilan.disponible <= 0.001 && l.enCoupe <= 0.001) return "epuise";
+  return "";
+}

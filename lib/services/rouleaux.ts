@@ -48,6 +48,8 @@ export type RouleauRow = {
     saison: string;
     unite: string;
     controle: string;
+    /** Lot archivé à la main : ses rouleaux sortent des listes de travail. */
+    archive: boolean;
   };
   reception: { id: number; numero: string; date: string; fournisseur: string; client: string; blClient: string; commandeFournisseur: string };
   /** Commandes pour lesquelles le lot est réservé. */
@@ -56,6 +58,8 @@ export type RouleauRow = {
   derniereCommande: string;
   /** Où est le tissu sorti non soldé : « Coupe interne », « chez X »… ("" si rien dehors). */
   chez: string;
+  /** Bon de sortie (BST-…) de sa dernière sortie, "" s'il est sorti sans bon. */
+  bonSortie: string;
   bilan: rl.BilanRouleau;
   createdAt: string;
 };
@@ -115,6 +119,7 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
         commandeLabel: tissuMouvement.commandeLabel,
         destination: tissuMouvement.destination,
         faconnierNom: tissuMouvement.faconnierNom,
+        bon: tissuMouvement.bon,
       })
       .from(tissuMouvement)
       .where(inArray(tissuMouvement.rouleauId, ids))
@@ -152,6 +157,7 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
       lot: {
         id: lot.id, identifiant: lot.identifiant, reference: lot.reference, couleur: lot.couleur, codeCouleur: lot.codeCouleur,
         composition: lot.composition, lotFournisseur: lot.lotFournisseur, saison: lot.saison, unite: lot.unite, controle: lot.controle,
+        archive: lot.archive,
       },
       reception: {
         id: rec.id, numero: rec.numero, date: rec.date, fournisseur: rec.fournisseur, client: rec.client, blClient: rec.blClient,
@@ -160,6 +166,7 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
       commandes: [...commandes.entries()].map(([id, label]) => ({ id, label })),
       derniereCommande: derniereSortie?.commandeLabel ?? "",
       chez: bilan.enCoupe > 0.001 && derniereSortie ? rl.lieuSortie(derniereSortie) : "",
+      bonSortie: derniereSortie?.bon ?? "",
       bilan,
       createdAt: iso(r.createdAt),
     };
@@ -352,8 +359,13 @@ export type BonSortie = {
   lieu: string;
   faconnierNom: string;
   commandeLabel: string;
+  plusieursCommandes: boolean;
+  /** Sorties sur plusieurs jours (bon établi après coup) : date de la dernière. */
+  dateFin: string;
+  /** Qui a sorti les rouleaux (plusieurs noms pour un bon établi après coup). */
+  sortiPar: string[];
   motif: string;
-  lignes: { code: string; lot: string; tissu: string; couleur: string; lotFournisseur: string; laize: number | null; quantite: number; unite: string; annule: boolean }[];
+  lignes: { id: number; commande: string; code: string; lot: string; tissu: string; couleur: string; lotFournisseur: string; laize: number | null; quantite: number; unite: string; annule: boolean }[];
 };
 
 /** Un bon de sortie groupée, reconstitué depuis les mouvements qui le portent. */
@@ -372,18 +384,25 @@ export async function bonSortie(numero: string): Promise<BonSortie | null> {
   );
   const rs = new Map((await chargerRouleaux({ ids: sorties.map((m) => m.rouleauId!).filter((x) => x != null) })).map((r) => [r.id, r]));
   const m0 = sorties[0];
+  const labels = [...new Set(sorties.map((m) => m.commandeLabel))];
   return {
     numero,
     date: iso(m0.createdAt),
+    dateFin: iso(sorties.at(-1)!.createdAt),
     par: m0.createdBy,
+    sortiPar: [...new Set(sorties.map((m) => m.createdBy).filter(Boolean))],
     destination: m0.destination,
     lieu: rl.lieuSortie(m0),
     faconnierNom: m0.faconnierNom,
-    commandeLabel: m0.commandeLabel,
-    motif: m0.motif === numero ? "" : m0.motif,
+    // Une seule commande : en tête du bon ; plusieurs : « Plusieurs », détail par ligne.
+    commandeLabel: labels.length === 1 ? labels[0] : "",
+    plusieursCommandes: labels.length > 1,
+    motif: m0.motif === numero || /^Sortie /.test(m0.motif) ? "" : m0.motif,
     lignes: sorties.map((m) => {
       const r = rs.get(m.rouleauId!);
       return {
+        id: m.id,
+        commande: m.commandeLabel,
         code: r?.code ?? "?",
         lot: r?.lot.identifiant ?? "",
         tissu: [r?.lot.reference, r?.lot.composition].filter(Boolean).join(" · "),
@@ -409,8 +428,11 @@ export async function listBonsSortie(limite = 30) {
   for (const r of rows) {
     const e = par.get(r.bon) ?? { numero: r.bon, date: iso(r.date), lieu: rl.lieuSortie({ destination: r.destination, faconnierNom: r.lieu }), commande: r.commande, rouleaux: 0, metrage: 0 };
     e.rouleaux++;
+    if (e.commande !== r.commande) e.commande = "plusieurs commandes";
     e.metrage = Math.round((e.metrage + r.quantite) * 100) / 100;
     par.set(r.bon, e);
   }
-  return [...par.values()].slice(0, limite);
+  // Par n° décroissant : un bon établi après coup porte des sorties anciennes
+  // mais reste le plus récent.
+  return [...par.values()].sort((a, b) => b.numero.localeCompare(a.numero, "fr", { numeric: true })).slice(0, limite);
 }

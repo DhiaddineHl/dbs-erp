@@ -307,3 +307,25 @@ export function indicateurs(rouleaux: { statut: string; emplacement: string; bil
   for (const k of ["metrageDisponible", "metrageSorti", "metrageConsomme", "metrageChute", "metrageRetour", "metrageEnCoupe"] as const) i[k] = r2(i[k]);
   return i;
 }
+
+/* ─────────── bon de sortie après coup (rouleaux cochés) ─────────── */
+
+export type MouvementSortieBon = MouvementRouleau & { destination: string; faconnierNom: string; bon: string };
+
+/** Pour UN rouleau : les sorties à porter sur un bon établi après coup.
+ * On part de sa DERNIÈRE sortie effective (là où il est parti) et on y joint
+ * les autres sorties sans bon vers le même lieu (sortie en deux fois).
+ * `dejaSur` : la dernière sortie figure déjà sur ce bon (rien à ajouter). */
+export function sortiesPourBon<T extends MouvementSortieBon>(mvts: T[]): { lieu: string; destination: string; faconnierNom: string; aPorter: T[]; dejaSur: string } | null {
+  const sorties = mouvementsEffectifs(mvts).filter((m) => m.sens === "sortie");
+  const derniere = sorties.at(-1);
+  if (!derniere) return null;
+  const memeLieu = (m: T) => m.destination === derniere.destination && (m.faconnierNom ?? "") === (derniere.faconnierNom ?? "");
+  return {
+    lieu: lieuSortie(derniere),
+    destination: derniere.destination,
+    faconnierNom: derniere.faconnierNom ?? "",
+    aPorter: sorties.filter((m) => !m.bon && memeLieu(m)),
+    dejaSur: derniere.bon,
+  };
+}

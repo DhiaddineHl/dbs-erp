@@ -59,6 +59,9 @@ export function KpisRouleaux({ i, onFiltre }: { i: IndicateursAffiches; onFiltre
 
 /* ═══════════ onglet Rouleaux : recherche, sélection, étiquettes ═══════════ */
 
+const ROULEAUX_FINIS = new Set(["epuise", "rendu", "retourne"]);
+const fini = (r: RouleauRow) => r.lot.archive || ROULEAUX_FINIS.has(r.statut);
+
 export type BonSortieResume = { numero: string; date: string; lieu: string; commande: string; rouleaux: number; metrage: number };
 
 export function OngletRouleaux({
@@ -81,9 +84,18 @@ export function OngletRouleaux({
   const [fournisseur, setFournisseur] = useState("");
   const [sansEmplacement, setSansEmplacement] = useState(false);
   const [coches, setCoches] = useState<Set<number>>(new Set());
+  const [sansBon, setSansBon] = useState(false);
+  /* Rouleaux finis (épuisés, rendus, retournés) et rouleaux des lots archivés :
+     masqués par défaut — sauf si l'on filtre expressément sur ce statut. */
+  const [voirFinis, setVoirFinis] = useState(false);
+  const nbFinis = useMemo(() => rouleaux.filter(fini).length, [rouleaux]);
   const vus = useMemo(
-    () => filtrerRouleaux(rouleaux, { q, statut, emplacement, fournisseur, sansEmplacement }).reverse(),
-    [rouleaux, q, statut, emplacement, fournisseur, sansEmplacement],
+    () =>
+      filtrerRouleaux(rouleaux, { q, statut, emplacement, fournisseur, sansEmplacement })
+        .filter((r) => voirFinis || statut || !fini(r))
+        .filter((r) => !sansBon || (r.chez && !r.bonSortie))
+        .reverse(),
+    [rouleaux, q, statut, emplacement, fournisseur, sansEmplacement, sansBon, voirFinis],
   );
   const affiches = vus.slice(0, 400);
   const choisis = [...coches];
@@ -98,6 +110,20 @@ export function OngletRouleaux({
       toast.success(`Bon ${r.numero} créé`);
       setCoches(new Set());
       window.open(`/magtissu/retour/${encodeURIComponent(r.numero)}`, "_blank");
+      router.refresh();
+    });
+  };
+
+  /* Un seul bon pour les rouleaux cochés déjà partis (sortis un par un au
+     scan) : même destinataire obligatoire, voir R.bonPourRouleaux. */
+  const selSortis = rouleaux.filter((r) => coches.has(r.id) && (r.chez || r.bonSortie || r.statut === "sorti"));
+  const bonDeSortie = () => {
+    const sel = rouleaux.filter((r) => coches.has(r.id));
+    start(async () => {
+      const r = await R.bonPourRouleaux(sel.map((x) => x.code));
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(r.nouveau ? `Bon ${r.numero} établi pour ${r.n} rouleau(x)` : `Déjà sur le bon ${r.numero} : réimpression`);
+      window.open(`/magtissu/sortie/${encodeURIComponent(r.numero)}`, "_blank");
       router.refresh();
     });
   };
@@ -129,6 +155,14 @@ export function OngletRouleaux({
             <label className="flex items-center gap-1">
               <input type="checkbox" checked={sansEmplacement} onChange={(e) => setSansEmplacement(e.target.checked)} /> sans emplacement
             </label>
+            <label className="flex items-center gap-1" title="Rouleaux dehors (coupe, sous-traitant) dont la sortie n'est sur aucun bon : cochez-les puis « Bon de sortie »">
+              <input type="checkbox" checked={sansBon} onChange={(e) => setSansBon(e.target.checked)} /> 🚚 sortis sans bon
+            </label>
+            {nbFinis > 0 && (
+              <label className="flex items-center gap-1 text-muted-foreground" title="Rouleaux épuisés, rendus, retournés au fournisseur, ou de lots archivés">
+                <input type="checkbox" checked={voirFinis} onChange={(e) => setVoirFinis(e.target.checked)} /> 🗄 finis / archivés ({nbFinis})
+              </label>
+            )}
           </div>
         }
       >
@@ -148,6 +182,17 @@ export function OngletRouleaux({
               >
                 🚚 Sortie groupée
               </Link>
+            )}
+            {peutSaisir && selSortis.length > 0 && (
+              <Button
+                size="sm"
+                className="h-7 bg-slate-900 text-white hover:bg-slate-800"
+                disabled={pending}
+                onClick={bonDeSortie}
+                title="Un seul bon de livraison pour tous les rouleaux cochés déjà sortis chez le même destinataire"
+              >
+                🖨 Bon de sortie ({choisis.length})
+              </Button>
             )}
             {peutSaisir && (
               <Button size="sm" variant="outline" className="h-7" disabled={pending} onClick={retourFournisseur}>
@@ -225,7 +270,18 @@ export function OngletRouleaux({
                     </td>
                     <td className="px-3 py-1.5">
                       <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
-                      {r.chez && <div className="mt-0.5 text-[10px] font-semibold text-warning-foreground">🚚 {r.chez}</div>}
+                      {r.chez && (
+                        <div className="mt-0.5 text-[10px] font-semibold text-warning-foreground">
+                          🚚 {r.chez}
+                          {r.bonSortie ? (
+                            <Link href={`/magtissu/sortie/${encodeURIComponent(r.bonSortie)}`} target="_blank" className="ml-1 font-mono text-brand hover:underline">
+                              {r.bonSortie}
+                            </Link>
+                          ) : (
+                            <span className="ml-1 font-normal text-muted-foreground">· sans bon</span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 font-mono">{r.emplacement || <span className="text-warning-foreground">—</span>}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{q2.format(r.metrageInitial)}</td>

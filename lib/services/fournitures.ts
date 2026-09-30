@@ -66,7 +66,7 @@ async function commandesPorteuses(ex: Pick<typeof db, "select"> = db): Promise<C
   const ids = new Set(rows.map((r) => r.c.id));
   return rows
     .filter(({ c }) => c.parentId == null || !ids.has(c.parentId))
-    .filter(({ c }) => !(c.qte > 0 && c.factureQte >= c.qte))
+    .filter(({ c }) => !biz.estLivree(c))
     .map(({ c, clientNom }) => ({
       id: c.id,
       of: c.ofNumber,

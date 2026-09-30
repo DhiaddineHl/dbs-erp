@@ -17,6 +17,7 @@ import { FicheDt } from "./fiche-dt";
 import { FicheModelisme, FicheNomen, FicheTissu, FicheFournitures } from "./fiches";
 import type { CatalogueFournitureRow } from "@/lib/services/preparation";
 import { Journal } from "./journal";
+import { BasculeRangees, PastilleCloture } from "@/components/shared/bascule-rangees";
 
 export type Droits = Record<DomaineDroit, boolean>;
 
@@ -73,6 +74,11 @@ export function EcranPreparation({
   const [onglet, setOnglet] = useState(cfg.defaut);
   const [q, setQ] = useState("");
   const [ouverte, setOuverte] = useState<number | null>(null);
+  /* Commandes déjà livrées ou facturées : rangées par défaut (voir
+     clotureCommande) — l'écran ne montre que ce qui reste à faire. */
+  const [voirRangees, setVoirRangees] = useState(false);
+  const nbRangees = useMemo(() => rows.filter((r) => r.cloture).length, [rows]);
+  const visibles = useMemo(() => (voirRangees ? rows : rows.filter((r) => !r.cloture)), [rows, voirRangees]);
 
   /* Sur un écran de matière, un OF rattaché n'a rien à y faire : son porteur
      saisit la réception une fois pour toute la référence. Il sort donc des
@@ -80,16 +86,16 @@ export function EcranPreparation({
      consultable avec le n° de celui qui le gère. Une ligne qui existe en base
      doit rester atteignable. */
   const aTraiter = useMemo(
-    () => (cfg.porteurSeul ? rows.filter((r) => !r.porteurOf) : rows),
-    [cfg, rows],
+    () => (cfg.porteurSeul ? visibles.filter((r) => !r.porteurOf) : visibles),
+    [cfg, visibles],
   );
-  const masques = rows.length - aTraiter.length;
+  const masques = visibles.length - aTraiter.length;
 
   const kpis = useMemo(() => cfg.kpis(aTraiter), [cfg, aTraiter]);
 
   const filtrees = useMemo(() => {
     const test = cfg.onglets.find((o) => o.k === onglet)?.test ?? null;
-    let out = test ? aTraiter.filter(test) : rows;
+    let out = test ? aTraiter.filter(test) : visibles;
     const needle = q.trim().toLowerCase();
     if (needle) {
       out = out.filter((r) =>
@@ -97,11 +103,11 @@ export function EcranPreparation({
       );
     }
     return cfg.tri ? [...out].sort(cfg.tri) : out;
-  }, [cfg, rows, aTraiter, onglet, q]);
+  }, [cfg, visibles, aTraiter, onglet, q]);
 
   const compte = (k: string) => {
     const t = cfg.onglets.find((o) => o.k === k)?.test;
-    return t ? aTraiter.filter(t).length : rows.length;
+    return t ? aTraiter.filter(t).length : visibles.length;
   };
 
   return (
@@ -154,6 +160,7 @@ export function EcranPreparation({
         }
         actions={
           <div className="flex items-center gap-2">
+            <BasculeRangees nombre={nbRangees} visibles={voirRangees} onChange={setVoirRangees} />
             {ecran === "magfour" && (
               <Link
                 href="/magfour/catalogue"
@@ -291,6 +298,7 @@ function Ligne({
 const ColOf = ({ row }: { row: PreparationRow }) => (
   <td className="px-3 py-2">
     <b className="text-brand">{row.of || "—"}</b>
+    <PastilleCloture cloture={row.cloture} />
     <br />
     <small className="text-muted-foreground">{row.client}</small>
     {/* Qui gère la matière de cette ligne. Sans ce rappel, un OF absent des

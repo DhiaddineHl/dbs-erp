@@ -87,6 +87,13 @@ export type LotRow = {
   mouvements: MouvementRow[];
   /** Rouleaux physiques (vide = lot suivi en bloc, sans étiquette par rouleau). */
   rouleaux: RouleauLot[];
+  /** Tissu des rouleaux sorti et pas encore revenu / déclaré (en coupe). */
+  enCoupe: number;
+  archive: boolean;
+  archiveLe: string;
+  archivePar: string;
+  /** "" = lot actif ; archivé à la main ; ou épuisé (rangé d'office). */
+  rangement: tx.RangementLot;
 };
 
 export type ReceptionRow = {
@@ -145,6 +152,9 @@ export async function listLots(): Promise<LotRow[]> {
       commandeFournisseur: tissuReception.commandeFournisseur,
       lotFournisseur: tissuLot.lotFournisseur,
       codeCouleur: tissuLot.codeCouleur,
+      archive: tissuLot.archive,
+      archiveLe: tissuLot.archiveLe,
+      archivePar: tissuLot.archivePar,
     })
     .from(tissuLot)
     .leftJoin(tissuReception, eq(tissuLot.receptionId, tissuReception.id))
@@ -173,6 +183,19 @@ export async function listLots(): Promise<LotRow[]> {
     const a = parAff.get(l.id) ?? [];
     const m = parMvt.get(l.id) ?? [];
     const bilan = tx.bilanLot(l.quantiteRecue, a, m);
+    const rls = (parRouleau.get(l.id) ?? []).map(({ r, emplacement }) => ({
+      id: r.id,
+      code: r.code,
+      statut: r.statut,
+      metrageInitial: r.metrageInitial,
+      laize: r.laize,
+      poids: r.poids,
+      emplacement: emplacement ?? "",
+      observations: r.observations,
+      valide: r.valideLe != null,
+      bilan: rl.bilanRouleau(r.metrageInitial, parRouleauMvt.get(r.id) ?? []),
+    }));
+    const enCoupe = Math.round(rls.reduce((s, r) => s + r.bilan.enCoupe, 0) * 100) / 100;
     return {
       id: l.id,
       receptionId: l.receptionId,
@@ -232,18 +255,12 @@ export async function listLots(): Promise<LotRow[]> {
         annuleId: x.annuleId,
         annule: annules.has(x.id),
       })),
-      rouleaux: (parRouleau.get(l.id) ?? []).map(({ r, emplacement }) => ({
-        id: r.id,
-        code: r.code,
-        statut: r.statut,
-        metrageInitial: r.metrageInitial,
-        laize: r.laize,
-        poids: r.poids,
-        emplacement: emplacement ?? "",
-        observations: r.observations,
-        valide: r.valideLe != null,
-        bilan: rl.bilanRouleau(r.metrageInitial, parRouleauMvt.get(r.id) ?? []),
-      })),
+      rouleaux: rls,
+      enCoupe,
+      archive: l.archive,
+      archiveLe: iso(l.archiveLe),
+      archivePar: l.archivePar,
+      rangement: tx.rangementLot({ archive: l.archive, bilan, enCoupe }),
     };
   });
 }

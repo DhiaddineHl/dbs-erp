@@ -93,6 +93,8 @@ export type PreparationRow = {
   pret: boolean;
   lancee: boolean;
   statut: fx.StatutPrepa;
+  /** "" tant que la commande est en cours ; livrée / facturée sinon (rangée par défaut). */
+  cloture: biz.Cloture;
 };
 
 /* ─────────── inventaire tissu ───────────
@@ -326,6 +328,8 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       plan: plans.get(c.id) ?? null,
 
       lancement,
+
+      cloture: biz.clotureCommande(c),
 
       feux: tousFeux,
       bloquants: tousFeux.filter((f) => f.bloquant && f.etat.kind !== "ok"),

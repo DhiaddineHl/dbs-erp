@@ -12,6 +12,7 @@ import {
   etatMatiereCommande,
   bilanMatiere,
 } from "./tissu";
+import * as tx from "./tissu";
 
 describe("bilanLot — reçu / affecté / consommé / disponible", () => {
   it("distingue affecté et consommé (exemple AUBER-01)", () => {
@@ -170,5 +171,21 @@ describe("lots proposés et besoin", () => {
     assert.equal(b.theorique, 900);
     assert.equal(b.chute, 30);
     assert.equal(b.ecartConsoPct, 3.3);
+  });
+});
+
+describe("lot : supprimer ou archiver", () => {
+  it("erreur de réception (entrée, mise en stock, déplacement) : supprimable", () => {
+    assert.equal(tx.refusSuppressionLot([{ id: 1, sens: "entree", quantite: 100 }, { id: 2, sens: "mise_en_stock", quantite: 100 }, { id: 3, sens: "deplacement", quantite: 0 }]), null);
+  });
+  it("une sortie non annulée l'interdit ; annulée, non", () => {
+    assert.match(tx.refusSuppressionLot([{ id: 1, sens: "sortie", quantite: 10 }]) ?? "", /Archivez/);
+    assert.equal(tx.refusSuppressionLot([{ id: 1, sens: "sortie", quantite: 10 }, { id: 2, sens: "annulation", quantite: 0, annuleId: 1 }]), null);
+  });
+  it("épuisé = rangé d'office ; en coupe dehors = pas encore", () => {
+    const bilan = tx.bilanLot(100, [], [{ sens: "sortie", quantite: 100 }]);
+    assert.equal(tx.rangementLot({ archive: false, bilan, enCoupe: 0 }), "epuise");
+    assert.equal(tx.rangementLot({ archive: false, bilan, enCoupe: 40 }), "");
+    assert.equal(tx.rangementLot({ archive: true, bilan: tx.bilanLot(100, [], []), enCoupe: 0 }), "archive");
   });
 });

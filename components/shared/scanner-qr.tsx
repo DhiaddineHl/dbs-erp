@@ -11,16 +11,28 @@ import { useEffect, useRef, useState } from "react";
 
 type Detecteur = { detect: (src: CanvasImageSource) => Promise<{ rawValue: string }[]> };
 
+/** Retour affiché PAR-DESSUS la caméra en mode rafale : l'opérateur enchaîne
+ * les rouleaux sans quitter l'objectif des yeux. `cle` change à chaque scan
+ * pour relancer l'animation. */
+export type RetourScan = { cle: number; ton: "ok" | "deja" | "erreur"; texte: string };
+const COULEUR_RETOUR = { ok: "#10b981", deja: "#f59e0b", erreur: "#ef4444" } as const;
+
 export function ScannerQr({
   onCode,
   placeholder = "Scanner ou taper R-2026-000145",
   autoCamera = false,
   occupe = false,
+  retour = null,
+  compteur,
 }: {
   onCode: (brut: string) => void;
   placeholder?: string;
   autoCamera?: boolean;
   occupe?: boolean;
+  /** Mode rafale : dernier résultat, affiché sur l'image. */
+  retour?: RetourScan | null;
+  /** Mode rafale : compteur permanent (« 12 rouleaux · 845 m »). */
+  compteur?: string;
 }) {
   const [saisie, setSaisie] = useState("");
   const [camera, setCamera] = useState(autoCamera);
@@ -106,8 +118,27 @@ export function ScannerQr({
     <div className="space-y-2">
       {camera && (
         <div className="relative overflow-hidden rounded-2xl bg-black">
-          <video ref={video} playsInline muted className="aspect-[4/3] w-full object-cover" />
+          <video ref={video} playsInline muted className="aspect-[4/3] max-h-[45vh] w-full object-cover" />
           <div className="pointer-events-none absolute inset-[18%] rounded-xl border-4 border-white/80" />
+          {compteur && (
+            <div className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/70 px-3 py-1 text-sm font-black text-white">{compteur}</div>
+          )}
+          {retour && (
+            <>
+              <div
+                key={`c${retour.cle}`}
+                className="scan-cadre pointer-events-none absolute inset-0 rounded-2xl"
+                style={{ ["--scan-couleur" as string]: COULEUR_RETOUR[retour.ton] }}
+              />
+              <div
+                key={`t${retour.cle}`}
+                className="scan-flash pointer-events-none absolute inset-x-2 bottom-2 rounded-xl px-3 py-2 text-center text-base font-extrabold text-white shadow-lg"
+                style={{ background: COULEUR_RETOUR[retour.ton] }}
+              >
+                {retour.texte}
+              </div>
+            </>
+          )}
           {occupe && <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-lg font-bold text-white">…</div>}
         </div>
       )}

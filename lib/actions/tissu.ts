@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray, isNotNull, ne } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { commande, tissuAffectation, tissuLot, tissuMouvement, tissuReception, tissuRouleau } from "@/lib/db/schema";
 import { tissuLibereParLignes } from "@/lib/domain/feux";
@@ -10,6 +10,7 @@ import * as tx from "@/lib/domain/tissu";
 import * as svc from "@/lib/services/tissu";
 import * as rl from "@/lib/domain/rouleau";
 import { prochainCodeRouleau, recalculerStatut, type Executeur } from "@/lib/services/rouleaux";
+import { journaliser } from "@/lib/services/activite";
 
 /** Recalcule `commande.tissuLibere` pour une ou plusieurs commandes à partir
  * de ce que le magasin tissu leur a réellement affecté (lots + contrôle).
@@ -350,36 +351,57 @@ export async function majLot(lotId: number, champ: ChampLot, valeur: string): Pr
   }
 }
 
-/** Supprimer un lot n'est permis que s'il n'a encore RIEN vécu : pas de
- * rouleau réceptionné au magasin, pas d'autre mouvement que son entrée.
- * Au-delà, on corrige par des mouvements (l'historique ne s'efface pas). */
+/** Supprimer un lot n'est permis que pour une erreur de réception : le tissu
+ * n'est jamais sorti, ni revenu, ni rendu (règle : tx.refusSuppressionLot).
+ * Au-delà, l'historique ne s'efface pas : on archive le lot. */
 async function refusSuppressionLots(lotIds: number[]): Promise<string | null> {
   if (!lotIds.length) return null;
-  const [valide] = await db
-    .select({ code: tissuRouleau.code })
-    .from(tissuRouleau)
-    .where(and(inArray(tissuRouleau.lotId, lotIds), isNotNull(tissuRouleau.valideLe)))
-    .limit(1);
-  if (valide) return `Le rouleau ${valide.code} est déjà réceptionné au magasin : ce lot ne se supprime plus, corrigez par des mouvements.`;
-  const [vecu] = await db
-    .select({ id: tissuMouvement.id })
+  const ms = await db
+    .select({ id: tissuMouvement.id, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId })
     .from(tissuMouvement)
-    .where(and(inArray(tissuMouvement.lotId, lotIds), isNotNull(tissuMouvement.rouleauId), ne(tissuMouvement.sens, "entree")))
-    .limit(1);
-  if (vecu) return "Des rouleaux de ce lot ont déjà des mouvements : il ne se supprime plus.";
-  return null;
+    .where(inArray(tissuMouvement.lotId, lotIds));
+  return tx.refusSuppressionLot(ms);
 }
 
-export async function supprimerLot(lotId: number): Promise<Result> {
+/** Supprime un lot ENTIER (ses rouleaux, étiquettes et mouvements d'entrée
+ * partent avec lui). Motif obligatoire, écrit au journal d'activité. */
+export async function supprimerLot(lotId: number, motif = ""): Promise<Result> {
   try {
-    await auteur();
+    const a = await auteur();
+    const [lot] = await db.select({ identifiant: tissuLot.identifiant, quantiteRecue: tissuLot.quantiteRecue, unite: tissuLot.unite }).from(tissuLot).where(eq(tissuLot.id, lotId));
+    if (!lot) return { ok: false, error: "Lot introuvable (déjà supprimé ?)." };
     const refus = await refusSuppressionLots([lotId]);
     if (refus) return { ok: false, error: refus };
     const affs = await db.select({ commandeId: tissuAffectation.commandeId }).from(tissuAffectation).where(eq(tissuAffectation.lotId, lotId));
+    const rouleaux = await db.select({ code: tissuRouleau.code }).from(tissuRouleau).where(eq(tissuRouleau.lotId, lotId));
     await db.delete(tissuLot).where(eq(tissuLot.id, lotId));
     // Les affectations de ce lot disparaissent en cascade : les commandes qui
     // en dépendaient perdent cette matière, leur feu tissu doit en tenir compte.
-    await recalculerTissuLibere(affs.map((a) => a.commandeId));
+    await recalculerTissuLibere(affs.map((x) => x.commandeId));
+    await journaliser(
+      "suppression",
+      "Magasin tissu",
+      `Lot ${lot.identifiant} supprimé par ${a.name} (${lot.quantiteRecue} ${lot.unite}${rouleaux.length ? `, ${rouleaux.length} rouleau(x) : ${rouleaux.map((r) => r.code).join(", ")}` : ""}) — motif : ${motif.trim() || "non précisé"}`,
+    );
+    revalider();
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Archive (range) un lot, ou le ressort. Rien n'est effacé : il quitte les
+ * listes de travail et reste consultable dans « Archivés ». */
+export async function archiverLot(lotId: number, archive: boolean): Promise<Result> {
+  try {
+    const a = await auteur();
+    const [lot] = await db
+      .update(tissuLot)
+      .set(archive ? { archive: true, archiveLe: new Date(), archivePar: a.name } : { archive: false, archiveLe: null, archivePar: "" })
+      .where(eq(tissuLot.id, lotId))
+      .returning({ identifiant: tissuLot.identifiant });
+    if (!lot) return { ok: false, error: "Lot introuvable." };
+    await journaliser("archivage", "Magasin tissu", `Lot ${lot.identifiant} ${archive ? "archivé" : "ressorti des archives"} par ${a.name}`);
     revalider();
     return { ok: true };
   } catch (e) {
@@ -577,8 +599,10 @@ export async function supprimerReception(id: number): Promise<Result> {
     await auteur();
     const lots = await db.select({ id: tissuLot.id }).from(tissuLot).where(eq(tissuLot.receptionId, id));
     const refus = await refusSuppressionLots(lots.map((l) => l.id));
-    if (refus) return { ok: false, error: refus.replace("ce lot", "ce bon") };
+    if (refus) return { ok: false, error: refus.replace("Ce lot", "Un lot de ce bon").replace("Archivez-le", "Archivez ses lots") };
+    const [rec] = await db.select({ numero: tissuReception.numero }).from(tissuReception).where(eq(tissuReception.id, id));
     await db.delete(tissuReception).where(eq(tissuReception.id, id));
+    await journaliser("suppression", "Magasin tissu", `Bon de réception ${rec?.numero ?? id} supprimé (${lots.length} lot(s))`);
     revalider();
     return { ok: true };
   } catch (e) {

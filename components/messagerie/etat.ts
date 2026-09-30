@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { jouerNotes } from "@/components/shared/son";
 
 /* État partagé de la messagerie côté navigateur : le nombre de non lus (menu,
  * bouton flottant, titre de l'onglet) et la discussion affichée à l'écran (on
@@ -28,25 +29,8 @@ export const conversationOuverte = () => etat.ouverte;
 
 /** Petit « ding » (sans fichier son) : deux notes brèves. */
 export function jouerSon() {
-  try {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new Ctx();
-    const note = (f: number, t: number) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
-      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.25);
-      o.connect(g).connect(ctx.destination);
-      o.start(ctx.currentTime + t);
-      o.stop(ctx.currentTime + t + 0.3);
-    };
-    note(880, 0);
-    note(1175, 0.12);
-    setTimeout(() => ctx.close(), 800);
-  } catch {
-    /* navigateur sans son : l'alerte visuelle suffit */
-  }
+  jouerNotes([
+    { f: 880, t: 0 },
+    { f: 1175, t: 0.12 },
+  ]);
 }

@@ -210,3 +210,18 @@
     padding: 0 !important;
   }
 }
+
+/* Scan en rafale : le bandeau « ✔ R-2026-000145 » s'affiche puis s'efface
+ * seul (relancé à chaque scan par un changement de clé). */
+@keyframes scan-flash {
+  0% { opacity: 0; transform: translateY(6px); }
+  8% { opacity: 1; transform: translateY(0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.scan-flash { animation: scan-flash 1.6s ease-out forwards; }
+@keyframes scan-cadre {
+  0% { box-shadow: inset 0 0 0 10px var(--scan-couleur); }
+  100% { box-shadow: inset 0 0 0 0 transparent; }
+}
+.scan-cadre { animation: scan-cadre 0.7s ease-out forwards; }
