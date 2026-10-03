@@ -273,14 +273,15 @@ const NOMEN: EcranConfig = {
   sous: "Consommations tissu et besoins par commande",
   aide:
     "La consommation théorique (m/pièce) et le taux de chute déterminent le besoin total en tissu, que le magasin " +
-    "tissu compare au métrage reçu. La consommation réelle se saisit après coupe pour mesurer l'écart. Cette étape " +
+    "tissu compare au métrage affecté. La « conso plan de coupe » (m/pièce) vient du plan de coupe validé ; la " +
+    "consommation vraiment constatée à la coupe est dans les fiches de coupe. Cette étape " +
     "ne bloque pas le lancement, mais sans elle le magasin ne peut pas vérifier ses quantités.",
   domaine: "nomen",
   defaut: "asaisir",
   onglets: [
     { k: "asaisir", label: "À saisir", test: (r) => (r.consoTheo ?? 0) <= 0 && !r.lancee },
     { k: "saisie", label: "Saisies", test: (r) => (r.consoTheo ?? 0) > 0 },
-    { k: "reel", label: "Conso réelle", test: (r) => (r.consoReel ?? 0) > 0 },
+    { k: "reel", label: "Conso plan de coupe", test: (r) => (r.consoReel ?? 0) > 0 },
     { k: "ecart", label: "Écart > 5 %", test: (r) => r.ecartConsoPct != null && Math.abs(r.ecartConsoPct) > 5 },
     { k: "all", label: "Tout", test: null },
   ],
@@ -291,7 +292,7 @@ const NOMEN: EcranConfig = {
     { titre: "Conso théo.", align: "center" },
     { titre: "Chute", align: "center" },
     { titre: "Besoin total", align: "center" },
-    { titre: "Conso réelle", align: "center" },
+    { titre: "Conso plan de coupe", align: "center" },
     { titre: "Écart", align: "center" },
   ],
   kpis: (rows) => {

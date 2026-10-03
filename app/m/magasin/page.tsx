@@ -94,6 +94,7 @@ export default async function MagasinMobilePage() {
     produit: c.produit,
     stockQte: c.stockQte,
     produitGpao: c.produitGpao,
+    gpaoExcedent: c.gpaoExcedent,
     entreesInternes: c.entreesInternes,
   });
 

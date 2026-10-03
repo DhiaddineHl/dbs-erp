@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   analyserInventaire,
   bilanRouleau,
+  controleMesure,
   sortiesPourBon,
   filtrerRouleaux,
   formatCodeRouleau,
@@ -209,5 +210,27 @@ describe("sortiesPourBon — bon après coup", () => {
     const r = sortiesPourBon([m(1, "sortie", { bon: "BST-2026-004" }), m(2, "sortie"), m(3, "annulation", { annuleId: 2 })]);
     assert.equal(r?.dejaSur, "BST-2026-004");
     assert.equal(r?.aPorter.length, 0);
+  });
+});
+
+describe("rouleau à mesurer", () => {
+  it("statut étiquette prioritaire", () => {
+    const b = bilanRouleau(0, []);
+    assert.equal(statutRouleau(false, b, null, "a_mesurer"), "a_mesurer");
+    assert.equal(statutRouleau(false, b, null, "annule"), "annule");
+  });
+  it("contrôle du métrage tapé", () => {
+    assert.match(controleMesure(0, null).refus ?? "", /Tapez/);
+    assert.match(controleMesure(350, 60).alerte ?? "", /environ 60/);
+    assert.deepEqual(controleMesure(58.5, 60), { refus: null, alerte: null });
+  });
+});
+
+describe("dernier envoi (bon récapitulatif)", () => {
+  const m = (id: number, lieu: string, bon = "") => ({ id, sens: "sortie", quantite: 10, destination: "soustraitant", faconnierNom: lieu, bon, annuleId: null });
+  it("s'arrête à la sortie précédente vers un autre lieu", () => {
+    const r = sortiesPourBon([m(1, "Atelier Nour", "BST-2026-001"), m(2, "SAJ", "BST-2026-002"), m(3, "Atelier Nour", "BST-2026-003"), m(4, "Atelier Nour")]);
+    assert.deepEqual(r?.envoi.map((x) => x.id), [3, 4]);
+    assert.deepEqual(r?.aPorter.map((x) => x.id), [4]);
   });
 });

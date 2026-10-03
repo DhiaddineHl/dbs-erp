@@ -67,7 +67,10 @@ export function ReceptionTissu({
   };
   /** Lot saisi rouleau par rouleau : le mesuré est la somme des rouleaux. */
   const sommeRouleaux = (l: LigneLot) => Math.round((l.rouleaux ?? []).reduce((s, r) => s + (num(r.metrage) ?? 0), 0) * 100) / 100;
-  const mesure = (l: LigneLot) => ((l.rouleaux ?? []).length ? sommeRouleaux(l) : (num(l.quantiteRecue) ?? 0));
+  /** Étiquettes « à mesurer » : métrage saisi plus tard, au scan. */
+  const nbAMesurer = (l: LigneLot) => Math.max(0, Math.trunc(num(l.aMesurer) ?? 0));
+  const parRouleau = (l: LigneLot) => (l.rouleaux ?? []).length > 0 || nbAMesurer(l) > 0;
+  const mesure = (l: LigneLot) => (parRouleau(l) ? sommeRouleaux(l) : (num(l.quantiteRecue) ?? 0));
   const ecarts = lots.map((l) =>
     ecartsReception({
       quantiteRecue: mesure(l),
@@ -76,6 +79,7 @@ export function ReceptionTissu({
       laizeAnnoncee: num(l.laizeAnnoncee),
       defauts: l.defauts ?? "",
       unite: l.unite,
+      aMesurer: nbAMesurer(l),
     }),
   );
 
@@ -94,7 +98,11 @@ export function ReceptionTissu({
       if (r.rouleauIds.length) {
         // « Imprimer toutes les étiquettes » : une par rouleau, tout de suite.
         window.open(`/magtissu/etiquettes/rouleaux?reception=${r.receptionId}`, "_blank");
-        toast.success(`${r.rouleauIds.length} rouleau(x) créés « en attente » : collez les étiquettes puis scannez-les au magasin.`);
+        toast.success(
+          lots.some((l) => nbAMesurer(l) > 0)
+            ? `${r.rouleauIds.length} étiquette(s) créées : collez-les, le magasinier saisit chaque métrage en scannant (Scanner → Mesurer).`
+            : `${r.rouleauIds.length} rouleau(x) créés « en attente » : collez les étiquettes puis scannez-les au magasin.`,
+        );
       }
       if (ecarts.some((e) => e.aReclamer)) {
         toast.warning("Réception enregistrée avec des écarts : imprimez la réclamation client avant la coupe.");
@@ -202,9 +210,10 @@ export function ReceptionTissu({
                         <Input value={l.quantiteAnnoncee ?? ""} onChange={(e) => setLot(l.cle, "quantiteAnnoncee", e.target.value)} inputMode="decimal" placeholder="BL" className="h-8 bg-card text-center" />
                       </td>
                       <td className="px-2 pt-1.5">
-                        {(l.rouleaux ?? []).length ? (
-                          <div className="flex h-8 items-center justify-center rounded-md border bg-muted/40 font-semibold tabular-nums" title="Somme des rouleaux">
-                            {q2.format(sommeRouleaux(l))}
+                        {parRouleau(l) ? (
+                          <div className="flex h-8 items-center justify-center rounded-md border bg-muted/40 font-semibold tabular-nums" title="Somme des rouleaux mesurés">
+                            {(l.rouleaux ?? []).length ? q2.format(sommeRouleaux(l)) : ""}
+                            {nbAMesurer(l) > 0 && <span className="ml-1 text-[10px] font-normal text-muted-foreground">{(l.rouleaux ?? []).length ? "+ " : ""}au scan</span>}
                           </div>
                         ) : (
                           <Input value={l.quantiteRecue ?? ""} onChange={(e) => setLot(l.cle, "quantiteRecue", e.target.value)} inputMode="decimal" placeholder="0" className="h-8 bg-card text-center font-semibold" />
@@ -224,8 +233,8 @@ export function ReceptionTissu({
                         <Input value={l.laize ?? ""} onChange={(e) => setLot(l.cle, "laize", e.target.value)} inputMode="decimal" placeholder="cm" className="h-8 bg-card text-center" />
                       </td>
                       <td className="px-2 pt-1.5">
-                        {(l.rouleaux ?? []).length ? (
-                          <div className="flex h-8 items-center justify-center rounded-md border bg-muted/40 font-semibold">{(l.rouleaux ?? []).length}</div>
+                        {parRouleau(l) ? (
+                          <div className="flex h-8 items-center justify-center rounded-md border bg-muted/40 font-semibold">{(l.rouleaux ?? []).length + nbAMesurer(l)}</div>
                         ) : (
                           <Input value={l.nbRouleaux ?? ""} onChange={(e) => setLot(l.cle, "nbRouleaux", e.target.value)} inputMode="numeric" className="h-8 bg-card text-center" />
                         )}
@@ -269,6 +278,8 @@ export function ReceptionTissu({
                           unite={l.unite ?? "m"}
                           laize={l.laize ?? ""}
                           onChange={(f) => setRouleaux(l.cle, f)}
+                          aMesurer={l.aMesurer ?? ""}
+                          onAMesurer={(v) => setLot(l.cle, "aMesurer", v)}
                         />
                       </td>
                     </tr>
@@ -280,8 +291,8 @@ export function ReceptionTissu({
 
           <div className="mt-3 flex items-center justify-end gap-2">
             <span className="text-[11px] text-muted-foreground">
-              Le métrage MESURÉ entre en stock ; l&apos;écart avec le BL du client est à réclamer avant la coupe. Chaque rouleau saisi
-              reçoit son ID et son étiquette QR.
+              Le métrage MESURÉ entre en stock ; l&apos;écart avec le BL du client est à réclamer avant la coupe. Chaque rouleau reçoit
+              son ID et son étiquette QR — métrage saisi ici, ou au scan pour les étiquettes « à mesurer ».
             </span>
             <Button disabled={pending} onClick={enregistrer}>
               {pending ? "Enregistrement…" : "Enregistrer la réception"}
@@ -339,6 +350,7 @@ export function ReceptionTissu({
                     {r.lots.map((l) => (
                       <span key={l.id} className="rounded-md border bg-muted/40 px-2 py-0.5 text-[11px]">
                         <b className="font-mono">{l.identifiant}</b> · {l.couleur || "—"} · {q2.format(l.quantiteRecue)} {l.unite}
+                        {l.aMesurer > 0 && <b className="text-amber-700"> · {l.aMesurer} à mesurer</b>}
                       </span>
                     ))}
                   </div>
@@ -362,25 +374,65 @@ function Champ({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** Rouleaux physiques d'un lot, à la réception : un rouleau par ligne. Entrée
- * sur la dernière ligne en ajoute une (saisie rapide au clavier). */
+/** Rouleaux physiques d'un lot, à la réception. Deux façons, au choix selon
+ * le personnel disponible (et combinables sur un même lot) :
+ *   📋 saisir ici le métrage de chaque rouleau, puis imprimer les étiquettes ;
+ *   🏷 imprimer d'abord N étiquettes « Métrage : ____ m », le magasinier
+ *      saisit chaque métrage en scannant le rouleau.
+ * Entrée sur la dernière ligne ajoute un rouleau (saisie rapide au clavier). */
 function SaisieRouleaux({
   rouleaux,
   unite,
   laize,
   onChange,
+  aMesurer,
+  onAMesurer,
 }: {
   rouleaux: SaisieRouleau[];
   unite: string;
   laize: string;
   onChange: (f: (r: SaisieRouleau[]) => SaisieRouleau[]) => void;
+  aMesurer: string;
+  onAMesurer: (v: string) => void;
 }) {
   const vide = (): SaisieRouleau => ({ metrage: "", annonce: "", laize, poids: "", observations: "" });
+  const n = Math.max(0, Math.trunc(Number(aMesurer) || 0));
+  const etiquettes =
+    aMesurer !== "" ? (
+      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-950">
+        <b>🏷 Étiquettes à remplir au magasin :</b>
+        <Input
+          value={aMesurer}
+          onChange={(e) => onAMesurer(e.target.value.replace(/\D/g, "").slice(0, 3))}
+          inputMode="numeric"
+          autoFocus
+          className="h-7 w-16 bg-card text-center font-bold"
+        />
+        <span>
+          {rouleaux.length ? "rouleau(x) de plus, " : "rouleau(x), "}
+          {n > 0 ? `${n} étiquette(s) « Métrage : ____ ${unite} » à coller ; le magasinier saisit chaque métrage en scannant.` : "tapez le nombre de rouleaux reçus."}
+        </span>
+        <button type="button" onClick={() => onAMesurer("")} className="ml-auto rounded p-0.5 text-amber-900 hover:bg-amber-100" title="Retirer">
+          <Trash2 className="size-3" />
+        </button>
+      </div>
+    ) : null;
   if (!rouleaux.length) {
     return (
-      <button type="button" onClick={() => onChange(() => [vide()])} className="mt-1.5 text-[11px] font-semibold text-brand hover:underline">
-        + Saisir les rouleaux un par un (étiquette QR par rouleau)
-      </button>
+      <>
+        {etiquettes ?? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px]">
+            <span className="font-semibold text-muted-foreground">Étiquettes QR par rouleau :</span>
+            <button type="button" onClick={() => onChange(() => [vide()])} className="font-semibold text-brand hover:underline">
+              📋 Saisir les métrages maintenant (bureau)
+            </button>
+            <span className="text-muted-foreground">ou</span>
+            <button type="button" onClick={() => onAMesurer("1")} className="font-semibold text-amber-800 hover:underline">
+              🏷 Étiquettes à remplir au magasin (métrage au scan)
+            </button>
+          </div>
+        )}
+      </>
     );
   }
   const set = (i: number, k: keyof SaisieRouleau, v: string) => onChange((s) => s.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
@@ -435,7 +487,13 @@ function SaisieRouleaux({
         <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => onChange((s) => [...s, ...Array.from({ length: 5 }, vide)])}>
           + 5 rouleaux
         </Button>
+        {aMesurer === "" && (
+          <button type="button" onClick={() => onAMesurer("1")} className="ml-2 text-[11px] font-semibold text-amber-800 hover:underline">
+            + 🏷 étiquettes à remplir au magasin (rouleaux pas encore mesurés)
+          </button>
+        )}
       </div>
+      {etiquettes}
     </div>
   );
 }

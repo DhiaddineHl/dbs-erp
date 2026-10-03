@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CONTROLES_BR, type AlerteReception } from "@/lib/domain/aval";
+import { aEntrerInterne, CONTROLES_BR, type AlerteReception } from "@/lib/domain/aval";
 import type { BrRow, CommandeAval } from "@/lib/services/aval";
 import * as A from "@/lib/actions/aval";
 
@@ -240,7 +240,7 @@ export function DialogEntreeInterne({ commande: c, onFermer }: { commande: Comma
   const router = useRouter();
   /* Proposition : ce que la GPAO a produit et qui n'est pas encore entré au
    * magasin. Plus besoin de recompter à la main. */
-  const aEntrer = Math.max(0, c.produitGpao - c.entreesInternes);
+  const aEntrer = aEntrerInterne(c);
   const [date, setDate] = useState(auj());
   const [qte, setQte] = useState(aEntrer > 0 ? String(aEntrer) : "");
   const [note, setNote] = useState("");
@@ -264,6 +264,11 @@ export function DialogEntreeInterne({ commande: c, onFermer }: { commande: Comma
             </>
           ) : (
             "rien de nouveau depuis la GPAO"
+          )}
+          {c.gpaoExcedent > 0 && (
+            <div className="mt-1 font-semibold text-warning-foreground">
+              ⚠ production GPAO en trop : {nb.format(c.gpaoExcedent)} pcs au-delà de la commande et de ses OF frères, à vérifier (non proposées ici).
+            </div>
           )}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">

@@ -10,8 +10,19 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { CommandeAval, CoupeRow } from "@/lib/services/aval";
+import type { FicheResume } from "@/lib/services/coupe";
 import * as A from "@/lib/actions/aval";
+import { majSeuilEcart } from "@/lib/actions/coupe";
+import { BasculeRangees, PastilleCloture } from "@/components/shared/bascule-rangees";
+import Link from "next/link";
 import { BoutonAction, Kpi, Tuiles } from "../aval/ui";
+
+type EtatPlanCoupe = "pret" | "estime" | "ordre";
+const PLAN_LABEL: Record<EtatPlanCoupe, { label: string; tone: "success" | "warning" | "neutral" }> = {
+  pret: { label: "Plan prêt", tone: "success" },
+  estime: { label: "Plan (longueurs estimées)", tone: "warning" },
+  ordre: { label: "Plan sans tracés", tone: "neutral" },
+};
 
 const nb = new Intl.NumberFormat("fr-FR");
 const auj = () => new Date().toISOString().slice(0, 10);
@@ -34,17 +45,32 @@ function etat(c: CommandeAval): { cle: Filtre; label: string; tone: "neutral" | 
 }
 
 export function CoupeClient({
-  commandes,
+  commandes: toutes,
   coupes,
+  plans,
+  fiches,
+  seuil,
   peutSaisir,
+  peutReglerSeuil,
 }: {
   commandes: CommandeAval[];
   coupes: CoupeRow[];
+  plans: Record<number, EtatPlanCoupe>;
+  fiches: FicheResume[];
+  seuil: number;
   peutSaisir: boolean;
+  peutReglerSeuil: boolean;
 }) {
   const [q, setQ] = useState("");
   const [filtre, setFiltre] = useState<Filtre>("tous");
   const [ouvert, setOuvert] = useState<number | null>(null);
+  /* Commandes déjà livrées ou facturées : rangées par défaut (même règle que
+     la nomenclature et les magasins). */
+  const [voirRangees, setVoirRangees] = useState(false);
+  const nbRangees = toutes.filter((c) => c.cloture).length;
+  const commandes = useMemo(() => (voirRangees ? toutes : toutes.filter((c) => !c.cloture)), [toutes, voirRangees]);
+  const porteurDe = useMemo(() => new Map(toutes.map((c) => [c.id, c.parentId ?? c.id])), [toutes]);
+  const ofDe = useMemo(() => new Map(toutes.map((c) => [c.id, c.of])), [toutes]);
 
   const parCommande = useMemo(() => {
     const m = new Map<number, CoupeRow[]>();
@@ -89,6 +115,8 @@ export function CoupeClient({
         title="Avancement de coupe"
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <BasculeRangees nombre={nbRangees} visibles={voirRangees} onChange={setVoirRangees} />
+            {peutReglerSeuil && <ReglageSeuil seuil={seuil} />}
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -121,13 +149,14 @@ export function CoupeClient({
                 <th className="px-3 py-2 text-right">Reste</th>
                 <th className="px-3 py-2 text-right">Produit</th>
                 <th className="px-3 py-2 text-left">État</th>
+                <th className="px-3 py-2 text-left">Plan de coupe</th>
                 <th className="px-3 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtrees.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-muted-foreground">
+                  <td colSpan={9} className="py-10 text-center text-muted-foreground">
                     Aucune commande.
                   </td>
                 </tr>
@@ -135,6 +164,9 @@ export function CoupeClient({
                 filtrees.map((c) => {
                   const e = etat(c);
                   const lignes = parCommande.get(c.id) ?? [];
+                  const porteur = porteurDe.get(c.id) ?? c.id;
+                  const plan = plans[porteur];
+                  const fichesCmd = fiches.filter((f) => f.commandeId === porteur);
                   const deplie = ouvert === c.id;
                   const reste = Math.max(0, c.qte - c.coupeQte);
                   // Produire plus que ce qui est coupé est impossible : on le signale ici aussi.
@@ -149,6 +181,7 @@ export function CoupeClient({
                           >
                             {deplie ? "▾" : "▸"} {c.of}
                           </button>
+                          <PastilleCloture cloture={c.cloture} />
                         </td>
                         <td className="px-3 py-2">
                           <b>{c.modele}</b>
@@ -172,20 +205,42 @@ export function CoupeClient({
                         <td className="px-3 py-2">
                           <StatusBadge tone={e.tone}>{e.label}</StatusBadge>
                         </td>
+                        <td className="px-3 py-2">
+                          {plan ? (
+                            <StatusBadge tone={PLAN_LABEL[plan].tone}>{PLAN_LABEL[plan].label}</StatusBadge>
+                          ) : (
+                            <Link href={`/modelisme/${porteur}/plan`} className="text-[11px] text-muted-foreground underline">
+                              pas de plan
+                            </Link>
+                          )}
+                          {porteur !== c.id && <div className="text-[10px] text-muted-foreground">via {ofDe.get(porteur)}</div>}
+                        </td>
                         <td className="px-3 py-2 text-right">
-                          <Button variant="outline" size="sm" onClick={() => setOuvert(deplie ? null : c.id)}>
-                            {lignes.length} lâcher{lignes.length > 1 ? "s" : ""}
-                          </Button>
+                          <div className="flex justify-end gap-1.5">
+                            {peutSaisir && plan && (
+                              <Link
+                                href={`/coupe/nouvelle?commande=${porteur}`}
+                                className="inline-flex h-8 items-center rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground hover:opacity-90"
+                              >
+                                ✂ Couper depuis le plan
+                              </Link>
+                            )}
+                            <Button variant="outline" size="sm" onClick={() => setOuvert(deplie ? null : c.id)}>
+                              {fichesCmd.length ? `${fichesCmd.length} fiche${fichesCmd.length > 1 ? "s" : ""}` : `${lignes.length} lâcher${lignes.length > 1 ? "s" : ""}`}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                       {deplie && (
                         <tr className="border-b bg-muted/25 last:border-0">
-                          <td colSpan={8} className="px-3 py-3">
+                          <td colSpan={9} className="px-3 py-3">
+                            {fichesCmd.length > 0 && <Fiches fiches={fichesCmd} />}
                             <Lachers
                               commande={c}
                               lignes={lignes}
                               peutSaisir={peutSaisir}
                               resteDefaut={reste || c.qte}
+                              aUnPlan={!!plan}
                             />
                           </td>
                         </tr>
@@ -207,11 +262,13 @@ function Lachers({
   lignes,
   peutSaisir,
   resteDefaut,
+  aUnPlan,
 }: {
   commande: CommandeAval;
   lignes: CoupeRow[];
   peutSaisir: boolean;
   resteDefaut: number;
+  aUnPlan: boolean;
 }) {
   const router = useRouter();
   const [date, setDate] = useState(auj());
@@ -239,14 +296,19 @@ function Lachers({
           </thead>
           <tbody>
             {lignes.map((l) => (
-              <tr key={l.id} className="border-t border-border/60">
+              <tr key={l.id} className={`border-t border-border/60 ${l.ficheAnnulee ? "text-muted-foreground line-through" : ""}`}>
                 <td className="py-1 tabular-nums">{dateFr(l.date)}</td>
                 <td className="py-1 text-right font-semibold tabular-nums">{nb.format(l.qte)}</td>
                 <td className="py-1">{l.taille || "toutes"}</td>
                 <td className="py-1 text-muted-foreground">{l.type}</td>
                 <td className="py-1 text-muted-foreground">{l.note || "—"}</td>
                 <td className="py-1 text-right">
-                  {peutSaisir && (
+                  {l.fiche ? (
+                    <Link href={`/coupe/fiche/${encodeURIComponent(l.fiche)}`} className="font-mono text-[10.5px] text-brand hover:underline">
+                      {l.fiche}
+                      {l.qtePrevue != null && ` · prévu ${nb.format(l.qtePrevue)}`}
+                    </Link>
+                  ) : peutSaisir && (
                     <BoutonAction
                       variant="ghost"
                       onRun={() => A.supprimerCoupe(l.id)}
@@ -263,8 +325,16 @@ function Lachers({
         </table>
       )}
 
-      {peutSaisir && (
+      {peutSaisir && aUnPlan && (
+        <p className="text-[11px] text-muted-foreground">
+          Cette commande a un plan de coupe : la coupe se saisit depuis le plan (« ✂ Couper depuis le plan »), pour que les tailles et quantités ne soient jamais retapées.
+        </p>
+      )}
+      {peutSaisir && !aUnPlan && (
         <div className="flex flex-wrap items-end gap-2 rounded-lg border bg-card px-3 py-2">
+          <span className="w-full text-[10.5px] font-semibold text-warning-foreground">
+            Saisie libre (exception) : cette commande n&apos;a pas de plan de coupe. Préférez faire préparer le plan par le Bureau modélisme.
+          </span>
           <Cellule label="Date">
             <input
               type="date"
@@ -330,6 +400,64 @@ function Lachers({
         </div>
       )}
     </div>
+  );
+}
+
+function Fiches({ fiches }: { fiches: FicheResume[] }) {
+  return (
+    <div className="mb-3 rounded-lg border bg-card">
+      <div className="border-b px-3 py-1.5 text-[10.5px] font-bold uppercase text-muted-foreground">Fiches de coupe (depuis le plan)</div>
+      <div className="divide-y text-[11.5px]">
+        {fiches.map((f) => (
+          <div key={f.id} className={`flex flex-wrap items-center gap-3 px-3 py-1.5 ${f.statut === "annulee" ? "text-muted-foreground line-through" : ""}`}>
+            <Link href={`/coupe/fiche/${encodeURIComponent(f.numero)}`} className="font-mono font-bold text-brand hover:underline">
+              {f.numero}
+            </Link>
+            <span>{dateFr(f.date)}</span>
+            <span className="tabular-nums">
+              coupé <b>{nb.format(f.pieces)}</b> / prévu {nb.format(f.prevu)}
+            </span>
+            {f.statut === "annulee" && <StatusBadge tone="danger">annulée</StatusBadge>}
+            {f.pv ? (
+              <Link href={`/coupe/pv/${encodeURIComponent(f.pv)}`} target="_blank" className="ml-auto font-semibold text-brand hover:underline">
+                🖨 {f.pv} v{f.pvVersion}
+              </Link>
+            ) : (
+              f.statut === "validee" && (
+                <Link href={`/coupe/fiche/${encodeURIComponent(f.numero)}`} className="ml-auto text-muted-foreground hover:underline">
+                  PV à générer →
+                </Link>
+              )
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Seuil d'écart (% par taille) au-delà duquel un motif est exigé. */
+function ReglageSeuil({ seuil }: { seuil: number }) {
+  const router = useRouter();
+  const [v, setV] = useState(String(seuil));
+  return (
+    <label className="flex items-center gap-1 text-[11px] text-muted-foreground" title="Écart prévu / coupé (par taille) au-delà duquel un motif est obligatoire">
+      Motif si écart &gt;
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={async () => {
+          if (v === String(seuil)) return;
+          const r = await majSeuilEcart(v);
+          if (!r.ok) return void toast.error(r.error);
+          toast.success(`Seuil d'écart : ${v} %`);
+          router.refresh();
+        }}
+        inputMode="decimal"
+        className="h-8 w-12 rounded border border-input bg-card px-1 text-center"
+      />
+      %
+    </label>
   );
 }
 

@@ -1,7 +1,7 @@
 import "server-only";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { journee, ouvriere, personnel } from "@/lib/db/schema";
+import { journee, ouvriere, personnel, personnelFusion } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 import { cleNom, estMatriculeProvisoire } from "@/lib/domain/atelier";
 import { mesureJour, personnelDeCle, resolveurIdentite, type LigneEffectif } from "@/lib/domain/rendement-personne";
@@ -104,7 +104,11 @@ export async function reparerIdentites(appliquer: boolean, opts: Options = {}): 
           const ids = absorbees.map((a) => a.id);
           await tx.update(ouvriere).set({ personnelId: garde.id }).where(inArray(ouvriere.personnelId, ids));
         }
-        if (redirection.size) await tx.delete(personnel).where(inArray(personnel.id, [...redirection.keys()]));
+        if (redirection.size) {
+          // Mémoire des fusions : les journées anciennes suivront la fiche gardée.
+          await memoriserFusions(tx, fiches.filter((f) => redirection.has(f.id)), redirection);
+          await tx.delete(personnel).where(inArray(personnel.id, [...redirection.keys()]));
+        }
         fiches = fiches.filter((f) => !redirection.has(f.id));
       }
       const idsFiches = new Set(fiches.map((f) => f.id));
@@ -126,7 +130,8 @@ export async function reparerIdentites(appliquer: boolean, opts: Options = {}): 
       }
 
       /* ── 3 & 4. effectifs des journées ── */
-      const cleDe = resolveurIdentite(fiches, lignes);
+      const fusions = await tx.select({ ancienId: personnelFusion.ancienId, gardeId: personnelFusion.gardeId }).from(personnelFusion);
+      const cleDe = resolveurIdentite(fiches, lignes, fusions);
       const parId = new Map(lignes.map((l) => [l.id, l]));
       const parChaine = new Map<number, typeof lignes>();
       for (const l of [...lignes].sort((a, b) => a.id - b.id)) {
@@ -163,7 +168,8 @@ export async function reparerIdentites(appliquer: boolean, opts: Options = {}): 
         for (const o of roster) {
           let pid = o.personnelId ?? null;
           if (pid != null && redirection.has(pid)) pid = redirection.get(pid)!;
-          if (pid == null || !idsFiches.has(pid)) pid = personnelDeCle(cleDe({ ...o, personnelId: null }));
+          // Fiche disparue : la mémoire des fusions, puis le nom (à une faute près).
+          if (pid == null || !idsFiches.has(pid)) pid = personnelDeCle(cleDe({ ...o, personnelId: pid }));
           if ((o.personnelId ?? null) !== pid) {
             if (figee) bilan.lignesJourReliees++;
             o.personnelId = pid;
@@ -233,7 +239,8 @@ export async function completerFiches(roster: JourneeOuvriere[]): Promise<Journe
     db.select({ id: personnel.id, nom: personnel.nom }).from(personnel),
     db.select({ id: ouvriere.id, nom: ouvriere.nom, personnelId: ouvriere.personnelId }).from(ouvriere),
   ]);
-  const cleDe = resolveurIdentite(fiches, lignes);
+  const fusions = await db.select({ ancienId: personnelFusion.ancienId, gardeId: personnelFusion.gardeId }).from(personnelFusion);
+  const cleDe = resolveurIdentite(fiches, lignes, fusions);
   return roster.map((o) => (o.personnelId != null ? o : { ...o, personnelId: personnelDeCle(cleDe(o)) }));
 }
 
@@ -270,9 +277,31 @@ export async function fusionnerFiches(gardeId: number, autresIds: number[]): Pro
         .set({ ouvrieres: roster.map((o) => (o.personnelId != null && ids.has(o.personnelId) ? { ...o, personnelId: gardeId } : o)) })
         .where(eq(journee.id, j.id));
     }
+    await memoriserFusions(tx, absorbees, new Map([...ids].map((id) => [id, gardeId])));
     await tx.delete(personnel).where(inArray(personnel.id, [...ids]));
   });
   const bilan = await reparerIdentites(true);
   if (fusion) bilan.fichesFusionnees.unshift(fusion);
   return bilan;
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Écrit « ancienne fiche → fiche gardée » (et réoriente les fusions qui
+ * pointaient vers une fiche à son tour absorbée). */
+async function memoriserFusions(tx: Tx, absorbees: { id: number; nom: string; matricule: string }[], vers: Map<number, number>) {
+  for (const a of absorbees) {
+    const garde = vers.get(a.id);
+    if (garde == null) continue;
+    await tx
+      .insert(personnelFusion)
+      .values({ ancienId: a.id, gardeId: garde, ancienNom: a.nom, ancienMatricule: a.matricule })
+      .onConflictDoUpdate({ target: personnelFusion.ancienId, set: { gardeId: garde } });
+    await tx.update(personnelFusion).set({ gardeId: garde }).where(eq(personnelFusion.gardeId, a.id));
+  }
+}
+
+/** Mémoire des fusions, pour la règle d'identité (lib/domain/rendement-personne). */
+export async function listFusions() {
+  return db.select({ ancienId: personnelFusion.ancienId, gardeId: personnelFusion.gardeId }).from(personnelFusion);
 }

@@ -4,7 +4,7 @@
  *   affecté   = somme des affectations
  *   consommé  = somme des mouvements de sortie − retours
  *   disponible physiquement = reçu − consommé (± ajustements)
- *   libre à affecter        = reçu − affecté
+ *   libre à affecter        = disponible − réservations pas encore sorties
  *
  * On distingue bien AFFECTÉ (réservé) de CONSOMMÉ (sorti). Le « disponible »
  * qui compte pour le magasin est le disponible PHYSIQUE (ce qui est encore en
@@ -12,8 +12,8 @@
 
 export type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "brand";
 
-export type MouvementFait = { sens: string; quantite: number; id?: number; annuleId?: number | null };
-export type AffectationFait = { quantite: number };
+export type MouvementFait = { sens: string; quantite: number; id?: number; annuleId?: number | null; commandeId?: number | null };
+export type AffectationFait = { quantite: number; commandeId?: number | null };
 
 export type BilanLot = {
   recu: number;
@@ -23,11 +23,42 @@ export type BilanLot = {
   rendu: number;
   /** Encore physiquement en stock (reçu − consommé net). */
   disponible: number;
-  /** Encore réservable (reçu − affecté). */
+  /** Encore réservable : ce qui est en rayon moins ce qui reste réservé
+   * (pour chaque commande, réservé − déjà sorti net). */
   libre: number;
+  /** Réservations pas encore sorties du magasin. */
+  reserveRestant: number;
 };
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Mouvements encore valables (ni annulation, ni annulés). */
+export function mouvementsValables<M extends MouvementFait>(mouvements: M[]): M[] {
+  const annules = new Set(mouvements.filter((m) => m.sens === "annulation" && m.annuleId != null).map((m) => m.annuleId));
+  return mouvements.filter((m) => m.sens !== "annulation" && !(m.id != null && annules.has(m.id)));
+}
+
+/** Sorti net (sorties − retours) d'une liste de mouvements valables. */
+function sortiNet(mouvements: MouvementFait[]): number {
+  let n = 0;
+  for (const m of mouvements) {
+    if (m.sens === "sortie") n += m.quantite || 0;
+    else if (m.sens === "retour") n -= m.quantite || 0;
+  }
+  return n;
+}
+
+/** Ce qui reste réservé et pas encore sorti, commande par commande :
+ * max(0, affecté − sorti net) pour chacune. Une sortie pour une commande ne
+ * « consomme » que la réservation de CETTE commande. */
+export function reserveRestant(affectations: AffectationFait[], mouvements: MouvementFait[]): number {
+  const aff = new Map<number | null, number>();
+  for (const a of affectations) aff.set(a.commandeId ?? null, (aff.get(a.commandeId ?? null) ?? 0) + (a.quantite || 0));
+  const valables = mouvementsValables(mouvements);
+  let total = 0;
+  for (const [cid, q] of aff) total += Math.max(0, q - sortiNet(valables.filter((m) => (m.commandeId ?? null) === cid)));
+  return total;
+}
 
 export function bilanLot(recu: number, affectations: AffectationFait[], mouvements: MouvementFait[]): BilanLot {
   const affecte = affectations.reduce((s, a) => s + (a.quantite || 0), 0);
@@ -38,9 +69,7 @@ export function bilanLot(recu: number, affectations: AffectationFait[], mouvemen
   /* Les annulations neutralisent un mouvement sans l'effacer ; consommation,
    * chute, mise en stock et déplacement ne touchent pas au stock (la sortie
    * l'a déjà décompté). Le retour fournisseur sort du stock comme un rendu. */
-  const annules = new Set(mouvements.filter((m) => m.sens === "annulation" && m.annuleId != null).map((m) => m.annuleId));
-  for (const m of mouvements) {
-    if (m.sens === "annulation" || (m.id != null && annules.has(m.id))) continue;
+  for (const m of mouvementsValables(mouvements)) {
     const q = m.quantite || 0;
     if (m.sens === "sortie") sorties += q;
     else if (m.sens === "retour") retours += q;
@@ -49,14 +78,18 @@ export function bilanLot(recu: number, affectations: AffectationFait[], mouvemen
   }
   const consomme = Math.max(0, sorties - retours);
   const disponible = recu - consomme - rendu + ajust;
+  const reserve = reserveRestant(affectations, mouvements);
   return {
     recu: r2(recu),
     affecte: r2(affecte),
     consomme: r2(consomme),
     rendu: r2(rendu),
     disponible: r2(disponible),
-    // Ce qui est rendu au client ne se réserve plus.
-    libre: r2(recu - affecte - rendu),
+    /* On ne peut réserver que ce qui est encore en rayon et pas déjà promis.
+     * (Avant : reçu − affecté − rendu, qui ignorait les sorties hors
+     * réservation, les retours et les ajustements.) */
+    libre: r2(Math.max(0, disponible - reserve)),
+    reserveRestant: r2(reserve),
   };
 }
 
@@ -65,7 +98,9 @@ export function bilanLot(recu: number, affectations: AffectationFait[], mouvemen
 export type StatutLot = { kind: string; label: string; tone: Tone };
 
 /** Statut de stock d'un lot, pour l'inventaire et le dashboard. */
-export function statutLot(b: BilanLot): StatutLot {
+export function statutLot(b: BilanLot, aMesurer = 0): StatutLot {
+  // Rouleaux étiquetés pas encore mesurés : le lot n'est pas vide, il attend son métrage.
+  if (aMesurer > 0 && b.disponible <= 0.001) return { kind: "a_mesurer", label: "Rouleaux à mesurer", tone: "warning" };
   if (b.disponible <= 0.001) return { kind: "epuise", label: "Épuisé", tone: "neutral" };
   if (b.libre <= 0.001) return { kind: "reserve", label: "Entièrement réservé", tone: "warning" };
   if (b.affecte <= 0.001) return { kind: "libre", label: "Disponible, non affecté", tone: "info" };
@@ -93,7 +128,8 @@ export function couvertureCommande(
   mouvements: MouvementFait[],
 ): CouvertureCommande {
   const affecte = affectations.reduce((s, a) => s + (a.quantite || 0), 0);
-  const consomme = mouvements.filter((m) => m.sens === "sortie").reduce((s, m) => s + (m.quantite || 0), 0);
+  // Sorti net : les retours au magasin reviennent en stock, ils ne sont pas consommés.
+  const consomme = Math.max(0, sortiNet(mouvementsValables(mouvements)));
   const resteAAffecter = r2(besoin - affecte);
 
   let statut: StatutLot;
@@ -235,6 +271,9 @@ export type LotAControler = {
   defauts: string;
   rouleaux?: RouleauControle[];
   unite?: string;
+  /** Rouleaux étiquetés mais pas encore mesurés : le total n'est pas encore
+   * connu, l'écart de métrage avec le BL attend la dernière mesure. */
+  aMesurer?: number;
 };
 
 /** Tolérances : un écart plus petit est du bruit de mesure, pas un litige. */
@@ -262,7 +301,7 @@ export function ecartsReception(l: LotAControler): EcartsReception {
   const u = l.unite || "m";
   const annonce = l.quantiteAnnoncee != null && l.quantiteAnnoncee > 0 ? l.quantiteAnnoncee : null;
   const mesure = l.quantiteRecue || 0;
-  const ecartMetrage = annonce == null ? null : r2(mesure - annonce);
+  const ecartMetrage = annonce == null || (l.aMesurer ?? 0) > 0 ? null : r2(mesure - annonce);
   const tol = annonce == null ? 0 : Math.max(TOLERANCE_METRAGE_MIN, (annonce * TOLERANCE_METRAGE_PCT) / 100);
   const manque = ecartMetrage != null && ecartMetrage < -tol ? r2(-ecartMetrage) : 0;
 
@@ -453,8 +492,9 @@ export function refusSuppressionLot(mouvements: MouvementFait[]): string | null 
  * (plus rien au magasin, rien dehors en coupe) — alors d'office, sans geste :
  * un retour en stock le fait réapparaître tout seul. */
 export type RangementLot = "" | "archive" | "epuise";
-export function rangementLot(l: { archive: boolean; bilan: BilanLot; enCoupe: number }): RangementLot {
+export function rangementLot(l: { archive: boolean; bilan: BilanLot; enCoupe: number; aMesurer?: number }): RangementLot {
   if (l.archive) return "archive";
+  if ((l.aMesurer ?? 0) > 0) return ""; // des rouleaux attendent encore leur mesure
   if (l.bilan.recu > 0 && l.bilan.disponible <= 0.001 && l.enCoupe <= 0.001) return "epuise";
   return "";
 }

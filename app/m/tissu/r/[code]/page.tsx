@@ -4,6 +4,8 @@ import { accesTissuPage } from "@/lib/auth/tissu";
 import { lieuSortie, lireScan, sensLabel, statutLabel } from "@/lib/domain/rouleau";
 import { commandesPourSortie, getRouleau, listEmplacements, sousTraitants } from "@/lib/services/rouleaux";
 import { Cadre, Entete, Info, TONS_STATUT, nb } from "../../ui";
+import { lireRouleauAMesurer } from "@/lib/actions/rouleaux";
+import { MesureFiche } from "../../mesure/mesure-fiche";
 import { ActionsRouleau } from "./actions-rouleau";
 
 /* Fiche mobile d'un rouleau — ouverte en scannant son étiquette. Tout ce
@@ -30,6 +32,9 @@ export default async function RouleauMobilePage({ params }: { params: Promise<{ 
   const st = statutLabel(r.statut);
   const b = r.bilan;
   const u = r.lot.unite;
+  // Étiquette posée avant la mesure : le seul geste possible est d'en saisir le métrage.
+  const aMesurer = r.statut === "a_mesurer" && peutSaisir ? await lireRouleauAMesurer(r.code) : null;
+  const codesEmplacements = emplacements.filter((e) => e.actif).map((e) => e.code);
 
   return (
     <Cadre retour={{ href: "/m/tissu", label: "Scanner un autre rouleau" }}>
@@ -50,25 +55,39 @@ export default async function RouleauMobilePage({ params }: { params: Promise<{ 
         {r.lot.controle === "refuse" && <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-900">Lot refusé</span>}
       </div>
 
-      <div className="my-4 grid grid-cols-3 gap-2 text-center">
-        <Info label="Initial" v={r.metrageInitial} u={u} />
-        <Info label="En coupe" v={b.enCoupe} u={u} />
-        <Info label="En stock" v={b.disponible} u={u} fort />
-      </div>
-      {(b.consomme > 0 || b.chute > 0 || b.retour > 0) && (
-        <div className="-mt-2 mb-4 text-center text-xs text-slate-600">
-          sorti {nb.format(b.sorti)} · revenu {nb.format(b.retour)} · consommé {nb.format(b.consomme)} · chute {nb.format(b.chute)} {u}
+      {r.aMesurer ? (
+        <div className="my-4">
+          {aMesurer?.ok ? (
+            <MesureFiche rouleau={aMesurer.rouleau} emplacements={codesEmplacements} />
+          ) : (
+            <div className="rounded-xl bg-white px-4 py-5 text-center text-sm text-slate-600">
+              {r.statut === "annule" ? `Étiquette annulée : ${r.observations || "rouleau jamais arrivé"}.` : "Rouleau à mesurer : un compte du magasin tissu saisit son métrage."}
+            </div>
+          )}
         </div>
-      )}
-      {r.commandes.length > 0 && <div className="mb-3 text-xs text-slate-600">Réservé pour : {r.commandes.map((c) => c.label).join(", ")}</div>}
+      ) : (
+        <>
+          <div className="my-4 grid grid-cols-3 gap-2 text-center">
+            <Info label="Initial" v={r.metrageInitial} u={u} />
+            <Info label="En coupe" v={b.enCoupe} u={u} />
+            <Info label="En stock" v={b.disponible} u={u} fort />
+          </div>
+          {(b.consomme > 0 || b.chute > 0 || b.retour > 0) && (
+            <div className="-mt-2 mb-4 text-center text-xs text-slate-600">
+              sorti {nb.format(b.sorti)} · revenu {nb.format(b.retour)} · consommé {nb.format(b.consomme)} · chute {nb.format(b.chute)} {u}
+            </div>
+          )}
+          {r.commandes.length > 0 && <div className="mb-3 text-xs text-slate-600">Réservé pour : {r.commandes.map((c) => c.label).join(", ")}</div>}
 
-      <ActionsRouleau
-        rouleau={r}
-        commandes={commandes}
-        sousTraitants={soustraitants}
-        emplacements={emplacements.filter((e) => e.actif).map((e) => ({ code: e.code, libelle: e.libelle, zone: e.zone }))}
-        peutSaisir={peutSaisir}
-      />
+          <ActionsRouleau
+            rouleau={r}
+            commandes={commandes}
+            sousTraitants={soustraitants}
+            emplacements={emplacements.filter((e) => e.actif).map((e) => ({ code: e.code, libelle: e.libelle, zone: e.zone }))}
+            peutSaisir={peutSaisir}
+          />
+        </>
+      )}
 
       <details className="mt-6" open={mouvements.length <= 6}>
         <summary className="mb-1 cursor-pointer text-xs font-bold uppercase text-slate-500">Historique ({mouvements.length})</summary>

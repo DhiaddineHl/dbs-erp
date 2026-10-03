@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { chaine, journee, modele, ouvriere, personnel } from "@/lib/db/schema";
 import * as rd from "@/lib/domain/rendement";
 import * as rp from "@/lib/domain/rendement-personne";
+import { listFusions } from "@/lib/services/identite-ouvrieres";
 
 /* Lectures du portail public. Pas de session : l'accès tient à la clé opaque
  * portée par le QR, et rien d'autre n'est exposé — ni prix, ni commande, ni
@@ -39,7 +40,7 @@ async function joursParPersonne() {
     if (g) g.push(e);
     else parChaine.set(l.chaineId, [e]);
   }
-  const cleDe = rp.resolveurIdentite(registre, lignes);
+  const cleDe = rp.resolveurIdentite(registre, lignes, await listFusions());
   // Effectif du jour : celui qu'elle a figé, sinon celui de sa chaîne (comme l'écran).
   return rp.regrouperParPersonne(
     journees.map((j) => ({

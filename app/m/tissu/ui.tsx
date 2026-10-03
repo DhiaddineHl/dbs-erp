@@ -36,6 +36,8 @@ export function Info({ label, v, u, fort }: { label: string; v: number | string;
 }
 
 export const TONS_STATUT: Record<string, string> = {
+  a_mesurer: "bg-amber-200 text-amber-950",
+  annule: "bg-slate-200 text-slate-500 line-through",
   en_attente: "bg-amber-100 text-amber-900",
   en_stock: "bg-emerald-100 text-emerald-900",
   sorti: "bg-sky-100 text-sky-900",

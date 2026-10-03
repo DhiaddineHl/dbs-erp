@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   bl,
@@ -9,6 +9,7 @@ import {
   client,
   commande,
   coupe,
+  coupeFiche,
   faconnier,
   facture,
   factureLigne,
@@ -26,14 +27,17 @@ import { conditionEntreeStock, productionGpaoParCommande, recalculerProduit } fr
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-async function recalculerCommande(tx: Tx, commandeId: number) {
+export async function recalculerCommande(tx: Tx, commandeId: number) {
   const [c] = await tx.select().from(commande).where(eq(commande.id, commandeId));
   if (!c) return;
 
   const [{ coupeQte }] = await tx
     .select({ coupeQte: sql<number>`coalesce(sum(${coupe.qte}), 0)::int` })
     .from(coupe)
-    .where(eq(coupe.commandeId, commandeId));
+    // Les lignes d'une fiche de coupe ANNULÉE restent en base (historique)
+    // mais ne comptent plus dans le coupé.
+    .leftJoin(coupeFiche, eq(coupe.ficheId, coupeFiche.id))
+    .where(and(eq(coupe.commandeId, commandeId), or(isNull(coupe.ficheId), eq(coupeFiche.statut, "validee"))));
   // Le rebut n'entre pas au stock : seules les entrées réelles comptent.
   const [{ magasinQte }] = await tx
     .select({ magasinQte: sql<number>`coalesce(sum(${magasinMouvement.qte}), 0)::int` })
@@ -115,19 +119,27 @@ export type CommandeAval = {
   expedieQte: number;
   /** Stock physique = entré − expédié. */
   stockQte: number;
-  /** Production GPAO (interne) des modèles liés. */
+  /** Production GPAO (interne) attribuée à la commande : ses modèles liés,
+   * plafonnés à sa quantité, + le surplus des OF frères (même client, même modèle). */
   produitGpao: number;
+  /** Production GPAO en trop, que ni la commande ni ses frères ne peuvent
+   * recevoir : à vérifier, jamais comptée comme « à entrer ». */
+  gpaoExcedent: number;
   /** Pièces entrées au stock depuis la production interne. */
   entreesInternes: number;
   /** Non conformes reçues des façonniers encore sans décision. */
   ncAttente: number;
   /** Dernier contrôle qualité FINAL clôturé : accepte | reserve | refuse | "" (aucun). */
   qcFinal: string;
+  /** Livrée / facturée : rangée par défaut des écrans opérationnels. */
+  cloture: biz.Cloture;
+  /** active | terminee (livrée ET facturée) | archivee. */
+  cycle: biz.EtatCycle;
 };
 
 /** Faits calculés à côté de la commande (mouvements, BL, GPAO, QC). */
-type FaitsAval = { expedie: number; gpao: number; internes: number; ncAttente: number; qc: string };
-const FAITS_VIDES: FaitsAval = { expedie: 0, gpao: 0, internes: 0, ncAttente: 0, qc: "" };
+type FaitsAval = { expedie: number; gpao: number; gpaoExcedent: number; internes: number; ncAttente: number; qc: string };
+const FAITS_VIDES: FaitsAval = { expedie: 0, gpao: 0, gpaoExcedent: 0, internes: 0, ncAttente: 0, qc: "" };
 
 const iso = (d: string | null) => d ?? "";
 /** CA d'une ligne. `biz.chiffreAffaires` réclame une commande complète ;
@@ -181,9 +193,12 @@ function versAval(
     expedieQte: faits.expedie,
     stockQte: av.stockPhysique(flux),
     produitGpao: faits.gpao,
+    gpaoExcedent: faits.gpaoExcedent,
     entreesInternes: faits.internes,
     ncAttente: faits.ncAttente,
     qcFinal: faits.qc,
+    cloture: biz.clotureCommande(c),
+    cycle: biz.etatCycle(c),
   };
 }
 
@@ -209,7 +224,11 @@ async function faitsAval(): Promise<Map<number, FaitsAval>> {
     return f;
   };
   for (const [id, q] of expedie) get(id).expedie = q;
-  for (const [id, q] of gpao) get(id).gpao = q;
+  for (const [id, p] of gpao) {
+    if (p.gpao <= 0 && p.excedent <= 0) continue;
+    get(id).gpao = p.gpao;
+    get(id).gpaoExcedent = p.excedent;
+  }
   for (const b of brs) get(b.commandeId).ncAttente += b.nc;
   for (const m of mouvements) {
     const f = get(m.commandeId);
@@ -409,14 +428,23 @@ export type CoupeRow = {
   taille: string;
   type: string;
   note: string;
+  /** Fiche de coupe d'origine ("" = lâcher saisi à la main). */
+  fiche: string;
+  ficheAnnulee: boolean;
+  qtePrevue: number | null;
 };
 
 /** Tous les lâchers de coupe, regroupés côté écran par commande. */
 export async function listToutesCoupes(): Promise<CoupeRow[]> {
-  const rows = await db.select().from(coupe).orderBy(asc(coupe.date), asc(coupe.id));
-  return rows.map((c) => ({
+  const rows = await db
+    .select({ c: coupe, numero: coupeFiche.numero, statut: coupeFiche.statut })
+    .from(coupe)
+    .leftJoin(coupeFiche, eq(coupe.ficheId, coupeFiche.id))
+    .orderBy(asc(coupe.date), asc(coupe.id));
+  return rows.map(({ c, numero, statut }) => ({
     id: c.id, commandeId: c.commandeId, date: c.date, qte: c.qte,
     taille: c.taille, type: c.type, note: c.note,
+    fiche: numero ?? "", ficheAnnulee: statut === "annulee", qtePrevue: c.qtePrevue,
   }));
 }
 
@@ -518,6 +546,8 @@ export async function supprimerCoupe(id: number) {
   return db.transaction(async (tx) => {
     const [c] = await tx.select().from(coupe).where(eq(coupe.id, id));
     if (!c) return;
+    // Une ligne de fiche de coupe ne s'efface pas : c'est la fiche qui s'annule.
+    if (c.ficheId != null) throw new Error("Cette ligne appartient à une fiche de coupe : annulez la fiche (avec un motif) au lieu de supprimer.");
     await tx.delete(coupe).where(eq(coupe.id, id));
     await recalculerCommande(tx, c.commandeId);
   });

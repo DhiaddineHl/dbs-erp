@@ -16,9 +16,19 @@ import * as A from "@/lib/actions/tissu";
 import { SENS, type SensRouleau } from "@/lib/domain/rouleau";
 import type { RouleauRow } from "@/lib/services/rouleaux";
 import { BasculeRangees, PastilleCloture } from "@/components/shared/bascule-rangees";
-import { KpisRouleaux, OngletRouleaux, RouleauxDuLot, type BonSortieResume, type IndicateursAffiches } from "./rouleaux-ui";
+import { KpisRouleaux, OngletRouleaux, RouleauxDuLot, type BonSortieResume, type IndicateursAffiches, type RecapResume } from "./rouleaux-ui";
 
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
+
+/* Ce que chaque case du bilan d'un lot veut dire, en clair (survol). */
+const AIDE_BILAN: Record<string, string> = {
+  Reçu: "Métrage mesuré à la réception.",
+  Affecté: "Réservé pour des commandes (pas encore forcément sorti).",
+  "Sorti (net)": "Sorti du magasin (coupe, sous-traitant…) moins ce qui est revenu. Ce n'est pas la consommation de la coupe : celle-ci est dans la fiche de coupe.",
+  "Rendu client": "Rendu au client : ne fait plus partie du stock.",
+  Disponible: "Encore physiquement dans le magasin.",
+  Libre: "Disponible moins ce qui reste réservé et pas encore sorti : ce qu'on peut encore réserver.",
+};
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso || "—");
 const dateHeure = (iso: string) => {
   if (!iso) return "—";
@@ -63,8 +73,10 @@ export function MagasinTissu({
   rouleaux,
   indicateursRouleaux,
   bonsSortie = [],
+  recaps = [],
 }: {
   bonsSortie?: BonSortieResume[];
+  recaps?: RecapResume[];
   rouleaux: RouleauRow[];
   indicateursRouleaux: IndicateursAffiches;
   lots: LotRow[];
@@ -132,6 +144,9 @@ export function MagasinTissu({
           tone={indicateursRouleaux.enAttente ? "warning" : "neutral"}
           onClick={() => setOnglet("rouleaux")}
         />
+        {indicateursRouleaux.aMesurer > 0 && (
+          <Kpi label="Rouleaux à mesurer (scan)" val={String(indicateursRouleaux.aMesurer)} tone="warning" onClick={() => setOnglet("rouleaux")} />
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-1 text-xs">
@@ -154,7 +169,7 @@ export function MagasinTissu({
       {onglet === "dashboard" ? (
         <Dashboard d={d} rouleaux={indicateursRouleaux} />
       ) : onglet === "rouleaux" ? (
-        <OngletRouleaux rouleaux={rouleaux} indicateurs={indicateursRouleaux} q={q} peutSaisir={peutSaisir} bons={bonsSortie} />
+        <OngletRouleaux rouleaux={rouleaux} indicateurs={indicateursRouleaux} q={q} peutSaisir={peutSaisir} bons={bonsSortie} recaps={recaps} />
       ) : onglet === "commandes" ? (
         <OngletCommandes rows={parCommande} q={q} peutSaisir={peutSaisir} />
       ) : onglet === "reliquats" ? (
@@ -211,7 +226,7 @@ function OngletCommandes({ rows, q, peutSaisir }: { rows: MatiereCommandeRow[]; 
               <th className="px-3 py-2 text-left">Export</th>
               <th className="px-3 py-2 text-right">Besoin</th>
               <th className="px-3 py-2 text-right">Affecté</th>
-              <th className="px-3 py-2 text-right">Consommé</th>
+              <th className="px-3 py-2 text-right" title="Sorti du magasin pour la commande, moins les retours">Sorti (net)</th>
               <th className="px-3 py-2 text-right">Manque</th>
               <th className="px-3 py-2 text-left">État</th>
               <th className="px-3 py-2 text-left">Affecter depuis le stock</th>
@@ -319,7 +334,8 @@ function OngletLots({ lots, q, commandes, peutSaisir }: { lots: LotRow[]; q: str
   const ranges = lots.filter((l) => l.rangement);
   const vus = (filtre === "archives" ? ranges : lots.filter((l) => !l.rangement)).filter((l) => {
     if (n && !`${l.identifiant} ${l.couleur} ${l.reference} ${l.saison} ${l.client} ${l.blClient}`.toLowerCase().includes(n)) return false;
-    if (filtre === "stock") return l.bilan.disponible > 0.001;
+    // Un lot dont les rouleaux attendent leur mesure est bien en magasin.
+    if (filtre === "stock") return l.bilan.disponible > 0.001 || l.aMesurer > 0;
     if (filtre === "reclamer") return l.ecarts.aReclamer;
     if (filtre === "controle") return !l.controle && l.bilan.disponible > 0.001;
     return true;
@@ -387,10 +403,11 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
         {l.ecarts.aReclamer && <StatusBadge tone="danger">⚠ {l.ecarts.manque > 0 ? `manque ${q2.format(l.ecarts.manque)} ${l.unite}` : "écart BL"}</StatusBadge>}
         <StatusBadge tone={l.statut.tone}>{l.statut.label}</StatusBadge>
         {l.rangement === "archive" && <StatusBadge tone="neutral">🗄 Archivé</StatusBadge>}
+        {l.aMesurer > 0 && <StatusBadge tone="warning">📏 {l.aMesurer} à mesurer</StatusBadge>}
         <span className="ml-auto flex gap-3 text-xs tabular-nums">
           <span title="Reçu (mesuré)">Reçu <b>{q2.format(b.recu)}</b></span>
           <span title="Affecté" className="text-warning-foreground">Aff. <b>{q2.format(b.affecte)}</b></span>
-          <span title="Consommé">Cons. <b>{q2.format(b.consomme)}</b></span>
+          <span title="Sorti du magasin, moins les retours">Sorti <b>{q2.format(b.consomme)}</b></span>
           {b.rendu > 0 && <span title="Rendu au client">Rendu <b>{q2.format(b.rendu)}</b></span>}
           <span title="Disponible physique" className="text-success-foreground">Dispo <b>{q2.format(b.disponible)}</b></span>
         </span>
@@ -473,12 +490,12 @@ function LigneLot({ lot: l, commandes, peutSaisir }: { lot: LotRow; commandes: C
             {[
               ["Reçu", b.recu, ""],
               ["Affecté", b.affecte, "text-warning-foreground"],
-              ["Consommé", b.consomme, ""],
+              ["Sorti (net)", b.consomme, ""],
               ["Rendu client", b.rendu, ""],
               ["Disponible", b.disponible, "text-success-foreground"],
               ["Libre", b.libre, "text-brand"],
             ].map(([lib, v, cls]) => (
-              <div key={lib as string} className="rounded border bg-card px-2 py-1.5">
+              <div key={lib as string} className="rounded border bg-card px-2 py-1.5" title={AIDE_BILAN[lib as string]}>
                 <div className="text-[10px] uppercase text-muted-foreground">{lib}</div>
                 <div className={`text-base font-bold tabular-nums ${cls}`}>
                   {q2.format(v as number)} {l.unite}
@@ -842,7 +859,7 @@ function Dashboard({ d, rouleaux }: { d: ReturnType<typeof dashboardTissu>; roul
         <Kpi label="Disponible physique" val={`${q2.format(d.totalDisponible)} m`} tone="success" />
       </div>
       <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
-        <Kpi label="Consommé" val={`${q2.format(d.totalConsomme)} m`} />
+        <Kpi label="Sorti (net)" val={`${q2.format(d.totalConsomme)} m`} />
         <Kpi label="Libre (réservable)" val={`${q2.format(d.totalLibre)} m`} tone="info" />
         <Kpi label="Lots sans affectation" val={String(d.lotsSansAffectation)} tone={d.lotsSansAffectation ? "info" : "neutral"} />
         <Kpi label="Affectés non consommés" val={String(d.lotsAffectesNonConsommes)} tone={d.lotsAffectesNonConsommes ? "warning" : "neutral"} />

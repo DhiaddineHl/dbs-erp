@@ -22,6 +22,7 @@ const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-"
 export function ArchivesClient({ archives, peutSaisir }: { archives: ArchiveRow[]; peutSaisir: boolean }) {
   const [q, setQ] = useState("");
   const [annee, setAnnee] = useState("");
+  const [facture, setFacture] = useState<"" | "oui" | "non" | "retard">("");
   const [selection, setSelection] = useState<number[]>([]);
   const [rappro, setRappro] = useState(false);
 
@@ -35,9 +36,10 @@ export function ArchivesClient({ archives, peutSaisir }: { archives: ArchiveRow[
     return archives.filter(
       (a) =>
         (!annee || (a.dateLivraison || a.dateExport).startsWith(annee)) &&
+        (!facture || (facture === "retard" ? (a.retardExport ?? 0) > 0 : a.facturee === (facture === "oui"))) &&
         (!n || `${a.of} ${a.modele} ${a.client} ${a.refArticle} ${a.facNums.join(" ")}`.toLowerCase().includes(n)),
     );
-  }, [archives, q, annee]);
+  }, [archives, q, annee, facture]);
 
   // Les totaux suivent le filtre : on veut le réalisé de la période affichée.
   const stats = useMemo(() => {
@@ -101,6 +103,16 @@ export function ArchivesClient({ archives, peutSaisir }: { archives: ArchiveRow[
                   {a}
                 </option>
               ))}
+            </select>
+            <select
+              value={facture}
+              onChange={(e) => setFacture(e.target.value as typeof facture)}
+              className="h-8 rounded-md border border-input bg-card px-2 text-xs"
+            >
+              <option value="">Tous statuts</option>
+              <option value="oui">Facturées en totalité</option>
+              <option value="non">Non entièrement facturées</option>
+              <option value="retard">Livrées en retard</option>
             </select>
           </div>
         }

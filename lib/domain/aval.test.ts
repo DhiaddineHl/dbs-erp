@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  aEntrerInterne,
   etatMagasin,
+  repartirProductionGpao,
   listesReception,
   livraisonComplete,
   ncEnAttente,
@@ -95,5 +97,47 @@ describe("saisie mobile du magasinier", () => {
   it("façonniers : seulement ce qui reste à recevoir, groupé, sans les expédiées", () => {
     const l = listesReception(cmds);
     assert.deepEqual(l.faconniers.map((f) => [f.faconnier, f.commandes.map((c) => [c.of, c.reste])]), [["Medina", [["OF-3", 300]]]]);
+  });
+});
+
+describe("production GPAO répartie entre OF frères", () => {
+  const of = (id: number, qte: number, dateExport: string | null, o: Partial<{ clientId: number; modele: string; recoitSurplus: boolean }> = {}) => ({
+    id, qte, dateExport, clientId: o.clientId ?? 1, modele: o.modele ?? "REJEANNE", recoitSurplus: o.recoitSurplus ?? true,
+  });
+
+  it("« à entrer » ne dépasse jamais la commande", () => {
+    assert.equal(aEntrerInterne({ produitGpao: 3719, entreesInternes: 0, qte: 1200 }), 1200);
+    assert.equal(aEntrerInterne({ produitGpao: 3719, entreesInternes: 1000, qte: 1200 }), 200);
+    assert.equal(aEntrerInterne({ produitGpao: 500, entreesInternes: 200, qte: 1200 }), 300);
+    // 768 déjà entrés par d'autres voies (réception façonnier) : il ne reste que 432 de place.
+    assert.equal(aEntrerInterne({ produitGpao: 1200, entreesInternes: 0, qte: 1200, magasinQte: 768 }), 432);
+  });
+
+  it("le surplus va aux OF frères dans l'ordre des dates d'export, le reste est un excédent", () => {
+    // Modèle relié à OF 332 seul ; 3719 pièces sorties.
+    const r = repartirProductionGpao(
+      [of(332, 1200, "2026-09-10"), of(340, 1000, "2026-10-05"), of(335, 900, "2026-09-20"), of(400, 500, "2026-09-01", { modele: "AUTRE" })],
+      new Map([[332, 3719]]),
+    );
+    assert.deepEqual(r.get(332), { gpao: 1200, excedent: 619 });
+    assert.deepEqual(r.get(335), { gpao: 900, excedent: 0 }); // export plus tôt : servi en premier
+    assert.deepEqual(r.get(340), { gpao: 1000, excedent: 0 });
+    assert.deepEqual(r.get(400), { gpao: 0, excedent: 0 }); // autre modèle : pas frère
+  });
+
+  it("pas de surplus vers un autre client, un OF façonnier ou archivé ; la production propre d'un frère passe d'abord", () => {
+    const r = repartirProductionGpao(
+      [of(1, 100, "2026-01-01"), of(2, 100, "2026-01-02", { clientId: 2 }), of(3, 100, "2026-01-03", { recoitSurplus: false }), of(4, 100, "2026-01-04")],
+      new Map([[1, 250], [4, 30]]),
+    );
+    assert.deepEqual(r.get(1), { gpao: 100, excedent: 80 });
+    assert.equal(r.get(2)!.gpao, 0);
+    assert.equal(r.get(3)!.gpao, 0);
+    assert.equal(r.get(4)!.gpao, 100); // 30 à lui + 70 du surplus
+  });
+
+  it("nom de modèle tolérant (casse, accents, espaces)", () => {
+    const r = repartirProductionGpao([of(1, 10, null), of(2, 10, null, { modele: "  Réjeanne " })], new Map([[1, 15]]));
+    assert.equal(r.get(2)!.gpao, 5);
   });
 });

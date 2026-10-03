@@ -21,6 +21,8 @@ type Base = {
   produit: number;
   stockQte: number;
   produitGpao: number;
+  /** Production GPAO en trop (au-delà de la commande et de ses OF frères). */
+  gpaoExcedent: number;
   entreesInternes: number;
 };
 export type LigneInterne = Base & { aEntrer: number };
@@ -196,6 +198,11 @@ function SaisieInterne({
         <Info label="Déjà entré" valeur={c.entreesInternes} />
         <Info label="À entrer" valeur={c.aEntrer} fort />
       </div>
+      {c.gpaoExcedent > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+          ⚠ Production GPAO en trop : {c.gpaoExcedent} pcs, à vérifier (non comptées à entrer).
+        </div>
+      )}
 
       <Compteur
         titre="Pièces entrées au stock"

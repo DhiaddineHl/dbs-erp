@@ -257,6 +257,14 @@ export function CommandesClient({
       .map((c) => `· ${c.of || "—"} — ${c.modele} (${c.client || "sans client"})`)
       .join("\n") + (lignes.length > 8 ? `\n· … et ${lignes.length - 8} autre(s)` : "");
 
+  /* Commandes TERMINÉES (livrées ET facturées) encore dans les listes : un clic
+     les coche, « 🗄 Archiver » les range (réversible, depuis Archives). */
+  const terminees = useMemo(() => commandes.filter((c) => c.cycle === "terminee"), [commandes]);
+  const cocherTerminees = () => {
+    setSelection(new Set(terminees.map((c) => c.id)));
+    toast.info(`${terminees.length} commande(s) terminée(s) cochée(s) : vérifiez puis « 🗄 Archiver ».`);
+  };
+
   const executer = (action: () => Promise<{ ok: boolean; error?: string }>, succes: string) =>
     start(async () => {
       const r = await action();
@@ -836,6 +844,17 @@ export function CommandesClient({
             placeholder="Rechercher OF, modèle, client, réf…"
             className="h-8 w-64 bg-card"
           />
+          {terminees.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+              title="Livrées ET facturées : elles peuvent quitter les écrans opérationnels (archivage réversible, rien n'est effacé)"
+              onClick={cocherTerminees}
+            >
+              🗄 {terminees.length} terminée{terminees.length > 1 ? "s" : ""} à archiver
+            </Button>
+          )}
           <select
             value={statut}
             onChange={(e) => setStatut(e.target.value)}
@@ -1103,6 +1122,24 @@ function CelluleTissu({ commande: c }: { commande: CommandeRow }) {
     c.tissuConsomme > 0 ? [{ sens: "sortie", quantite: c.tissuConsomme }] : [],
   );
   const n2 = (n: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(n);
+  /* OF réuni ou part : son tissu est réservé et suivi sur l'OF porteur. On
+   * n'affiche pas un second besoin (ni « Besoin non affecté ») qui ferait
+   * compter deux fois la même matière. */
+  if (c.matierePorteur) {
+    return (
+      <div className="flex flex-col gap-0.5 text-[11px]">
+        <span className="text-muted-foreground" title="Le besoin de cet OF est inclus dans celui de l'OF porteur.">
+          matière gérée par <b>{c.matierePorteur}</b>
+        </span>
+        {(c.tissuAffecte > 0 || c.tissuConsomme > 0) && (
+          <span className="tabular-nums text-muted-foreground">
+            affecté ici {n2(c.tissuAffecte)}
+            {c.tissuConsomme > 0 && ` · sorti ${n2(c.tissuConsomme)}`}
+          </span>
+        )}
+      </div>
+    );
+  }
   if (c.besoinTissu <= 0 && c.tissuAffecte <= 0) {
     return <span className="text-[11px] text-muted-foreground">—</span>;
   }
@@ -1111,7 +1148,7 @@ function CelluleTissu({ commande: c }: { commande: CommandeRow }) {
       <StatusBadge tone={cov.statut.tone}>{cov.statut.label}</StatusBadge>
       <span className="tabular-nums text-muted-foreground">
         besoin {n2(c.besoinTissu)} · affecté {n2(c.tissuAffecte)}
-        {c.tissuConsomme > 0 && ` · cons. ${n2(c.tissuConsomme)}`}
+        {c.tissuConsomme > 0 && ` · sorti ${n2(c.tissuConsomme)}`}
       </span>
       {c.tissuLots.length > 0 && (
         <span className="font-mono text-[10px] text-muted-foreground">{c.tissuLots.join(", ")}</span>

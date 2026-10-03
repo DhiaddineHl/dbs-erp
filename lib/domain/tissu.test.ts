@@ -19,20 +19,53 @@ describe("bilanLot — reçu / affecté / consommé / disponible", () => {
     // Reçu 350, affecté 150 (robe) + 100 (chemise) = 250, consommé 140.
     const b = bilanLot(
       350,
-      [{ quantite: 150 }, { quantite: 100 }],
-      [{ sens: "sortie", quantite: 140 }],
+      [{ quantite: 150, commandeId: 1 }, { quantite: 100, commandeId: 2 }],
+      [{ sens: "sortie", quantite: 140, commandeId: 1 }],
     );
     assert.equal(b.recu, 350);
     assert.equal(b.affecte, 250);
     assert.equal(b.consomme, 140);
     assert.equal(b.disponible, 210); // 350 − 140 physiquement en rayon
-    assert.equal(b.libre, 100); // 350 − 250 encore réservable
+    assert.equal(b.libre, 100); // 210 en rayon − (10 + 100) encore réservés
   });
 
   it("un retour diminue le consommé net", () => {
     const b = bilanLot(100, [], [{ sens: "sortie", quantite: 40 }, { sens: "retour", quantite: 10 }]);
     assert.equal(b.consomme, 30);
     assert.equal(b.disponible, 70);
+  });
+
+  it("libre = en rayon − réservé pas encore sorti (sorties hors réservation, retours, ajustements)", () => {
+    // Reçu 1000 ; 600 réservés à A ; A sort 600 puis rend 100 ; 300 sortis pour B sans réservation ; inventaire −20.
+    const b = bilanLot(
+      1000,
+      [{ quantite: 600, commandeId: 1 }],
+      [
+        { sens: "sortie", quantite: 600, commandeId: 1 },
+        { sens: "retour", quantite: 100, commandeId: 1 },
+        { sens: "sortie", quantite: 300, commandeId: 2 },
+        { sens: "ajustement", quantite: -20 },
+      ],
+    );
+    assert.equal(b.consomme, 800);
+    assert.equal(b.disponible, 180);
+    assert.equal(b.reserveRestant, 100); // A a réservé 600, n'a gardé que 500
+    assert.equal(b.libre, 80); // avant la correction : 400, plus que le stock réel
+  });
+
+  it("le libre ne devient jamais négatif", () => {
+    const b = bilanLot(100, [{ quantite: 100, commandeId: 1 }], [{ sens: "sortie", quantite: 50, commandeId: 2 }]);
+    assert.equal(b.disponible, 50);
+    assert.equal(b.libre, 0);
+  });
+
+  it("une sortie annulée ne compte plus", () => {
+    const b = bilanLot(100, [{ quantite: 40, commandeId: 1 }], [
+      { id: 1, sens: "sortie", quantite: 40, commandeId: 1 },
+      { id: 2, sens: "annulation", quantite: 0, annuleId: 1 },
+    ]);
+    assert.equal(b.disponible, 100);
+    assert.equal(b.libre, 60);
   });
 
   it("un ajustement d'inventaire corrige le disponible", () => {
@@ -65,6 +98,10 @@ describe("couvertureCommande", () => {
     assert.equal(c.affecte, 3);
     assert.equal(c.consomme, 2.3);
     assert.equal(c.resteAAffecter, -0.9);
+  });
+  it("le consommé déduit les retours au magasin", () => {
+    const c = couvertureCommande(500, [{ quantite: 600 }], [{ sens: "sortie", quantite: 600 }, { sens: "retour", quantite: 100 }]);
+    assert.equal(c.consomme, 500);
   });
   it("partiellement couvert", () => {
     assert.equal(couvertureCommande(10, [{ quantite: 4 }], []).statut.kind, "partiel");
@@ -187,5 +224,13 @@ describe("lot : supprimer ou archiver", () => {
     assert.equal(tx.rangementLot({ archive: false, bilan, enCoupe: 0 }), "epuise");
     assert.equal(tx.rangementLot({ archive: false, bilan, enCoupe: 40 }), "");
     assert.equal(tx.rangementLot({ archive: true, bilan: tx.bilanLot(100, [], []), enCoupe: 0 }), "archive");
+  });
+});
+
+describe("rouleaux à mesurer", () => {
+  it("pas d'écart BL tant que des rouleaux restent à mesurer", () => {
+    const base = { quantiteRecue: 120, quantiteAnnoncee: 400, laize: null, laizeAnnoncee: null, defauts: "" };
+    assert.equal(tx.ecartsReception({ ...base, aMesurer: 3 }).aReclamer, false);
+    assert.equal(tx.ecartsReception(base).aReclamer, true);
   });
 });

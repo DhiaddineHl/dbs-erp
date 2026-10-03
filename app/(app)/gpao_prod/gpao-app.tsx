@@ -308,7 +308,7 @@ export default function GpaoApp({
   const lierAuRegistre = (nom: string): number | null => {
     const c = cleNom(nom);
     if (!c) return null;
-    const trouves = state.personnes.filter((p) => cleNom(p.nom) === c);
+    const trouves = state.personnes.filter((p) => !p.sortie && cleNom(p.nom) === c);
     return trouves.length === 1 ? trouves[0].id : null;
   };
 
@@ -821,7 +821,7 @@ export default function GpaoApp({
       {ouvModal.open && (
         <OuvriereModal
           edit={ouvModal.ouv}
-          noms={state.personnes.map((p) => p.nom)}
+          noms={state.personnes.filter((p) => !p.sortie).map((p) => p.nom)}
           operations={state.operations}
           onClose={() => setOuvModal({ open: false, chaineId: 0, ouv: null })}
           onSave={saveOuv}
@@ -831,7 +831,7 @@ export default function GpaoApp({
       {ouvJourModal.open && (
         <OuvriereModal
           edit={ouvJourModal.ouv}
-          noms={state.personnes.map((p) => p.nom)}
+          noms={state.personnes.filter((p) => !p.sortie).map((p) => p.nom)}
           operations={state.operations}
           titre={ouvJourModal.ouv ? "✏ Ouvrière — cette journée" : "👤 Ajouter une ouvrière — cette journée"}
           aide="Ne modifie que cette journée : ni la chaîne, ni les autres jours."

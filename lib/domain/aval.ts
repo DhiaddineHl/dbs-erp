@@ -1,5 +1,5 @@
 import type { Tone } from "@/components/shared/status-badge";
-import { cleRapprochement } from "./commande";
+import { cleRapprochement, normaliserNom } from "./commande";
 
 /* Flux aval — contrôles de cohérence, machine à états du magasin, et le
  * rapprochement facturation qui referme la boucle commande ↔ facture. */
@@ -458,11 +458,88 @@ export type CommandeReceptionnable = {
   produit: number;
   produitGpao: number;
   entreesInternes: number;
+  /** Toutes les entrées au stock (interne + façonniers + retouches), si connu. */
+  magasinQte?: number;
   etatMagasin: EtatMagasin;
 };
 
-export const aEntrerInterne = (c: Pick<CommandeReceptionnable, "produitGpao" | "entreesInternes">) =>
-  Math.max(0, c.produitGpao - c.entreesInternes);
+/** Ce qui reste à entrer au stock depuis la production interne. Jamais plus
+ * que la commande : la production GPAO est plafonnée à la quantité commandée. */
+export const aEntrerInterne = (c: Pick<CommandeReceptionnable, "produitGpao" | "entreesInternes" | "qte" | "magasinQte">) =>
+  Math.max(
+    0,
+    Math.min(
+      Math.min(c.produitGpao, Math.max(0, c.qte)) - c.entreesInternes,
+      // Et jamais plus que la place restante une fois TOUTES les entrées comptées (façonniers, retouches).
+      Math.max(0, c.qte) - (c.magasinQte ?? c.entreesInternes),
+    ),
+  );
+
+/* ─────────── production GPAO répartie entre OF frères ───────────
+ *
+ * Un modèle GPAO n'est relié qu'à UN OF. Quand l'atelier produit sous ce
+ * modèle les pièces de plusieurs OF du même client (même nom de modèle), tout
+ * tombait sur l'OF relié : « à entrer » dépassait sa commande et les autres
+ * OF restaient à 0.
+ *
+ * Règle : chaque OF garde sa propre production jusqu'à sa quantité ; le
+ * surplus va aux OF frères (même client + même nom de modèle) qui peuvent le
+ * recevoir, dans l'ordre des dates d'export (puis d'id), jusqu'à leur
+ * quantité. Ce qui reste encore est un EXCÉDENT, signalé à vérifier — jamais
+ * compté comme « à entrer ». Aucune donnée GPAO n'est modifiée : c'est une
+ * lecture. */
+export type OfGpao = {
+  id: number;
+  clientId: number | null;
+  modele: string;
+  qte: number;
+  dateExport: string | null;
+  /** Peut recevoir le surplus d'un frère (pas archivé, pas chez un façonnier). */
+  recoitSurplus: boolean;
+};
+export type PartGpao = { gpao: number; excedent: number };
+
+export function repartirProductionGpao(ofs: OfGpao[], directe: Map<number, number>): Map<number, PartGpao> {
+  const out = new Map<number, PartGpao>();
+  const groupes = new Map<string, OfGpao[]>();
+  for (const o of ofs) {
+    const nom = normaliserNom(o.modele);
+    // Sans nom de modèle, pas de frère possible : l'OF reste seul.
+    const cle = nom ? `${o.clientId ?? "-"}|${nom}` : `#${o.id}`;
+    const g = groupes.get(cle);
+    if (g) g.push(o);
+    else groupes.set(cle, [o]);
+  }
+  const ordre = (a: OfGpao, b: OfGpao) =>
+    (a.dateExport || "9999").localeCompare(b.dateExport || "9999") || a.id - b.id;
+  for (const g of groupes.values()) {
+    g.sort(ordre);
+    const surplus: { id: number; reste: number }[] = [];
+    for (const o of g) {
+      const d = Math.max(0, directe.get(o.id) ?? 0);
+      const garde = Math.min(d, Math.max(0, o.qte));
+      out.set(o.id, { gpao: garde, excedent: 0 });
+      if (d > garde) surplus.push({ id: o.id, reste: d - garde });
+    }
+    for (const o of g) {
+      if (!surplus.some((s) => s.reste > 0)) break;
+      if (!o.recoitSurplus) continue;
+      const part = out.get(o.id)!;
+      let place = Math.max(0, o.qte) - part.gpao;
+      for (const s of surplus) {
+        if (place <= 0) break;
+        const q = Math.min(place, s.reste);
+        s.reste -= q;
+        place -= q;
+        part.gpao += q;
+      }
+    }
+    for (const s of surplus) if (s.reste > 0) out.get(s.id)!.excedent = s.reste;
+  }
+  // Une production sans OF connu dans la liste reste sur sa commande.
+  for (const [id, q] of directe) if (!out.has(id)) out.set(id, { gpao: q, excedent: 0 });
+  return out;
+}
 
 export const resteFaconnier = (c: Pick<CommandeReceptionnable, "qte" | "produit">) => Math.max(0, c.qte - c.produit);
 

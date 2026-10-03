@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { JourneeBrute } from "./rendement";
 import {
+  joursDansPlage,
   mesureJour,
   periodeGenerale,
   periodeMois,
@@ -96,5 +97,70 @@ describe("période de référence", () => {
   });
   it("mois en cours", () => {
     assert.deepEqual(periodeMois("2026-09-26"), { from: "2026-09-01", to: "2026-09-26" });
+  });
+});
+
+describe("historique ouvrière — journées perdues après fusion (Mariem / Hourya)", () => {
+  // Registre ACTUEL : les fiches 9 (Mariem) et 12 (Hourya) ont été absorbées puis supprimées.
+  const registre = [
+    { id: 7, nom: "DRIDI MARIEM" },
+    { id: 8, nom: "BEN SALEM HOURYA" },
+    { id: 20, nom: "BEN SALEM AMEL" },
+    { id: 30, nom: "TRABELSI SANA" },
+  ];
+  const fusions = [{ ancienId: 9, gardeId: 7 }, { ancienId: 12, gardeId: 8 }];
+  const cleDe = resolveurIdentite(registre, [{ id: 10, nom: "DRIDI MARIEM", personnelId: 7 }], fusions);
+  const L = (id: number, nom: string, personnelId: number | null): LigneEffectif => ({ id, nom, poste: "Montage", sam: 60, personnelId });
+
+  it("TEST 3 — ancienne fiche fusionnée : la journée revient à la fiche actuelle, même nom différent", () => {
+    assert.equal(cleDe(L(-1, "Meriem Dridi", 9)), "P:7");
+    assert.equal(cleDe(L(-2, "Houria Bensalem", 12)), "P:8");
+  });
+  it("orthographe différente sans fiche : rattachée si UNE seule fiche correspond", () => {
+    assert.equal(cleDe(L(-3, "Meriem Dridi", null)), "P:7");
+    assert.equal(cleDe(L(-4, "Hourya Bensalem", null)), "P:8");
+    assert.equal(cleDe(L(-5, "Ben Salem Houria", 99)), "P:8"); // fiche supprimée sans mémoire
+  });
+  it("orthographes réelles du registre DBS : « Mariem Dridi » → Dridi Meriem, « Houriya Ben Selim » → Ben Salem Hourya", () => {
+    const reel = resolveurIdentite([{ id: 10, nom: "Dridi Meriem" }, { id: 46, nom: "Ben Salem Hourya" }, { id: 63, nom: "Ben Othmen Meriem" }]);
+    assert.equal(reel(L(10, "Mariem Dridi", null)), "P:10");
+    assert.equal(reel(L(6, "Houriya Ben Selim", null)), "P:46");
+    assert.equal(reel(L(-1, "Meriem Ben Othmane", null)), "P:63");
+  });
+  it("garde-fous : une autre personne ou un prénom seul ne sont jamais rattachés", () => {
+    assert.equal(cleDe(L(-6, "Ben Salem Asma", null)), "N:asma ben salem");
+    assert.equal(cleDe(L(-7, "Mariem", null)), "N:mariem");
+    assert.equal(cleDe(L(-8, "Trabelsi Sonia", null)), "N:sonia trabelsi");
+  });
+
+  const jourDe = (date: string, l: LigneEffectif, q: number) => jour(date, l, q);
+  // 20 journées de Mariem, sous 4 formes d'identité différentes.
+  const formes = [L(10, "DRIDI MARIEM", 7), L(10, "Mariem Dridi", 9), L(-1, "Meriem Dridi", 9), L(-2, "DRIDI MARIEM", null)];
+  const qtes = [40, 45, 50, 55, 60];
+  const journees = Array.from({ length: 20 }, (_, i) => jourDe(`2026-09-${String(i + 1).padStart(2, "0")}`, formes[i % 4], qtes[i % 5]));
+  // 21e journée : présente à l'effectif, mais AUCUNE saisie → pas de ligne inventée.
+  const presenteSansSaisie = { journee: { date: "2026-09-21", cols, ops: {} }, lignes: [L(10, "DRIDI MARIEM", 7)], meta: null };
+  const g = regrouperParPersonne([...journees, presenteSansSaisie], cleDe);
+
+  it("TEST 1, 2, 7 — 20 journées avec production → 20 journées dans l'historique (pas la journée vide)", () => {
+    assert.equal(g.get("P:7")?.length, 20);
+    assert.equal([...g.keys()].length, 1);
+  });
+  it("TEST 4 — même rendement que l'écran du jour", () => {
+    const j1 = g.get("P:7")![0];
+    assert.equal(j1.rendement, mesureJour(journees[0].journee, journees[0].lignes).rendement);
+  });
+  it("TEST 6 — moyenne sur les 20 journées", () => {
+    const s = synthese(g.get("P:7")!);
+    assert.equal(s.jours, 20);
+    const attendu = rendementDe(g.get("P:7")!.reduce((t, j) => t + j.gagne, 0), g.get("P:7")!.reduce((t, j) => t + j.heures, 0));
+    assert.equal(s.rendement, attendu);
+  });
+  it("TEST 5 — filtre 70–90 % sur le rendement de chaque journée", () => {
+    const tous = g.get("P:7")!;
+    const dans = joursDansPlage(tous, 70, 90);
+    assert.ok(dans.length > 0 && dans.length < tous.length);
+    assert.ok(dans.every((j) => j.rendement! >= 70 && j.rendement! <= 90));
+    assert.equal(joursDansPlage(tous, null, null).length, 20);
   });
 });

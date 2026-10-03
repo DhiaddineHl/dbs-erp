@@ -1,13 +1,16 @@
 import { relations } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   date,
   doublePrecision,
   index,
   integer,
+  jsonb,
   pgTable,
   serial,
   text,
   timestamp,
+  unique,
 } from "drizzle-orm/pg-core";
 import { commande } from "./commande";
 import { client } from "./referentiel";
@@ -21,7 +24,50 @@ import { client } from "./referentiel";
  * écriture plutôt que recalculés à la lecture : la commande est lue partout,
  * les mouvements ne le sont que dans leur module. */
 
-/** Un lâcher de coupe, éventuellement par taille. */
+/** FICHE DE COUPE (CP-AAAA-NNN) : une coupe réalisée depuis le plan de
+ * coupe. Elle porte l'en-tête et les chiffres figés à la validation ; le
+ * détail par OF × taille est écrit dans `coupe` (ci-dessous), qui reste la
+ * seule source du coupé (`commande.coupeQte`). Une fiche ne s'efface pas :
+ * elle s'ANNULE (motif), ses lignes sortent alors des totaux. */
+export const coupeFiche = pgTable(
+  "coupe_fiche",
+  {
+    id: serial().primaryKey(),
+    numero: text().notNull().unique(),
+    /** Commande qui porte le plan (le porteur pour des OF réunis). */
+    commandeId: integer()
+      .notNull()
+      .references(() => commande.id, { onDelete: "cascade" }),
+    date: date().notNull(),
+    /** validee | annulee */
+    statut: text().notNull().default("validee"),
+    /** interne | soustraite */
+    type: text().notNull().default("interne"),
+    /** Matière du plan suivie pour la consommation (0 = tissu principal). */
+    matiereRang: integer().notNull().default(0),
+    matiereNom: text().notNull().default(""),
+    /** Consommation prévue par pièce (m), figée à la validation. */
+    consoPrevuePiece: doublePrecision(),
+    /** Métrage des tracés du plan (longueur × plis), figé. */
+    metragePlan: doublePrecision(),
+    /** Seuil d'écart (%) au-delà duquel un motif était exigé. */
+    seuilEcartPct: doublePrecision().notNull().default(2),
+    /** Motif de l'écart prévu / coupé (manque_tissu, defaut_tissu…) + précision. */
+    motifEcart: text().notNull().default(""),
+    precisionEcart: text().notNull().default(""),
+    note: text().notNull().default(""),
+    createdBy: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+    annulePar: text().notNull().default(""),
+    annuleLe: timestamp(),
+    motifAnnulation: text().notNull().default(""),
+  },
+  (t) => [index("coupe_fiche_commande_idx").on(t.commandeId)],
+);
+
+/** Un lâcher de coupe, éventuellement par taille. Avec une fiche : une ligne
+ * par OF × taille, le prévu du plan figé à côté du coupé. Sans fiche : un
+ * lâcher saisi à la main (ancien mode, sans plan de coupe). */
 export const coupe = pgTable(
   "coupe",
   {
@@ -36,9 +82,34 @@ export const coupe = pgTable(
     /** interne | soustraite */
     type: text().notNull().default("interne"),
     note: text().notNull().default(""),
+    /** Fiche de coupe d'origine (null = lâcher saisi à la main). */
+    ficheId: integer().references((): AnyPgColumn => coupeFiche.id, { onDelete: "cascade" }),
+    /** Quantité prévue par le plan pour cet OF × taille (figée). */
+    qtePrevue: integer(),
+    /** Quantité commandée pour cet OF × taille (figée). */
+    qteCommandee: integer(),
     createdAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [index("coupe_commande_idx").on(t.commandeId)],
+  (t) => [index("coupe_commande_idx").on(t.commandeId), index("coupe_fiche_idx").on(t.ficheId)],
+);
+
+/** PROCÈS-VERBAL DE COUPE client (PVC-AAAA-NNN). Chaque génération est une
+ * VERSION figée (données copiées au moment de générer) : le document remis
+ * au client ne change jamais en silence ; régénérer crée la version suivante. */
+export const pvCoupe = pgTable(
+  "pv_coupe",
+  {
+    id: serial().primaryKey(),
+    numero: text().notNull(),
+    version: integer().notNull().default(1),
+    ficheId: integer()
+      .notNull()
+      .references(() => coupeFiche.id, { onDelete: "cascade" }),
+    donnees: jsonb().notNull(),
+    createdBy: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [unique("pv_coupe_version").on(t.numero, t.version), index("pv_coupe_fiche_idx").on(t.ficheId)],
 );
 
 /** Bon de réception d'un façonnier. Alimente le produit et le stock magasin. */

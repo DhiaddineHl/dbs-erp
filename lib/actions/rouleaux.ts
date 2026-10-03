@@ -12,13 +12,15 @@ import {
   tissuLot,
   tissuMouvement,
   tissuReception,
+  tissuRecap,
+  tissuRecapLigne,
   tissuRouleau,
 } from "@/lib/db/schema";
 import { assertUser } from "@/lib/auth/server";
 import { auteurTissu } from "@/lib/auth/tissu";
 import * as rl from "@/lib/domain/rouleau";
 import * as tx from "@/lib/domain/tissu";
-import { getInventaire, prochainCodeRouleau, recalculerStatut, type Executeur } from "@/lib/services/rouleaux";
+import { creerEtiquettesAMesurer, declarerConsommation, getInventaire, prochainCodeRouleau, recalculerStatut, type Executeur } from "@/lib/services/rouleaux";
 
 /* Rouleaux physiques — écritures.
  *
@@ -55,12 +57,15 @@ const positif = (s: string | number | undefined | null) => {
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-/** Charge et VERROUILLE un rouleau par son code (ou le texte scanné). */
-async function verrouiller(t: Tx, codeOuScan: string) {
+/** Charge et VERROUILLE un rouleau par son code (ou le texte scanné). Un
+ * rouleau « à mesurer » n'a encore aucun stock : tout geste est refusé tant
+ * que son métrage n'est pas saisi (sauf ceux qui le permettent). */
+async function verrouiller(t: Tx, codeOuScan: string, o: { aMesurerPermis?: boolean } = {}) {
   const lu = rl.lireScan(codeOuScan);
   if (!lu || lu.type !== "rouleau") throw new Error("Ce n'est pas un code rouleau (R-AAAA-NNNNNN).");
   const [r] = await t.select().from(tissuRouleau).where(eq(tissuRouleau.code, lu.code)).for("update");
   if (!r) throw new Error(`Rouleau ${lu.code} inconnu : il n'a pas été enregistré à la réception.`);
+  if (r.aMesurer && !o.aMesurerPermis) throw new Error(refusAMesurer(r));
   const ms = await t
     .select({ id: tissuMouvement.id, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId, commandeId: tissuMouvement.commandeId, commandeLabel: tissuMouvement.commandeLabel })
     .from(tissuMouvement)
@@ -68,6 +73,11 @@ async function verrouiller(t: Tx, codeOuScan: string) {
     .orderBy(asc(tissuMouvement.id));
   return { r, ms, bilan: rl.bilanRouleau(r.metrageInitial, ms), valide: r.valideLe != null };
 }
+
+const refusAMesurer = (r: { code: string; statut: string }) =>
+  r.statut === "annule"
+    ? `Étiquette ${r.code} annulée : ce rouleau n'existe pas.`
+    : `Rouleau ${r.code} à mesurer : saisissez d'abord son métrage (scan → Mesurer).`;
 
 async function libelleCommande(ex: Executeur, commandeId: number | null | undefined): Promise<string> {
   if (!commandeId) return "";
@@ -149,7 +159,7 @@ export async function validerReceptionRouleaux(input: { receptionId: number; emp
         .select({ r: tissuRouleau })
         .from(tissuRouleau)
         .innerJoin(tissuLot, eq(tissuRouleau.lotId, tissuLot.id))
-        .where(and(eq(tissuLot.receptionId, input.receptionId), isNull(tissuRouleau.valideLe)))
+        .where(and(eq(tissuLot.receptionId, input.receptionId), isNull(tissuRouleau.valideLe), eq(tissuRouleau.aMesurer, false)))
         .for("update", { of: tissuRouleau });
       for (const { r } of rows) {
         await t
@@ -167,6 +177,158 @@ export async function validerReceptionRouleaux(input: { receptionId: number; emp
     if (!n) return { ok: false, error: "Aucun rouleau en attente sur ce bon." };
     revalider();
     return { ok: true, n };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── étiquettes « à mesurer » : le métrage saisi au scan ───────────
+ *
+ * Réception sans passer au bureau : on imprime autant d'étiquettes que de
+ * rouleaux (case « Métrage : ____ m »), on les colle, et le magasinier tape le
+ * métrage de chaque rouleau en le scannant. Cette saisie fait, d'un geste,
+ * l'ENTRÉE du rouleau (mouvement), sa MISE EN STOCK et le reçu du lot. Le
+ * métrage s'écrit une seule fois, puis se fige (verrou en base) : une erreur
+ * se rattrape par une correction motivée, comme pour les autres rouleaux. */
+
+export type RouleauAMesurer = {
+  code: string;
+  statut: string;
+  aMesurer: boolean;
+  metrage: number;
+  lot: { id: number; identifiant: string; tissu: string; unite: string; laize: number | null };
+  /** Métrage moyen annoncé par rouleau (BL ÷ nombre de rouleaux), pour repérer une faute de frappe. */
+  annonceParRouleau: number | null;
+  restants: number;
+  total: number;
+  mesure: number;
+};
+
+async function etatLotAMesurer(ex: Executeur, lotId: number) {
+  const [lot] = await ex.select().from(tissuLot).where(eq(tissuLot.id, lotId));
+  const rs = await ex.select({ statut: tissuRouleau.statut, metrage: tissuRouleau.metrageInitial }).from(tissuRouleau).where(eq(tissuRouleau.lotId, lotId));
+  const vivants = rs.filter((r) => r.statut !== "annule");
+  return {
+    lot,
+    restants: vivants.filter((r) => r.statut === "a_mesurer").length,
+    total: vivants.length,
+    mesure: r2(vivants.reduce((s, r) => s + r.metrage, 0)),
+    annonceParRouleau: lot?.quantiteAnnoncee && vivants.length ? r2(lot.quantiteAnnoncee / vivants.length) : null,
+  };
+}
+
+/** Ce que l'écran de mesure affiche après un scan. */
+export async function lireRouleauAMesurer(scan: string): Promise<Result<{ rouleau: RouleauAMesurer }>> {
+  try {
+    await auteurTissu();
+    const lu = rl.lireScan(scan);
+    if (!lu || lu.type !== "rouleau") return { ok: false, error: "Ce n'est pas un code rouleau (R-AAAA-NNNNNN)." };
+    const [r] = await db.select().from(tissuRouleau).where(eq(tissuRouleau.code, lu.code));
+    if (!r) return { ok: false, error: `Rouleau ${lu.code} inconnu.` };
+    const e = await etatLotAMesurer(db, r.lotId);
+    return {
+      ok: true,
+      rouleau: {
+        code: r.code, statut: r.statut, aMesurer: r.aMesurer, metrage: r.metrageInitial,
+        lot: {
+          id: r.lotId, identifiant: e.lot?.identifiant ?? "", tissu: [e.lot?.reference, e.lot?.couleur].filter(Boolean).join(" · "),
+          unite: e.lot?.unite ?? "m", laize: e.lot?.laize ?? null,
+        },
+        annonceParRouleau: e.annonceParRouleau, restants: e.restants, total: e.total, mesure: e.mesure,
+      },
+    };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function mesurerRouleau(input: {
+  code: string;
+  metrage: string;
+  laize?: string;
+  observations?: string;
+  emplacement?: string;
+}): Promise<Result<{ code: string; metrage: number; lot: string; restants: number; total: number; mesure: number }>> {
+  try {
+    const a = await auteurTissu();
+    const metrage = positif(input.metrage);
+    const res = await db.transaction(async (t) => {
+      const { r } = await verrouiller(t, input.code, { aMesurerPermis: true });
+      if (r.statut === "annule") throw new Error(refusAMesurer(r));
+      if (!r.aMesurer) throw new Error(`${r.code} est déjà mesuré (${r.metrageInitial} m) : pour le changer, passez une correction depuis sa fiche.`);
+      const ctl = rl.controleMesure(metrage, null);
+      if (ctl.refus) throw new Error(ctl.refus);
+      // Le lot d'abord, verrouillé : deux téléphones qui mesurent deux rouleaux
+      // du même lot en même temps additionnent bien leurs métrages.
+      const [lot] = await t.select().from(tissuLot).where(eq(tissuLot.id, r.lotId)).for("update");
+      const emp = input.emplacement ? await emplacementParCode(t, input.emplacement) : null;
+      const laize = positif(input.laize ?? "");
+      const [rec] = await t.select({ numero: tissuReception.numero }).from(tissuReception).where(eq(tissuReception.id, lot.receptionId));
+      await t
+        .update(tissuRouleau)
+        .set({
+          metrageInitial: metrage, aMesurer: false, valideLe: new Date(), validePar: a.name,
+          ...(laize ? { laize } : {}),
+          ...((input.observations ?? "").trim() ? { observations: (input.observations ?? "").trim().slice(0, 300) } : {}),
+          ...(emp ? { emplacementId: emp.id } : {}),
+        })
+        .where(eq(tissuRouleau.id, r.id));
+      await t.insert(tissuMouvement).values({
+        lotId: r.lotId, rouleauId: r.id, sens: "entree", quantite: metrage, motif: `Réception ${rec?.numero ?? ""} — mesuré au scan`.trim(), createdBy: a.name,
+      });
+      await t.insert(tissuMouvement).values({
+        lotId: r.lotId, rouleauId: r.id, sens: "mise_en_stock", quantite: metrage,
+        motif: "Mesuré et mis en stock au magasin (scan)", valeurApres: emp?.code ?? "", createdBy: a.name,
+      });
+      await t.update(tissuLot).set({ quantiteRecue: r2(lot.quantiteRecue + metrage) }).where(eq(tissuLot.id, lot.id));
+      await recalculerStatut(t, r.id);
+      const e = await etatLotAMesurer(t, r.lotId);
+      return { code: r.code, metrage, lot: lot.identifiant, restants: e.restants, total: e.total, mesure: e.mesure };
+    });
+    revalider(res.code);
+    return { ok: true, ...res };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Étiquette en trop (le BL annonçait plus de rouleaux qu'il n'en est
+ * arrivé) : elle est annulée, pas effacée — le code reste visible, barré. */
+export async function annulerEtiquette(code: string, motif: string): Promise<Result<{ code: string }>> {
+  try {
+    const a = await auteurTissu();
+    if (!(motif ?? "").trim()) return { ok: false, error: "Motif obligatoire." };
+    const res = await db.transaction(async (t) => {
+      const { r } = await verrouiller(t, code, { aMesurerPermis: true });
+      if (!r.aMesurer || r.statut !== "a_mesurer") throw new Error(`${r.code} n'est pas une étiquette à mesurer : elle ne s'annule pas.`);
+      await t
+        .update(tissuRouleau)
+        .set({ statut: "annule", observations: `Étiquette annulée par ${a.name} : ${motif.trim()}`.slice(0, 300) })
+        .where(eq(tissuRouleau.id, r.id));
+      return { code: r.code };
+    });
+    revalider(res.code);
+    return { ok: true, ...res };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Rouleau en plus (arrivé sans étiquette) : une étiquette « à mesurer » de
+ * plus sur le même lot, à imprimer. */
+export async function ajouterEtiquette(lotId: number): Promise<Result<{ code: string; id: number }>> {
+  try {
+    const a = await auteurTissu();
+    const res = await db.transaction(async (t) => {
+      const [lot] = await t.select({ id: tissuLot.id, nb: tissuLot.nbRouleaux }).from(tissuLot).where(eq(tissuLot.id, lotId)).for("update");
+      if (!lot) throw new Error("Lot introuvable.");
+      const [id] = await creerEtiquettesAMesurer(t, lotId, 1, a.name);
+      await t.update(tissuLot).set({ nbRouleaux: (lot.nb ?? 0) + 1 }).where(eq(tissuLot.id, lotId));
+      const [r] = await t.select({ code: tissuRouleau.code }).from(tissuRouleau).where(eq(tissuRouleau.id, id));
+      return { code: r.code, id };
+    });
+    revalider(res.code);
+    return { ok: true, ...res };
   } catch (e) {
     return fail(e);
   }
@@ -330,15 +492,86 @@ export async function bonPourRouleaux(codes: string[]): Promise<Result<{ numero:
       if (!aPorter.length) {
         // Tous déjà sur un bon : réimpression, si c'est le même.
         if (bonsExistants.size === 1) return { numero: [...bonsExistants][0], n: rs.length, nouveau: false };
-        throw new Error(`Ces rouleaux figurent déjà sur des bons différents : ${[...bonsExistants].join(", ")}.`);
+        throw new Error(`Ces rouleaux figurent déjà sur des bons différents (${[...bonsExistants].join(", ")}) : utilisez « 🧾 Bon récapitulatif » pour les réunir sur un seul document.`);
       }
-      if (bonsExistants.size) throw new Error(`Certains rouleaux sont déjà sur le bon ${[...bonsExistants].join(", ")} : décochez-les (ou réimprimez ce bon).`);
+      if (bonsExistants.size) throw new Error(`Certains rouleaux sont déjà sur le bon ${[...bonsExistants].join(", ")} : décochez-les, ou utilisez « 🧾 Bon récapitulatif » pour tout réunir sur un seul document.`);
       const numero = await prochainNumeroBon(t);
       await t.update(tissuMouvement).set({ bon: numero }).where(inArray(tissuMouvement.id, aPorter));
       return { numero, n: rs.length, nouveau: true };
     });
     revalider();
     return { ok: true, numero: res.numero, n: res.n, nouveau: res.nouveau };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** BON RÉCAPITULATIF (BSR-AAAA-NNN) : un seul document pour des rouleaux
+ * déjà partis chez un même destinataire, même s'ils ont chacun leur bon BST
+ * (sorties groupées faites rouleau par rouleau). Il ne modifie RIEN : il
+ * désigne le dernier envoi de chaque rouleau ; les bons d'origine restent
+ * intacts et sont rappelés sur le récapitulatif. Même sélection qu'un
+ * récapitulatif existant → on le réimprime au lieu d'en créer un autre. */
+export async function bonRecapitulatif(codes: string[], note = ""): Promise<Result<{ numero: string; n: number; nouveau: boolean }>> {
+  try {
+    const a = await auteurTissu();
+    const liste = [...new Set((codes ?? []).map((c) => rl.lireScan(c)?.code ?? c.trim()).filter(Boolean))];
+    if (!liste.length) return { ok: false, error: "Cochez au moins un rouleau sorti." };
+    const res = await db.transaction(async (t) => {
+      const rs = await t.select({ id: tissuRouleau.id, code: tissuRouleau.code }).from(tissuRouleau).where(inArray(tissuRouleau.code, liste));
+      if (rs.length !== liste.length) throw new Error("Un rouleau coché est introuvable.");
+      const ms = await t
+        .select({
+          id: tissuMouvement.id, rouleauId: tissuMouvement.rouleauId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite,
+          annuleId: tissuMouvement.annuleId, destination: tissuMouvement.destination, faconnierNom: tissuMouvement.faconnierNom, bon: tissuMouvement.bon,
+        })
+        .from(tissuMouvement)
+        .where(inArray(tissuMouvement.rouleauId, rs.map((r) => r.id)))
+        .orderBy(asc(tissuMouvement.id));
+      const ids: number[] = [];
+      const lieux = new Set<string>();
+      let destination = "";
+      let faconnierNom = "";
+      for (const r of rs) {
+        const s = rl.sortiesPourBon(ms.filter((m) => m.rouleauId === r.id));
+        if (!s) throw new Error(`${r.code} n'est jamais sorti du magasin : il ne peut pas figurer sur un bon.`);
+        lieux.add(s.lieu);
+        destination = s.destination;
+        faconnierNom = s.faconnierNom;
+        ids.push(...s.envoi.map((m) => m.id));
+      }
+      if (lieux.size > 1) throw new Error(`Un bon = un seul destinataire. Les rouleaux cochés sont partis à des endroits différents : ${[...lieux].join(", ")}.`);
+      ids.sort((x, y) => x - y);
+
+      // Même envoi déjà récapitulé : réimpression.
+      const existants = await t
+        .select({ recapId: tissuRecapLigne.recapId, mouvementId: tissuRecapLigne.mouvementId })
+        .from(tissuRecapLigne)
+        .where(inArray(tissuRecapLigne.mouvementId, ids));
+      const parRecap = new Map<number, number[]>();
+      for (const e of existants) parRecap.set(e.recapId, [...(parRecap.get(e.recapId) ?? []), e.mouvementId]);
+      for (const [recapId, mv] of parRecap) {
+        if (mv.length !== ids.length) continue;
+        const [{ n }] = await t.select({ n: sql<number>`count(*)::int` }).from(tissuRecapLigne).where(eq(tissuRecapLigne.recapId, recapId));
+        if (n !== ids.length) continue;
+        const [rc] = await t.select({ numero: tissuRecap.numero }).from(tissuRecap).where(eq(tissuRecap.id, recapId));
+        return { numero: rc.numero, n: rs.length, nouveau: false };
+      }
+
+      await t.execute(sql`select pg_advisory_xact_lock(hashtext('tissu_bon_recap'))`);
+      const prefixe = `BSR-${new Date().getFullYear()}-`;
+      const nums = await t.select({ numero: tissuRecap.numero }).from(tissuRecap).where(like(tissuRecap.numero, `${prefixe}%`));
+      const max = nums.reduce((m, r) => Math.max(m, parseInt(r.numero.slice(prefixe.length), 10) || 0), 0);
+      const numero = `${prefixe}${String(max + 1).padStart(3, "0")}`;
+      const [rc] = await t
+        .insert(tissuRecap)
+        .values({ numero, destination, faconnierNom, note: (note ?? "").trim().slice(0, 300), createdBy: a.name })
+        .returning({ id: tissuRecap.id });
+      await t.insert(tissuRecapLigne).values(ids.map((mouvementId) => ({ recapId: rc.id, mouvementId })));
+      return { numero, n: rs.length, nouveau: true };
+    });
+    revalider();
+    return { ok: true, ...res };
   } catch (e) {
     return fail(e);
   }
@@ -356,6 +589,7 @@ export async function verifierPourSortie(scan: string): Promise<Result<{ code: s
       .innerJoin(tissuLot, eq(tissuRouleau.lotId, tissuLot.id))
       .where(eq(tissuRouleau.code, lu.code));
     if (!r) return { ok: false, error: `Rouleau ${lu.code} inconnu : il n'a pas été enregistré à la réception.` };
+    if (r.r.aMesurer) return { ok: false, error: refusAMesurer(r.r) };
     const ms = await db
       .select({ id: tissuMouvement.id, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId })
       .from(tissuMouvement)
@@ -421,17 +655,10 @@ export async function consommerRouleau(input: { code: string; consomme: string; 
     const chute = input.chute ? nombre(input.chute) : 0;
     if (!Number.isFinite(conso) || !Number.isFinite(chute)) return { ok: false, error: "Métrage illisible." };
     const res = await db.transaction(async (t) => {
-      const { r, ms, bilan } = await verrouiller(t, input.code);
-      const refus = rl.refusConsommation(bilan, conso, chute);
-      if (refus) throw new Error(refus);
-      const derniere = [...rl.mouvementsEffectifs(ms)].reverse().find((m) => m.sens === "sortie");
-      const commandeId = input.commandeId ?? derniere?.commandeId ?? null;
-      const label = input.commandeId ? await libelleCommande(t, input.commandeId) : (derniere?.commandeLabel ?? "");
-      const base = { lotId: r.lotId, rouleauId: r.id, commandeId, commandeLabel: label, createdBy: a.name };
-      if (conso > 0) await t.insert(tissuMouvement).values({ ...base, sens: "consommation", quantite: r2(conso), motif: (input.motif ?? "").trim() || "Consommation déclarée par la coupe" });
-      if (chute > 0) await t.insert(tissuMouvement).values({ ...base, sens: "chute", quantite: r2(chute), motif: (input.motif ?? "").trim() || "Chute déclarée par la coupe" });
-      const s = await recalculerStatut(t, r.id);
-      return { code: r.code, enCoupe: s?.bilan.enCoupe ?? 0 };
+      // Rouleau à mesurer / étiquette annulée : refus explicite (voir verrouiller).
+      await verrouiller(t, input.code);
+      const commandeLabel = input.commandeId ? await libelleCommande(t, input.commandeId) : undefined;
+      return declarerConsommation(t, { code: input.code, consomme: conso, chute, commandeId: input.commandeId, commandeLabel, motif: input.motif, par: a.name });
     });
     revalider(res.code);
     return { ok: true, ...res };
@@ -446,7 +673,8 @@ export async function deplacerRouleau(input: { code: string; emplacement: string
   try {
     const a = await auteurTissu();
     const res = await db.transaction(async (t) => {
-      const { r } = await verrouiller(t, input.code);
+      // Ranger une étiquette pas encore mesurée est permis (rien ne bouge en stock).
+      const { r } = await verrouiller(t, input.code, { aMesurerPermis: true });
       const emp = await emplacementParCode(t, input.emplacement);
       if (!emp) throw new Error("Indiquez l'emplacement.");
       if (emp.id === r.emplacementId) throw new Error(`Le rouleau est déjà en ${emp.code}.`);

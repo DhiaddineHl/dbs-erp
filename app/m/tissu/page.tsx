@@ -13,7 +13,10 @@ export const metadata = { title: "Magasin tissu — scan", robots: { index: fals
 export default async function ScanTissuPage() {
   const { user } = await accesTissuPage("/m/tissu");
   const rouleaux = await chargerRouleaux();
-  const attente = rouleaux.filter((r) => !r.valide);
+  // Rouleaux créés au bureau (métrage connu), à scanner pour les passer en stock.
+  const attente = rouleaux.filter((r) => r.statut === "en_attente");
+  // Étiquettes collées avant la mesure : le métrage se tape au scan.
+  const aMesurer = rouleaux.filter((r) => r.statut === "a_mesurer").length;
   const parBon = new Map<string, { id: number; n: number; m: number }>();
   for (const r of attente) {
     const e = parBon.get(r.reception.numero) ?? { id: r.reception.id, n: 0, m: 0 };
@@ -26,7 +29,13 @@ export default async function ScanTissuPage() {
       <Entete utilisateur={user.name} titre="Magasin tissu" />
       <h1 className="mb-3 text-3xl font-black">Scanner un rouleau</h1>
       <ScanAccueil />
-      <Link href="/m/tissu/sortie" className="mt-4 block rounded-2xl bg-amber-500 px-4 py-4 text-center text-lg font-extrabold text-white shadow-sm">
+      <Link
+        href="/m/tissu/mesure"
+        className={`mt-4 block rounded-2xl px-4 py-4 text-center text-lg font-extrabold shadow-sm ${aMesurer ? "bg-emerald-600 text-white" : "bg-white text-slate-700"}`}
+      >
+        📏 Mesurer les rouleaux{aMesurer ? ` (${aMesurer} à mesurer)` : ""}
+      </Link>
+      <Link href="/m/tissu/sortie" className="mt-3 block rounded-2xl bg-amber-500 px-4 py-4 text-center text-lg font-extrabold text-white shadow-sm">
         🚚 Sortie groupée (sous-traitant / coupe)
       </Link>
       <div className="mt-3 grid grid-cols-2 gap-2">

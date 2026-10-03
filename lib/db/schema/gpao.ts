@@ -9,6 +9,7 @@ import {
   pgTable,
   serial,
   text,
+  timestamp,
 } from "drizzle-orm/pg-core";
 
 /** Registre du personnel de l'atelier.
@@ -34,6 +35,19 @@ export const personnel = pgTable(
   },
   (t) => [index("personnel_statut_idx").on(t.statut)],
 );
+
+/** Mémoire des FUSIONS de fiches : la fiche absorbée (supprimée) → la fiche
+ * gardée. Les journées anciennes peuvent porter l'ancien identifiant ;
+ * l'historique s'en sert pour les rattacher à la fiche actuelle, quel que
+ * soit le nom tapé ce jour-là. Pas de clé étrangère : l'ancienne fiche
+ * n'existe plus, et la fiche gardée peut être fusionnée à son tour (on suit). */
+export const personnelFusion = pgTable("personnel_fusion", {
+  ancienId: integer().primaryKey(),
+  gardeId: integer().notNull(),
+  ancienNom: text().notNull().default(""),
+  ancienMatricule: text().notNull().default(""),
+  createdAt: timestamp().notNull().defaultNow(),
+});
 
 /** Catalogue des opérations de confection avec leur temps standard.
  *

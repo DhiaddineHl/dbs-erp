@@ -27,6 +27,7 @@ export function KpisRouleaux({ i, onFiltre }: { i: IndicateursAffiches; onFiltre
     { l: "Rouleaux en stock", v: String(i.enStock), f: { statut: "en_stock" } },
     { l: "Métrage disponible", v: `${q2.format(i.metrageDisponible)} m`, tone: "text-success-foreground" },
     { l: "À réceptionner (scan)", v: String(i.enAttente), tone: i.enAttente ? "text-warning-foreground" : "", f: { statut: "en_attente" } },
+    { l: "À mesurer (scan)", v: String(i.aMesurer), tone: i.aMesurer ? "text-warning-foreground" : "", f: { statut: "a_mesurer" } },
     { l: "Sans emplacement", v: String(i.sansEmplacement), tone: i.sansEmplacement ? "text-warning-foreground" : "", f: { sansEmplacement: true } },
     { l: "Sortis non soldés", v: `${i.sortisNonConsommes} · ${q2.format(i.metrageEnCoupe)} m`, tone: i.sortisNonConsommes ? "text-brand" : "", f: { statut: "sorti" } },
     { l: "Métrage sorti", v: `${q2.format(i.metrageSorti)} m` },
@@ -59,10 +60,11 @@ export function KpisRouleaux({ i, onFiltre }: { i: IndicateursAffiches; onFiltre
 
 /* ═══════════ onglet Rouleaux : recherche, sélection, étiquettes ═══════════ */
 
-const ROULEAUX_FINIS = new Set(["epuise", "rendu", "retourne"]);
+const ROULEAUX_FINIS = new Set(["epuise", "rendu", "retourne", "annule"]);
 const fini = (r: RouleauRow) => r.lot.archive || ROULEAUX_FINIS.has(r.statut);
 
 export type BonSortieResume = { numero: string; date: string; lieu: string; commande: string; rouleaux: number; metrage: number };
+export type RecapResume = { numero: string; date: string; lieu: string; rouleaux: number; metrage: number; bons: string[] };
 
 export function OngletRouleaux({
   rouleaux,
@@ -70,12 +72,14 @@ export function OngletRouleaux({
   q,
   peutSaisir,
   bons = [],
+  recaps = [],
 }: {
   rouleaux: RouleauRow[];
   indicateurs: IndicateursAffiches;
   q: string;
   peutSaisir: boolean;
   bons?: BonSortieResume[];
+  recaps?: RecapResume[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -124,6 +128,19 @@ export function OngletRouleaux({
       if (!r.ok) return void toast.error(r.error);
       toast.success(r.nouveau ? `Bon ${r.numero} établi pour ${r.n} rouleau(x)` : `Déjà sur le bon ${r.numero} : réimpression`);
       window.open(`/magtissu/sortie/${encodeURIComponent(r.numero)}`, "_blank");
+      router.refresh();
+    });
+  };
+
+  /* Bon RÉCAPITULATIF : un seul document pour des rouleaux déjà partis chez le
+     même destinataire, même s'ils ont chacun leur bon (R.bonRecapitulatif). */
+  const recapitulatif = () => {
+    const sel = rouleaux.filter((r) => coches.has(r.id));
+    start(async () => {
+      const r = await R.bonRecapitulatif(sel.map((x) => x.code));
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(r.nouveau ? `Bon récapitulatif ${r.numero} établi pour ${r.n} rouleau(x)` : `Déjà récapitulé sur ${r.numero} : réimpression`);
+      window.open(`/magtissu/recap/${encodeURIComponent(r.numero)}`, "_blank");
       router.refresh();
     });
   };
@@ -192,6 +209,18 @@ export function OngletRouleaux({
                 title="Un seul bon de livraison pour tous les rouleaux cochés déjà sortis chez le même destinataire"
               >
                 🖨 Bon de sortie ({choisis.length})
+              </Button>
+            )}
+            {peutSaisir && selSortis.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 border-slate-900"
+                disabled={pending}
+                onClick={recapitulatif}
+                title="Un seul document pour tous les rouleaux cochés partis chez le même destinataire, même s'ils ont déjà chacun leur bon"
+              >
+                🧾 Bon récapitulatif ({choisis.length})
               </Button>
             )}
             {peutSaisir && (
@@ -296,6 +325,27 @@ export function OngletRouleaux({
         </div>
       </SectionPanel>
 
+      {recaps.length > 0 && (
+        <SectionPanel title={`Bons récapitulatifs (${recaps.length})`} flush>
+          <div className="divide-y text-xs">
+            {recaps.map((b) => (
+              <div key={b.numero} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                <span className="font-mono font-bold">{b.numero}</span>
+                <span className="text-muted-foreground">{b.date.slice(0, 10).split("-").reverse().join("/")}</span>
+                <span>{b.lieu}</span>
+                <span className="text-muted-foreground">
+                  {b.rouleaux} rouleau(x) · {q2.format(b.metrage)} m
+                </span>
+                {b.bons.length > 0 && <span className="text-muted-foreground">regroupe {b.bons.join(", ")}</span>}
+                <Link href={`/magtissu/recap/${encodeURIComponent(b.numero)}`} target="_blank" className="ml-auto font-semibold text-brand hover:underline">
+                  🖨 Récapitulatif
+                </Link>
+              </div>
+            ))}
+          </div>
+        </SectionPanel>
+      )}
+
       {bons.length > 0 && (
         <SectionPanel title={`Bons de sortie groupée (${bons.length})`} flush>
           <div className="divide-y text-xs">
@@ -328,13 +378,22 @@ export function RouleauxDuLot({ lot: l, peutSaisir }: { lot: LotRow; peutSaisir:
   const router = useRouter();
   const [pending, start] = useTransition();
   if (!l.rouleaux.length) return peutSaisir && l.bilan.disponible > 0.001 ? <DecouperEnRouleaux lot={l} /> : null;
-  const attente = l.rouleaux.filter((r) => !r.valide).length;
+  // Créés au bureau, métrage connu : un scan (ou « Tout réceptionner ») les met en stock.
+  const attente = l.rouleaux.filter((r) => r.statut === "en_attente").length;
+  // Étiquettes posées avant la mesure : leur métrage se tape au scan.
+  const aMesurer = l.rouleaux.filter((r) => r.statut === "a_mesurer").length;
+  const vivants = l.rouleaux.filter((r) => r.statut !== "annule").length;
   const t = l.rouleaux.reduce((s, r) => ({ dispo: s.dispo + r.bilan.disponible, coupe: s.coupe + r.bilan.enCoupe }), { dispo: 0, coupe: 0 });
   return (
     <div className="rounded-lg border bg-card p-3">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="text-[11px] font-bold uppercase text-muted-foreground">Rouleaux étiquetés ({l.rouleaux.length})</span>
         {attente > 0 && <StatusBadge tone="warning">{attente} à réceptionner au magasin</StatusBadge>}
+        {aMesurer > 0 && (
+          <StatusBadge tone="warning">
+            📏 {vivants - aMesurer}/{vivants} mesurés · {aMesurer} à mesurer au scan
+          </StatusBadge>
+        )}
         <span className="text-[11px] text-muted-foreground">
           en stock {q2.format(r2(t.dispo))} · en coupe {q2.format(r2(t.coupe))} {l.unite}
         </span>
@@ -356,6 +415,26 @@ export function RouleauxDuLot({ lot: l, peutSaisir }: { lot: LotRow; peutSaisir:
               }}
             >
               ✔ Tout réceptionner
+            </Button>
+          )}
+          {peutSaisir && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7"
+              disabled={pending}
+              title="Un rouleau arrivé en plus : une étiquette « à mesurer » de plus sur ce lot"
+              onClick={() =>
+                start(async () => {
+                  const r = await R.ajouterEtiquette(l.id);
+                  if (!r.ok) return void toast.error(r.error);
+                  toast.success(`Étiquette ${r.code} créée : collez-la, le métrage se saisit au scan`);
+                  window.open(`/magtissu/etiquettes/rouleaux?ids=${r.id}`, "_blank");
+                  router.refresh();
+                })
+              }
+            >
+              + Étiquette (rouleau en plus)
             </Button>
           )}
           <Link href={`/magtissu/etiquettes/rouleaux?lot=${l.id}`} target="_blank" className="rounded-md border px-2 py-1 font-semibold hover:bg-muted">
@@ -381,7 +460,7 @@ export function RouleauxDuLot({ lot: l, peutSaisir }: { lot: LotRow; peutSaisir:
           {l.rouleaux.map((r) => {
             const st = statutLabel(r.statut);
             return (
-              <tr key={r.id} className="border-t">
+              <tr key={r.id} className={`border-t ${r.statut === "annule" ? "text-muted-foreground line-through" : ""}`}>
                 <td className="py-1">
                   <Link href={`/magtissu/rouleaux/${r.code}`} className="font-mono font-bold text-brand hover:underline">
                     {r.code}
@@ -390,9 +469,28 @@ export function RouleauxDuLot({ lot: l, peutSaisir }: { lot: LotRow; peutSaisir:
                 </td>
                 <td>
                   <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
+                  {peutSaisir && r.statut === "a_mesurer" && (
+                    <button
+                      disabled={pending}
+                      title="Rouleau jamais arrivé : l'étiquette est annulée (elle reste visible, barrée)"
+                      onClick={() => {
+                        const motif = prompt(`Annuler l'étiquette ${r.code} (rouleau en moins) ?\nMotif :`);
+                        if (!motif?.trim()) return;
+                        start(async () => {
+                          const x = await R.annulerEtiquette(r.code, motif);
+                          if (!x.ok) return void toast.error(x.error);
+                          toast.success(`Étiquette ${x.code} annulée`);
+                          router.refresh();
+                        });
+                      }}
+                      className="ml-1 text-[10px] text-muted-foreground hover:text-[var(--danger-d)] hover:underline"
+                    >
+                      annuler
+                    </button>
+                  )}
                 </td>
                 <td className="font-mono">{r.emplacement || "—"}</td>
-                <td className="text-right tabular-nums">{q2.format(r.metrageInitial)}</td>
+                <td className="text-right tabular-nums">{r.aMesurer ? <span className="text-warning-foreground">{r.statut === "annule" ? "—" : "à mesurer"}</span> : q2.format(r.metrageInitial)}</td>
                 <td className="text-right tabular-nums">{q2.format(r.bilan.sorti)}</td>
                 <td className="text-right tabular-nums">{q2.format(r.bilan.consomme)}</td>
                 <td className="text-right tabular-nums">{q2.format(r.bilan.chute)}</td>

@@ -22,7 +22,11 @@ const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 1
  *   × 4  → 2 × 2 étiquettes de 101 × 138,5 mm ;
  *   × 24 → 3 × 8 étiquettes de 67,3 × 34,6 mm.
  * Les planches sont découpées page par page : une page ne déborde jamais sur
- * la suivante, quel que soit le nombre de rouleaux. */
+ * la suivante, quel que soit le nombre de rouleaux.
+ *
+ * Rouleau « à mesurer » (étiquette imprimée avant la mesure) : à la place du
+ * métrage, une CASE VIDE « Métrage : ____ m » où le magasinier l'écrit au
+ * stylo — trace papier de ce qu'il tape ensuite au scan. */
 
 type Format = "thermique" | "standard" | "a4x4" | "a4";
 const FORMATS: { value: Format; label: string }[] = [
@@ -55,13 +59,15 @@ export default async function EtiquettesRouleauxPage({
   const sp = await searchParams;
   const format: Format = FORMATS.some((f) => f.value === sp.format) ? (sp.format as Format) : "thermique";
   const ids = (sp.ids ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
-  const rouleaux = ids.length
+  const tous = ids.length
     ? await chargerRouleaux({ ids })
     : sp.reception
       ? await chargerRouleaux({ receptionId: Number(sp.reception) })
       : sp.lot
         ? await chargerRouleaux({ lotIds: [Number(sp.lot)] })
         : [];
+  // Une étiquette annulée (rouleau en moins) ne se réimprime pas.
+  const rouleaux = tous.filter((r) => r.statut !== "annule");
   const racine = (await basePortail()).replace(/\/+$/, "");
   const cartes = await Promise.all(rouleaux.map(async (r) => ({ r, svg: await qrSvg(`${racine}/r/${r.code}`, 220) })));
 
@@ -148,6 +154,19 @@ export default async function EtiquettesRouleauxPage({
   );
 }
 
+const aRemplir = (r: RouleauRow) => r.aMesurer && r.statut === "a_mesurer";
+
+/** Case à remplir au stylo sur une étiquette « à mesurer ». */
+function Case({ label, unite, largeur, grand }: { label: string; unite: string; largeur: string; grand?: boolean }) {
+  return (
+    <span className={`inline-flex items-end gap-[1mm] ${grand ? "text-[11pt]" : "text-[7pt]"} font-bold`}>
+      {label}
+      <span className="inline-block border-b-[1.5px] border-black" style={{ width: largeur, height: grand ? "9mm" : "5mm" }} />
+      {unite}
+    </span>
+  );
+}
+
 function tissu(r: RouleauRow) {
   return [r.lot.reference, r.lot.composition].filter(Boolean).join(" · ") || "—";
 }
@@ -167,12 +186,19 @@ function Grande({ r, svg }: { r: RouleauRow; svg: string }) {
         <div className="truncate">Coul. {couleur(r)}</div>
         <div className="truncate">Lot fourn. {r.lot.lotFournisseur || "—"}</div>
         <div className="truncate">Lot {r.lot.identifiant}{r.reception.client ? ` · ${r.reception.client}` : ""}</div>
-        <div className="mt-auto flex items-end justify-between">
-          <span className="text-[13pt] font-black">
-            {nb.format(r.metrageInitial)} {r.lot.unite}
-          </span>
-          <span className="text-[7.5pt]">Reçu {dateFr(r.reception.date)}</span>
-        </div>
+        {aRemplir(r) ? (
+          <div className="mt-auto">
+            <div className="text-[7.5pt]">Reçu {dateFr(r.reception.date)}</div>
+            <Case label="Métrage" unite={r.lot.unite} largeur="28mm" />
+          </div>
+        ) : (
+          <div className="mt-auto flex items-end justify-between">
+            <span className="text-[13pt] font-black">
+              {nb.format(r.metrageInitial)} {r.lot.unite}
+            </span>
+            <span className="text-[7.5pt]">Reçu {dateFr(r.reception.date)}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -189,9 +215,15 @@ function Petite({ r, svg }: { r: RouleauRow; svg: string }) {
         <div className="truncate font-bold">{tissu(r)}</div>
         <div className="truncate">{couleur(r)}</div>
         <div className="truncate">Lot f. {r.lot.lotFournisseur || "—"}</div>
-        <div className="mt-auto text-[10pt] font-black">
-          {nb.format(r.metrageInitial)} {r.lot.unite}
-        </div>
+        {aRemplir(r) ? (
+          <div className="mt-auto">
+            <Case label="Métr." unite={r.lot.unite} largeur="14mm" />
+          </div>
+        ) : (
+          <div className="mt-auto text-[10pt] font-black">
+            {nb.format(r.metrageInitial)} {r.lot.unite}
+          </div>
+        )}
         <div className="text-[6pt]">Reçu {dateFr(r.reception.date)}</div>
       </div>
     </div>
@@ -208,7 +240,7 @@ function A6({ r, svg }: { r: RouleauRow; svg: string }) {
     ["Lot DBS", r.lot.identifiant],
     ["Client", r.reception.client || "—"],
     ["Fournisseur", r.reception.fournisseur || "—"],
-    ["Laize", r.laize != null ? `${nb.format(r.laize)} cm` : "—"],
+    ["Laize", r.laize != null ? `${nb.format(r.laize)} cm` : aRemplir(r) ? "________ cm" : "—"],
     ["Réception", `${r.reception.numero} · ${dateFr(r.reception.date)}`],
   ];
   return (
@@ -230,10 +262,14 @@ function A6({ r, svg }: { r: RouleauRow; svg: string }) {
         </tbody>
       </table>
       <div className="mt-auto flex items-end justify-between border-t-2 border-black pt-[1.5mm]">
-        <span className="text-[8pt] uppercase text-neutral-600">Métrage initial</span>
-        <span className="text-[20pt] font-black leading-none">
-          {nb.format(r.metrageInitial)} {r.lot.unite}
-        </span>
+        <span className="text-[8pt] uppercase text-neutral-600">{aRemplir(r) ? "Métrage mesuré — à écrire puis scanner" : "Métrage initial"}</span>
+        {aRemplir(r) ? (
+          <Case label="" unite={r.lot.unite} largeur="38mm" grand />
+        ) : (
+          <span className="text-[20pt] font-black leading-none">
+            {nb.format(r.metrageInitial)} {r.lot.unite}
+          </span>
+        )}
       </div>
     </div>
   );

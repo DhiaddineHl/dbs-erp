@@ -194,7 +194,7 @@ export function FicheNomen({ row, droits }: { row: PreparationRow; droits: Droit
             onSave={(v) => majChamp(row.id, "chutePct", v)}
           />
         </Champ>
-        <Champ label="Consommation réelle constatée (m/pièce)">
+        <Champ label="Conso plan de coupe (m/pièce)">
           <ChampServeur
             valeur={row.consoReel?.toString() ?? ""}
             type="number"

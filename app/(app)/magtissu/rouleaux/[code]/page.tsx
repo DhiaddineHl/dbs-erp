@@ -10,6 +10,8 @@ import { commandesPourSortie, getRouleau, listEmplacements, sousTraitants } from
 import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ActionsRouleau } from "@/app/m/tissu/r/[code]/actions-rouleau";
+import { MesureFiche } from "@/app/m/tissu/mesure/mesure-fiche";
+import { lireRouleauAMesurer } from "@/lib/actions/rouleaux";
 import { TimelineRouleau } from "./timeline";
 
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
@@ -37,6 +39,8 @@ export default async function FicheRouleauPage({ params }: { params: Promise<{ c
   const st = statutLabel(r.statut);
   const b = r.bilan;
   const u = r.lot.unite;
+  // Étiquette « à mesurer » : on peut aussi taper son métrage d'ici.
+  const aMesurer = r.statut === "a_mesurer" && peutSaisir ? await lireRouleauAMesurer(r.code) : null;
 
   return (
     <div className="space-y-4 p-4">
@@ -69,7 +73,10 @@ export default async function FicheRouleauPage({ params }: { params: Promise<{ c
                 <Ligne l="Lot fournisseur" v={r.lot.lotFournisseur} />
                 <Ligne l="Laize" v={r.laize != null ? `${r.laize} cm` : ""} />
                 <Ligne l="Poids" v={r.poids != null ? `${r.poids} kg` : ""} />
-                <Ligne l="Métrage initial" v={`${q2.format(r.metrageInitial)} ${u}`} />
+                <Ligne
+                  l="Métrage initial"
+                  v={r.statut === "annule" ? "étiquette annulée" : r.aMesurer ? "à mesurer — saisi au scan du magasin" : `${q2.format(r.metrageInitial)} ${u}`}
+                />
                 <Ligne l="Annoncé (étiquette fourn.)" v={r.metrageAnnonce != null ? `${q2.format(r.metrageAnnonce)} ${u}` : ""} />
                 <Ligne l="Réception" v={`${r.reception.numero} du ${dateFr(r.reception.date)}`} />
                 <Ligne l="Fournisseur / client" v={[r.reception.fournisseur, r.reception.client].filter(Boolean).join(" / ")} />
@@ -116,13 +123,21 @@ export default async function FicheRouleauPage({ params }: { params: Promise<{ c
 
         <div>
           <div className="mb-2 text-[11px] font-bold uppercase text-muted-foreground">Mouvements</div>
-          <ActionsRouleau
-            rouleau={r}
-            commandes={commandes}
-            sousTraitants={soustraitants}
-            emplacements={emplacements.filter((e) => e.actif).map((e) => ({ code: e.code, libelle: e.libelle, zone: e.zone }))}
-            peutSaisir={peutSaisir}
-          />
+          {aMesurer?.ok ? (
+            <MesureFiche rouleau={aMesurer.rouleau} emplacements={emplacements.filter((e) => e.actif).map((e) => e.code)} />
+          ) : r.aMesurer ? (
+            <div className="rounded-lg border bg-card px-3 py-4 text-center text-xs text-muted-foreground">
+              {r.statut === "annule" ? "Étiquette annulée." : "Rouleau à mesurer : son métrage se saisit au scan."}
+            </div>
+          ) : (
+            <ActionsRouleau
+              rouleau={r}
+              commandes={commandes}
+              sousTraitants={soustraitants}
+              emplacements={emplacements.filter((e) => e.actif).map((e) => ({ code: e.code, libelle: e.libelle, zone: e.zone }))}
+              peutSaisir={peutSaisir}
+            />
+          )}
         </div>
       </div>
     </div>

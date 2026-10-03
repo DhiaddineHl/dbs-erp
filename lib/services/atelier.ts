@@ -65,7 +65,17 @@ export async function majPersonne(id: number, patch: Partial<typeof personnel.$i
   await db.update(personnel).set(patch).where(eq(personnel.id, id));
 }
 
+/** Supprimer une fiche qui a déjà des journées GPAO ferait perdre son
+ * historique (les journées garderaient un identifiant orphelin) : on la passe
+ * en « sortie », ou on la fusionne dans la bonne fiche. */
 export async function supprimerPersonne(id: number) {
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(journee)
+    .where(sql`${journee.ouvrieres} @> ${JSON.stringify([{ personnelId: id }])}::jsonb`);
+  if (n > 0) {
+    throw new Error(`Cette personne a ${n} journée(s) de production : la supprimer ferait perdre son historique. Passez-la en « sortie », ou fusionnez-la avec sa vraie fiche.`);
+  }
   await db.delete(personnel).where(eq(personnel.id, id));
 }
 

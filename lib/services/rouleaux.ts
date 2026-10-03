@@ -11,6 +11,8 @@ import {
   tissuLot,
   tissuMouvement,
   tissuReception,
+  tissuRecap,
+  tissuRecapLigne,
   tissuRouleau,
 } from "@/lib/db/schema";
 import * as rl from "@/lib/domain/rouleau";
@@ -27,6 +29,8 @@ export type RouleauRow = {
   code: string;
   statut: string;
   valide: boolean;
+  /** Étiquette posée avant la mesure (métrage à saisir au scan, ou annulée). */
+  aMesurer: boolean;
   valideLe: string;
   validePar: string;
   metrageInitial: number;
@@ -144,6 +148,7 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
       code: r.code,
       statut: r.statut,
       valide: r.valideLe != null,
+      aMesurer: r.aMesurer,
       valideLe: iso(r.valideLe),
       validePar: r.validePar,
       metrageInitial: r.metrageInitial,
@@ -293,9 +298,62 @@ export async function recalculerStatut(ex: Executeur, rouleauId: number) {
     .orderBy(asc(tissuMouvement.id));
   const b = rl.bilanRouleau(r.metrageInitial, ms);
   const derniere = [...rl.mouvementsEffectifs(ms)].reverse().find((m) => ["sortie", "rendu", "retour_fournisseur"].includes(m.sens));
-  const statut = rl.statutRouleau(r.valideLe != null, b, derniere?.sens === "rendu" || derniere?.sens === "retour_fournisseur" ? derniere.sens : null);
+  const statut = rl.statutRouleau(
+    r.valideLe != null,
+    b,
+    derniere?.sens === "rendu" || derniere?.sens === "retour_fournisseur" ? derniere.sens : null,
+    r.aMesurer ? (r.statut === "annule" ? "annule" : "a_mesurer") : null,
+  );
   if (statut !== r.statut) await ex.update(tissuRouleau).set({ statut }).where(eq(tissuRouleau.id, rouleauId));
   return { bilan: b, statut };
+}
+
+/** Déclare la CONSOMMATION (et la chute) d'un rouleau sorti — partagé par le
+ * scan (lib/actions/rouleaux → consommerRouleau) et la fiche de coupe
+ * (lib/services/coupe). Verrouille le rouleau, refuse plus que le tissu sorti
+ * non soldé, écrit les mouvements, recalcule le statut. Ne SORT rien du
+ * stock : la sortie a déjà été faite au magasin (pas de double déstockage). */
+export async function declarerConsommation(
+  ex: Executeur,
+  v: { code: string; consomme: number; chute: number; commandeId?: number | null; commandeLabel?: string; motif?: string; par: string; coupeFicheId?: number | null },
+): Promise<{ code: string; enCoupe: number }> {
+  const lu = rl.lireScan(v.code);
+  if (!lu || lu.type !== "rouleau") throw new Error("Ce n'est pas un code rouleau (R-AAAA-NNNNNN).");
+  const [r] = await ex.select().from(tissuRouleau).where(eq(tissuRouleau.code, lu.code)).for("update");
+  if (!r) throw new Error(`Rouleau ${lu.code} inconnu.`);
+  const ms = await ex
+    .select({ id: tissuMouvement.id, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId, commandeId: tissuMouvement.commandeId, commandeLabel: tissuMouvement.commandeLabel })
+    .from(tissuMouvement)
+    .where(eq(tissuMouvement.rouleauId, r.id))
+    .orderBy(asc(tissuMouvement.id));
+  const bilan = rl.bilanRouleau(r.metrageInitial, ms);
+  const refus = rl.refusConsommation(bilan, v.consomme, v.chute);
+  if (refus) throw new Error(`${r.code} : ${refus}`);
+  const derniere = [...rl.mouvementsEffectifs(ms)].reverse().find((m) => m.sens === "sortie");
+  const commandeId = v.commandeId ?? derniere?.commandeId ?? null;
+  const label = v.commandeLabel ?? (v.commandeId ? "" : (derniere?.commandeLabel ?? ""));
+  const base = { lotId: r.lotId, rouleauId: r.id, commandeId, commandeLabel: label, createdBy: v.par, coupeFicheId: v.coupeFicheId ?? null };
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  if (v.consomme > 0) await ex.insert(tissuMouvement).values({ ...base, sens: "consommation", quantite: r2(v.consomme), motif: (v.motif ?? "").trim() || "Consommation déclarée par la coupe" });
+  if (v.chute > 0) await ex.insert(tissuMouvement).values({ ...base, sens: "chute", quantite: r2(v.chute), motif: (v.motif ?? "").trim() || "Chute déclarée par la coupe" });
+  const st = await recalculerStatut(ex, r.id);
+  return { code: r.code, enCoupe: st?.bilan.enCoupe ?? 0 };
+}
+
+/** Étiquettes « à mesurer » : un code R-AAAA-NNNNNN chacun, 0 m, aucun
+ * mouvement — l'entrée en stock s'écrira au scan, avec le métrage mesuré
+ * (lib/actions/rouleaux → mesurerRouleau). */
+export async function creerEtiquettesAMesurer(ex: Executeur, lotId: number, n: number, par: string): Promise<number[]> {
+  const ids: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const code = await prochainCodeRouleau(ex);
+    const [row] = await ex
+      .insert(tissuRouleau)
+      .values({ code, lotId, metrageInitial: 0, aMesurer: true, statut: "a_mesurer", createdBy: par })
+      .returning({ id: tissuRouleau.id });
+    ids.push(row.id);
+  }
+  return ids;
 }
 
 /** Prochain code rouleau : séquence PostgreSQL (jamais deux fois le même). */
@@ -365,7 +423,7 @@ export type BonSortie = {
   /** Qui a sorti les rouleaux (plusieurs noms pour un bon établi après coup). */
   sortiPar: string[];
   motif: string;
-  lignes: { id: number; commande: string; code: string; lot: string; tissu: string; couleur: string; lotFournisseur: string; laize: number | null; quantite: number; unite: string; annule: boolean }[];
+  lignes: { id: number; commande: string; bon: string; code: string; lot: string; tissu: string; couleur: string; lotFournisseur: string; laize: number | null; quantite: number; unite: string; annule: boolean }[];
 };
 
 /** Un bon de sortie groupée, reconstitué depuis les mouvements qui le portent. */
@@ -375,7 +433,14 @@ export async function bonSortie(numero: string): Promise<BonSortie | null> {
     .from(tissuMouvement)
     .where(eq(tissuMouvement.bon, numero))
     .orderBy(asc(tissuMouvement.id));
-  const sorties = mvts.filter((m) => m.sens === "sortie");
+  return documentSorties(numero, mvts.filter((m) => m.sens === "sortie"));
+}
+
+type MouvementSortie = typeof tissuMouvement.$inferSelect;
+
+/** Le document (bon BST ou récapitulatif BSR) construit depuis ses mouvements
+ * de sortie : une ligne par sortie, barrée si elle a été annulée depuis. */
+async function documentSorties(numero: string, sorties: MouvementSortie[]): Promise<BonSortie | null> {
   if (!sorties.length) return null;
   const annules = new Set(
     (await db.select({ annuleId: tissuMouvement.annuleId }).from(tissuMouvement).where(inArray(tissuMouvement.annuleId, sorties.map((m) => m.id)))).map(
@@ -397,12 +462,13 @@ export async function bonSortie(numero: string): Promise<BonSortie | null> {
     // Une seule commande : en tête du bon ; plusieurs : « Plusieurs », détail par ligne.
     commandeLabel: labels.length === 1 ? labels[0] : "",
     plusieursCommandes: labels.length > 1,
-    motif: m0.motif === numero || /^Sortie /.test(m0.motif) ? "" : m0.motif,
+    motif: m0.motif === numero || m0.motif === m0.bon || /^Sortie /.test(m0.motif) ? "" : m0.motif,
     lignes: sorties.map((m) => {
       const r = rs.get(m.rouleauId!);
       return {
         id: m.id,
         commande: m.commandeLabel,
+        bon: m.bon,
         code: r?.code ?? "?",
         lot: r?.lot.identifiant ?? "",
         tissu: [r?.lot.reference, r?.lot.composition].filter(Boolean).join(" · "),
@@ -415,6 +481,57 @@ export async function bonSortie(numero: string): Promise<BonSortie | null> {
       };
     }),
   };
+}
+
+/* ─────────── bons récapitulatifs (BSR) ─────────── */
+
+export type BonRecap = BonSortie & {
+  /** Bons BST d'origine regroupés (ils restent valables et intacts). */
+  bonsOrigine: string[];
+  emisLe: string;
+  emisPar: string;
+};
+
+export async function recapSortie(numero: string): Promise<BonRecap | null> {
+  const [rc] = await db.select().from(tissuRecap).where(eq(tissuRecap.numero, numero));
+  if (!rc) return null;
+  const sorties = await db
+    .select({ m: tissuMouvement })
+    .from(tissuRecapLigne)
+    .innerJoin(tissuMouvement, eq(tissuRecapLigne.mouvementId, tissuMouvement.id))
+    .where(eq(tissuRecapLigne.recapId, rc.id))
+    .orderBy(asc(tissuMouvement.id));
+  const doc = await documentSorties(numero, sorties.map((x) => x.m));
+  if (!doc) return null;
+  return {
+    ...doc,
+    motif: rc.note,
+    bonsOrigine: [...new Set(doc.lignes.map((l) => l.bon).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr", { numeric: true })),
+    emisLe: iso(rc.createdAt),
+    emisPar: rc.createdBy,
+  };
+}
+
+/** Derniers bons récapitulatifs (pour les réimprimer). */
+export async function listRecaps(limite = 20) {
+  const rcs = await db.select().from(tissuRecap).orderBy(desc(tissuRecap.id)).limit(limite);
+  if (!rcs.length) return [];
+  const lignes = await db
+    .select({ recapId: tissuRecapLigne.recapId, quantite: tissuMouvement.quantite, rouleauId: tissuMouvement.rouleauId, bon: tissuMouvement.bon })
+    .from(tissuRecapLigne)
+    .innerJoin(tissuMouvement, eq(tissuRecapLigne.mouvementId, tissuMouvement.id))
+    .where(inArray(tissuRecapLigne.recapId, rcs.map((r) => r.id)));
+  return rcs.map((rc) => {
+    const ls = lignes.filter((l) => l.recapId === rc.id);
+    return {
+      numero: rc.numero,
+      date: iso(rc.createdAt),
+      lieu: rl.lieuSortie({ destination: rc.destination, faconnierNom: rc.faconnierNom }),
+      rouleaux: new Set(ls.map((l) => l.rouleauId)).size,
+      metrage: Math.round(ls.reduce((s, l) => s + l.quantite, 0) * 100) / 100,
+      bons: [...new Set(ls.map((l) => l.bon).filter(Boolean))],
+    };
+  });
 }
 
 /** Derniers bons de sortie groupée (pour les réimprimer). */

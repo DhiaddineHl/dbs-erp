@@ -38,6 +38,8 @@ export type RouleauLot = {
   emplacement: string;
   observations: string;
   valide: boolean;
+  /** Étiquette posée, métrage à saisir au scan (statut a_mesurer ou annule). */
+  aMesurer: boolean;
   bilan: rl.BilanRouleau;
 };
 
@@ -89,6 +91,8 @@ export type LotRow = {
   rouleaux: RouleauLot[];
   /** Tissu des rouleaux sorti et pas encore revenu / déclaré (en coupe). */
   enCoupe: number;
+  /** Rouleaux étiquetés dont le métrage reste à saisir au scan. */
+  aMesurer: number;
   archive: boolean;
   archiveLe: string;
   archivePar: string;
@@ -193,8 +197,10 @@ export async function listLots(): Promise<LotRow[]> {
       emplacement: emplacement ?? "",
       observations: r.observations,
       valide: r.valideLe != null,
+      aMesurer: r.aMesurer,
       bilan: rl.bilanRouleau(r.metrageInitial, parRouleauMvt.get(r.id) ?? []),
     }));
+    const aMesurer = rls.filter((r) => r.statut === "a_mesurer").length;
     const enCoupe = Math.round(rls.reduce((s, r) => s + r.bilan.enCoupe, 0) * 100) / 100;
     return {
       id: l.id,
@@ -225,12 +231,15 @@ export async function listLots(): Promise<LotRow[]> {
       /* Contrôle par rouleau : les vrais rouleaux font foi dès qu'ils existent. */
       ecarts: tx.ecartsReception({
         ...l,
+        aMesurer,
         rouleaux: (parRouleau.get(l.id) ?? []).length
-          ? (parRouleau.get(l.id) ?? []).map(({ r }) => ({ n: r.code, annonce: r.metrageAnnonce, mesure: r.metrageInitial, laize: r.laize, defauts: r.observations }))
+          ? (parRouleau.get(l.id) ?? [])
+              .filter(({ r }) => !r.aMesurer)
+              .map(({ r }) => ({ n: r.code, annonce: r.metrageAnnonce, mesure: r.metrageInitial, laize: r.laize, defauts: r.observations }))
           : (l.rouleaux ?? []),
       }),
       bilan,
-      statut: tx.statutLot(bilan),
+      statut: tx.statutLot(bilan, aMesurer),
       affectations: a.map((x) => ({
         id: x.id,
         commandeId: x.commandeId,
@@ -257,10 +266,11 @@ export async function listLots(): Promise<LotRow[]> {
       })),
       rouleaux: rls,
       enCoupe,
+      aMesurer,
       archive: l.archive,
       archiveLe: iso(l.archiveLe),
       archivePar: l.archivePar,
-      rangement: tx.rangementLot({ archive: l.archive, bilan, enCoupe }),
+      rangement: tx.rangementLot({ archive: l.archive, bilan, enCoupe, aMesurer }),
     };
   });
 }
@@ -380,10 +390,13 @@ export async function couvertureTissuParCommande(): Promise<Map<number, Couvertu
     e.affecte += a.quantite;
     if (a.ident && !e.lots.includes(a.ident)) e.lots.push(a.ident);
   }
+  // Sorti NET : un retour au magasin annule la part correspondante de la sortie.
   for (const m of mvts) {
-    if (m.commandeId == null || m.sens !== "sortie") continue;
-    get(m.commandeId).consomme += m.quantite;
+    if (m.commandeId == null) continue;
+    if (m.sens === "sortie") get(m.commandeId).consomme += m.quantite;
+    else if (m.sens === "retour") get(m.commandeId).consomme -= m.quantite;
   }
+  for (const e of out.values()) e.consomme = Math.max(0, Math.round(e.consomme * 100) / 100);
   return out;
 }
 

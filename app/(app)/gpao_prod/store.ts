@@ -62,7 +62,7 @@ export type Journee = {
 };
 /** Registre du personnel, tel que l'écran GPAO en a besoin : de quoi proposer
  * un nom et le relier à sa fiche. Le reste de la fiche vit dans /personnel. */
-export type Personne = { id: number; matricule: string; nom: string; fonction: string };
+export type Personne = { id: number; matricule: string; nom: string; fonction: string; /** Sortie de l'entreprise : plus proposée à la saisie, son passé reste lisible. */ sortie?: boolean };
 /** Opération du catalogue : sert à proposer un libellé et son temps standard. */
 export type OperationRef = { id: number; nom: string; sam: number };
 /** Commande attribuée à DBS (interne), pour pré-remplir un modèle GPAO. */
@@ -73,6 +73,8 @@ export type GpaoState = {
   chaines: Chaine[];
   journees: Journee[];
   personnes: Personne[];
+  /** Mémoire des fusions de fiches (ancienne fiche → fiche gardée). */
+  fusions?: rp.FusionFiche[];
   operations: OperationRef[];
   reglages: Reglages;
   nextOuvId: number;
@@ -220,7 +222,7 @@ export const ouvKey = (o: { personnelId?: number | null; nom: string }) =>
 
 export function makeOuvKey(s: GpaoState) {
   const lignes = s.chaines.flatMap((c) => c.ouvrieres.map((o) => ({ id: o.id, nom: o.nom, personnelId: o.personnelId })));
-  const resoudre = rp.resolveurIdentite(s.personnes, lignes);
+  const resoudre = rp.resolveurIdentite(s.personnes, lignes, s.fusions ?? []);
   return (o: { id?: number; personnelId?: number | null; nom: string }) =>
     resoudre({ id: o.id ?? 0, nom: o.nom, personnelId: o.personnelId });
 }

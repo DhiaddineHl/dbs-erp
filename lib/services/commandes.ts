@@ -1,12 +1,13 @@
 import "server-only";
 import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { chaine, client, commande, commandePrixJournal, faconnier, modele, ofSupprime } from "@/lib/db/schema";
+import { blLigne, br, chaine, client, commande, commandePlan, commandePrixJournal, coupe, faconnier, modele, ofSupprime, tissuMouvement } from "@/lib/db/schema";
 import type { Taille } from "@/lib/db/schema";
 import type { Tone } from "@/components/shared/status-badge";
 import * as biz from "@/lib/domain/commande";
 import { getSetting } from "@/lib/services/permissions";
 import { couvertureTissuParCommande } from "@/lib/services/tissu";
+import { idsFreres, recalculerProduitGroupe } from "@/lib/services/avancement";
 
 /* Read models. Amounts and dates come out of the DB typed; every status-like
  * field is computed here from lib/domain/commande.ts rather than stored. */
@@ -89,6 +90,8 @@ export type CommandeRow = {
   tissuRecu: number;
   besoinTissu: number;
   ecartTissu: number | null;
+  /** OF porteur qui gère la matière de cette ligne (OF réuni / part), sinon "". */
+  matierePorteur: string;
   /* Couverture depuis le magasin tissu par lots. */
   tissuAffecte: number;
   tissuConsomme: number;
@@ -115,6 +118,8 @@ export type CommandeRow = {
   statutManuel: string;
   retard: [Tone, string];
   retardJours: number | null;
+  /** active | terminee (livrée ET facturée) | archivee — voir biz.etatCycle. */
+  cycle: biz.EtatCycle;
 };
 
 export type ClientRow = {
@@ -231,6 +236,8 @@ export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow
         ? { ...c, produit: contrat.produit, factureQte: contrat.factureQte }
         : c;
       const statutKey = biz.statutEffectif(pourAffichage, ctx);
+      // OF réuni ou part : le tissu est acheté et suivi sur l'OF porteur.
+      const matierePorteur = (c.parentId != null && parId.get(c.parentId)?.ofNumber) || "";
       const r = biz.retard(pourAffichage, now);
 
       return {
@@ -287,7 +294,14 @@ export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow
          * une fois pour la référence, pas une fois par OF. Sur une ligne sans
          * sous-commande, la quantité du groupe est la sienne. */
         besoinTissu: biz.besoinTissu(c, chuteDefaut, groupe.qte),
-        ecartTissu: biz.ecartTissu(c, chuteDefaut, groupe.qte),
+        /* L'écart se mesure sur ce qui a été RÉSERVÉ depuis les lots quand il
+         * y en a (comme la Nomenclature), sinon sur l'ancien champ « reçu ».
+         * Un OF rattaché n'a pas d'écart propre : sa matière est celle du
+         * porteur, la compter deux fois ferait croire à un manque. */
+        ecartTissu: matierePorteur
+          ? null
+          : biz.ecartTissu({ ...c, tissuRecu: (couvertureTissu.get(c.id)?.affecte ?? 0) > 0 ? couvertureTissu.get(c.id)!.affecte : c.tissuRecu }, chuteDefaut, groupe.qte),
+        matierePorteur,
         tissuAffecte: couvertureTissu.get(c.id)?.affecte ?? 0,
         tissuConsomme: couvertureTissu.get(c.id)?.consomme ?? 0,
         tissuLots: couvertureTissu.get(c.id)?.lots ?? [],
@@ -309,6 +323,7 @@ export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow
         statutKey,
         statut: biz.statutBadge(statutKey),
         statutManuel: c.statutManuel ?? "",
+        cycle: biz.etatCycle(c),
         retard: [r.tone, r.label] as [Tone, string],
         retardJours: r.jours,
       };
@@ -654,6 +669,11 @@ export async function updateCommande(
   patch: Partial<CommandeInput>,
   auteur: { id?: string; name: string },
 ) {
+  /* Quantité, modèle, client, date d'export ou façonnier changent la
+   * répartition de la production GPAO entre OF frères : on recalcule
+   * l'ancien groupe et le nouveau. */
+  const repartitionTouchee = (["qte", "modele", "clientId", "dateExport", "faconnierId"] as const).some((k) => k in patch);
+  const anciensFreres = repartitionTouchee ? await idsFreres(db, id) : [];
   await db.transaction(async (tx) => {
     const [before] = await tx.select().from(commande).where(eq(commande.id, id));
     if (!before) throw new Error("Commande introuvable");
@@ -676,6 +696,11 @@ export async function updateCommande(
       }));
     if (mouvements.length) await tx.insert(commandePrixJournal).values(mouvements);
   });
+  if (repartitionTouchee) {
+    await recalculerProduitGroupe(db, id);
+    const ancien = anciensFreres.find((x) => x !== id);
+    if (ancien != null) await recalculerProduitGroupe(db, ancien);
+  }
 }
 
 /** Delete commandes and tombstone their OF numbers so a re-import can't
@@ -697,6 +722,14 @@ export async function deleteCommandes(ids: number[], parUserId?: string) {
       .where(inArray(commande.parentId, ids));
 
     const regroupes = enfants.filter((e) => e.lien === "regroupement").map((e) => e.id);
+    const visees = [...new Set([...ids, ...enfants.filter((e) => e.lien === "decoupe").map((e) => e.id)])];
+
+    /* Garde-fou : une commande qui a déjà une histoire (coupe, plan, réception,
+     * BL, tissu, production, facture) ne s'efface pas — la cascade emporterait
+     * cet historique. On l'archive. Contrôlé AVANT toute écriture. */
+    const refus = await refusSuppression(tx, visees);
+    if (refus) throw new Error(refus);
+
     if (regroupes.length)
       await tx
         .update(commande)
@@ -719,6 +752,39 @@ export async function deleteCommandes(ids: number[], parUserId?: string) {
         .onConflictDoNothing({ target: ofSupprime.ofNumber });
     }
   });
+}
+
+/** La commande a-t-elle des lâchers / fiches de coupe ? (son coupé en découle) */
+export async function aDesCoupes(id: number): Promise<boolean> {
+  const [r] = await db.select({ id: coupe.id }).from(coupe).where(eq(coupe.commandeId, id)).limit(1);
+  return !!r;
+}
+
+/** Premier motif qui interdit de supprimer ces commandes (voir
+ * biz.motifRefusSuppression), null si toutes sont vierges. */
+async function refusSuppression(ex: Pick<typeof db, "select">, ids: number[]): Promise<string | null> {
+  if (!ids.length) return null;
+  const compte = async (table: typeof coupe | typeof br | typeof tissuMouvement | typeof blLigne, col: typeof coupe.commandeId | typeof br.commandeId | typeof tissuMouvement.commandeId | typeof blLigne.commandeId) => {
+    const rows = await ex.select({ id: col, n: sql<number>`count(*)::int` }).from(table).where(inArray(col, ids)).groupBy(col);
+    return new Map(rows.map((r) => [r.id as number, r.n]));
+  };
+  const [lignes, coupes, receptions, mouvements, livraisons, plans] = await Promise.all([
+    ex.select({ id: commande.id, of: commande.ofNumber, produit: commande.produit, factureQte: commande.factureQte, facNums: commande.facNums }).from(commande).where(inArray(commande.id, ids)),
+    compte(coupe, coupe.commandeId),
+    compte(br, br.commandeId),
+    compte(tissuMouvement, tissuMouvement.commandeId),
+    compte(blLigne, blLigne.commandeId),
+    ex.select({ id: commandePlan.commandeId }).from(commandePlan).where(inArray(commandePlan.commandeId, ids)),
+  ]);
+  const avecPlan = new Set(plans.map((p) => p.id));
+  for (const c of lignes) {
+    const motif = biz.motifRefusSuppression({
+      of: c.of, coupes: coupes.get(c.id) ?? 0, plan: avecPlan.has(c.id), receptions: receptions.get(c.id) ?? 0,
+      livraisons: livraisons.get(c.id) ?? 0, mouvementsTissu: mouvements.get(c.id) ?? 0, produit: c.produit, factureQte: c.factureQte, facNums: c.facNums ?? [],
+    });
+    if (motif) return motif;
+  }
+  return null;
 }
 
 /** Nom du modèle porté par une commande. Sert à rafraîchir la fiche GPAO du

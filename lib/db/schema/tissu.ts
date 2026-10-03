@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
-import { type AnyPgColumn, boolean, date, doublePrecision, index, integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { commande } from "./commande";
+import { coupeFiche } from "./aval";
 import { faconnier } from "./referentiel";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -176,6 +177,10 @@ export const tissuMouvement = pgTable(
     faconnierNom: text().notNull().default(""),
     /** Bon de sortie groupée (BST-AAAA-NNN) qui a emporté le rouleau. */
     bon: text().notNull().default(""),
+    /** Fiche de coupe (CP-AAAA-NNN) à laquelle cette consommation se rattache :
+     * « cette coupe a été faite avec ces rouleaux ». S'inscrit une fois ; ne
+     * se détache que si la fiche est annulée. */
+    coupeFicheId: integer().references((): AnyPgColumn => coupeFiche.id, { onDelete: "set null" }),
     /** Correction / déplacement : valeur d'avant et d'après (lisible). */
     valeurAvant: text().notNull().default(""),
     valeurApres: text().notNull().default(""),
@@ -188,6 +193,7 @@ export const tissuMouvement = pgTable(
     index("tissu_mouvement_lot_idx").on(t.lotId),
     index("tissu_mouvement_rouleau_idx").on(t.rouleauId),
     index("tissu_mouvement_bon_idx").on(t.bon),
+    index("tissu_mouvement_coupe_fiche_idx").on(t.coupeFicheId),
   ],
 );
 
@@ -221,13 +227,17 @@ export const tissuRouleau = pgTable(
     lotId: integer()
       .notNull()
       .references(() => tissuLot.id, { onDelete: "cascade" }),
-    /** Métrage mesuré à la réception : figé. */
+    /** Métrage mesuré à la réception : figé. 0 tant que le rouleau est
+     * « à mesurer » (étiquette imprimée avant la mesure) — il est alors écrit
+     * UNE fois, au scan du magasinier, puis figé comme les autres. */
     metrageInitial: doublePrecision().notNull(),
+    /** Étiquette imprimée avant la mesure : métrage à saisir au scan. */
+    aMesurer: boolean().notNull().default(false),
     /** Métrage étiqueté par le fournisseur (contrôle), facultatif. */
     metrageAnnonce: doublePrecision(),
     laize: doublePrecision(),
     poids: doublePrecision(),
-    /** en_attente | en_stock | sorti | epuise | rendu | retourne — tenu à jour par le service. */
+    /** a_mesurer | en_attente | en_stock | sorti | epuise | rendu | retourne | annule — tenu à jour par le service. */
     statut: text().notNull().default("en_attente"),
     emplacementId: integer().references(() => tissuEmplacement.id, { onDelete: "set null" }),
     observations: text().notNull().default(""),
@@ -237,6 +247,33 @@ export const tissuRouleau = pgTable(
     createdAt: timestamp().notNull().defaultNow(),
   },
   (t) => [index("tissu_rouleau_lot_idx").on(t.lotId), index("tissu_rouleau_statut_idx").on(t.statut)],
+);
+
+/** Bon RÉCAPITULATIF (BSR-AAAA-NNN) : un seul document pour des rouleaux
+ * déjà partis chez un même destinataire, qu'ils aient ou non chacun leur bon
+ * BST. Il ne touche à rien : il désigne les mouvements de sortie qu'il
+ * regroupe, les bons d'origine restent intacts. */
+export const tissuRecap = pgTable("tissu_recap", {
+  id: serial().primaryKey(),
+  numero: text().notNull().unique(),
+  destination: text().notNull().default(""),
+  faconnierNom: text().notNull().default(""),
+  note: text().notNull().default(""),
+  createdBy: text().notNull().default(""),
+  createdAt: timestamp().notNull().defaultNow(),
+});
+
+export const tissuRecapLigne = pgTable(
+  "tissu_recap_ligne",
+  {
+    recapId: integer()
+      .notNull()
+      .references(() => tissuRecap.id, { onDelete: "cascade" }),
+    mouvementId: integer()
+      .notNull()
+      .references(() => tissuMouvement.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.recapId, t.mouvementId] }), index("tissu_recap_ligne_mvt_idx").on(t.mouvementId)],
 );
 
 /** Inventaire par scan : une session, puis un scan par rouleau trouvé. */

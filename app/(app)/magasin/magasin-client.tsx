@@ -8,7 +8,7 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CONTROLES_BR, ETATS_MAGASIN, type EtatMagasin } from "@/lib/domain/aval";
+import { aEntrerInterne, CONTROLES_BR, ETATS_MAGASIN, type EtatMagasin } from "@/lib/domain/aval";
 import type { BrRow, CommandeAval, MouvementRow } from "@/lib/services/aval";
 import * as A from "@/lib/actions/aval";
 import { BoutonAction, Kpi, Tuiles } from "../aval/ui";
@@ -57,7 +57,7 @@ export function MagasinClient({
       aExpedier: actives.filter((c) => c.stockQte > 0).length,
       ncAttente: brs.reduce((s, b) => s + b.ncAttente, 0),
       tauxNc: recu > 0 ? Math.round((nc / recu) * 1000) / 10 : 0,
-      aEntrer: commandes.reduce((s, c) => s + Math.max(0, c.produitGpao - c.entreesInternes), 0),
+      aEntrer: commandes.reduce((s, c) => s + aEntrerInterne(c), 0),
     };
   }, [commandes, brs]);
 
@@ -164,7 +164,7 @@ function OngletStock({
         case "stock":
           return c.stockQte > 0;
         case "entrer":
-          return c.produitGpao > c.entreesInternes;
+          return aEntrerInterne(c) > 0;
         case "nc":
           return c.ncAttente > 0;
         default:
@@ -226,7 +226,7 @@ function OngletStock({
               lignes.map((c) => {
                 const e = ETATS_MAGASIN[c.etatMagasin];
                 const interne = !c.faconnier;
-                const aEntrer = Math.max(0, c.produitGpao - c.entreesInternes);
+                const aEntrer = aEntrerInterne(c);
                 const qc = QC[c.qcFinal] ?? QC[""];
                 const pct = c.qte > 0 ? Math.min(100, Math.round((c.expedieQte / c.qte) * 100)) : 0;
                 return (
@@ -241,6 +241,14 @@ function OngletStock({
                     <td className="px-3 py-2 text-right tabular-nums">
                       {nb.format(c.produit)}
                       {aEntrer > 0 && <div className="text-[10px] font-semibold text-brand">+{nb.format(aEntrer)} à entrer</div>}
+                      {c.gpaoExcedent > 0 && (
+                        <div
+                          className="text-[10px] font-semibold text-warning-foreground"
+                          title="La GPAO a compté plus de pièces que cette commande et ses OF frères (même client, même modèle) n'en demandent. Ces pièces ne sont pas proposées à l'entrée : vérifiez la saisie GPAO ou le rattachement du modèle."
+                        >
+                          ⚠ production GPAO en trop : {nb.format(c.gpaoExcedent)} pcs, à vérifier
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{nb.format(c.magasinQte)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">

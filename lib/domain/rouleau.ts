@@ -62,14 +62,16 @@ export function lieuSortie(m: { destination: string; faconnierNom?: string }): s
   return destinationLabel(m.destination);
 }
 
-export type StatutRouleau = "en_attente" | "en_stock" | "sorti" | "epuise" | "rendu" | "retourne";
+export type StatutRouleau = "a_mesurer" | "en_attente" | "en_stock" | "sorti" | "epuise" | "rendu" | "retourne" | "annule";
 export const STATUTS_ROULEAU: Record<StatutRouleau, { label: string; tone: Tone }> = {
+  a_mesurer: { label: "À mesurer (scan)", tone: "warning" },
   en_attente: { label: "En attente de réception", tone: "warning" },
   en_stock: { label: "En stock", tone: "success" },
   sorti: { label: "Sorti (en coupe)", tone: "brand" },
   epuise: { label: "Épuisé", tone: "neutral" },
   rendu: { label: "Rendu au client", tone: "purple" },
   retourne: { label: "Retourné au fournisseur", tone: "purple" },
+  annule: { label: "Étiquette annulée", tone: "neutral" },
 };
 export const statutLabel = (s: string) => STATUTS_ROULEAU[s as StatutRouleau] ?? { label: s, tone: "neutral" as Tone };
 
@@ -118,7 +120,14 @@ export function bilanRouleau(initial: number, mvts: MouvementRouleau[]): BilanRo
 }
 
 /** Statut déduit : jamais saisi à la main. */
-export function statutRouleau(valide: boolean, b: BilanRouleau, derniereSortieHors?: "rendu" | "retour_fournisseur" | null): StatutRouleau {
+export function statutRouleau(
+  valide: boolean,
+  b: BilanRouleau,
+  derniereSortieHors?: "rendu" | "retour_fournisseur" | null,
+  /** Étiquette imprimée avant la mesure : pas encore mesurée, ou annulée (rouleau en moins). */
+  etiquette?: "a_mesurer" | "annule" | null,
+): StatutRouleau {
+  if (etiquette) return etiquette;
   if (!valide) return "en_attente";
   if (b.disponible > 0.001) return "en_stock";
   if (b.enCoupe > 0.001) return "sorti";
@@ -279,6 +288,8 @@ export type IndicateursRouleaux = {
   metrageRetour: number;
   sansEmplacement: number;
   enAttente: number;
+  /** Étiquettes collées, métrage pas encore saisi au scan. */
+  aMesurer: number;
   sortisNonConsommes: number;
   metrageEnCoupe: number;
 };
@@ -286,10 +297,11 @@ export type IndicateursRouleaux = {
 export function indicateurs(rouleaux: { statut: string; emplacement: string; bilan: BilanRouleau }[]): IndicateursRouleaux {
   const i: IndicateursRouleaux = {
     enStock: 0, metrageDisponible: 0, metrageSorti: 0, metrageConsomme: 0, metrageChute: 0, metrageRetour: 0,
-    sansEmplacement: 0, enAttente: 0, sortisNonConsommes: 0, metrageEnCoupe: 0,
+    sansEmplacement: 0, enAttente: 0, aMesurer: 0, sortisNonConsommes: 0, metrageEnCoupe: 0,
   };
   for (const r of rouleaux) {
     if (r.statut === "en_attente") i.enAttente++;
+    if (r.statut === "a_mesurer") i.aMesurer++;
     if (r.statut !== "en_attente" && r.bilan.disponible > 0.001) {
       i.enStock++;
       i.metrageDisponible += r.bilan.disponible;
@@ -312,20 +324,41 @@ export function indicateurs(rouleaux: { statut: string; emplacement: string; bil
 
 export type MouvementSortieBon = MouvementRouleau & { destination: string; faconnierNom: string; bon: string };
 
-/** Pour UN rouleau : les sorties à porter sur un bon établi après coup.
- * On part de sa DERNIÈRE sortie effective (là où il est parti) et on y joint
- * les autres sorties sans bon vers le même lieu (sortie en deux fois).
- * `dejaSur` : la dernière sortie figure déjà sur ce bon (rien à ajouter). */
-export function sortiesPourBon<T extends MouvementSortieBon>(mvts: T[]): { lieu: string; destination: string; faconnierNom: string; aPorter: T[]; dejaSur: string } | null {
+/** Pour UN rouleau : son DERNIER ENVOI — sa dernière sortie effective et
+ * celles qui la précèdent vers le même lieu (sortie en deux fois), jusqu'à une
+ * sortie ailleurs. C'est ce que portent un bon établi après coup (seulement
+ * les sorties encore sans bon : `aPorter`) et un bon récapitulatif (tout
+ * l'envoi : `envoi`, avec les bons d'origine).
+ * `dejaSur` : la dernière sortie figure déjà sur ce bon. */
+export function sortiesPourBon<T extends MouvementSortieBon>(
+  mvts: T[],
+): { lieu: string; destination: string; faconnierNom: string; envoi: T[]; aPorter: T[]; dejaSur: string } | null {
   const sorties = mouvementsEffectifs(mvts).filter((m) => m.sens === "sortie");
   const derniere = sorties.at(-1);
   if (!derniere) return null;
   const memeLieu = (m: T) => m.destination === derniere.destination && (m.faconnierNom ?? "") === (derniere.faconnierNom ?? "");
+  const envoi: T[] = [];
+  for (let i = sorties.length - 1; i >= 0 && memeLieu(sorties[i]); i--) envoi.unshift(sorties[i]);
   return {
     lieu: lieuSortie(derniere),
     destination: derniere.destination,
     faconnierNom: derniere.faconnierNom ?? "",
-    aPorter: sorties.filter((m) => !m.bon && memeLieu(m)),
+    envoi,
+    aPorter: envoi.filter((m) => !m.bon),
     dejaSur: derniere.bon,
   };
+}
+
+/* ─────────── rouleau « à mesurer » : la saisie au scan ─────────── */
+
+/** Contrôle du métrage tapé au scan. `annonceParRouleau` = métrage moyen
+ * attendu (BL ÷ nombre de rouleaux) : un chiffre très éloigné est sans doute
+ * une faute de frappe (350 pour 35,0) — on le signale sans l'interdire. */
+export function controleMesure(metrage: number, annonceParRouleau: number | null): { refus: string | null; alerte: string | null } {
+  if (!(metrage > 0)) return { refus: "Tapez le métrage du rouleau.", alerte: null };
+  if (metrage > 5000) return { refus: "Métrage invraisemblable (plus de 5 000).", alerte: null };
+  if (annonceParRouleau && annonceParRouleau > 0 && (metrage > annonceParRouleau * 2.5 || metrage < annonceParRouleau / 4)) {
+    return { refus: null, alerte: `${metrage} ? Le BL annonce environ ${r2(annonceParRouleau)} par rouleau. Vérifiez avant de valider.` };
+  }
+  return { refus: null, alerte: null };
 }

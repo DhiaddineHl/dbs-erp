@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { chaine, client, commande, faconnier, journee, modele, ouvriere } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 import * as biz from "@/lib/domain/commande";
-import { recalculerProduit } from "@/lib/services/avancement";
+import { recalculerProduitGroupe } from "@/lib/services/avancement";
 
 /* Reads return shapes aligned with app/(app)/gpao_prod/store.ts so the future
  * UI wiring is a near drop-in for the localStorage store. */
@@ -65,8 +65,8 @@ export async function lierModeleCommande(modeleId: number, commandeId: number | 
   const [avant] = await db.select({ commandeId: modele.commandeId }).from(modele).where(eq(modele.id, modeleId));
   await db.update(modele).set({ commandeId }).where(eq(modele.id, modeleId));
   await synchroniserAvancementModele(modeleId);
-  // La commande quittée perd la production de ce modèle.
-  if (avant?.commandeId != null && avant.commandeId !== commandeId) await recalculerProduit(db, avant.commandeId);
+  // La commande quittée (et ses OF frères) perd la production de ce modèle.
+  if (avant?.commandeId != null && avant.commandeId !== commandeId) await recalculerProduitGroupe(db, avant.commandeId);
 }
 
 /** Fixe (ou efface) le prix de vente manuel d'un modèle (€/pièce). */
@@ -241,8 +241,10 @@ export async function updateModele(id: number, patch: Partial<typeof modele.$inf
 export async function synchroniserAvancementModele(modeleId: number): Promise<void> {
   const [m] = await db.select({ commandeId: modele.commandeId }).from(modele).where(eq(modele.id, modeleId));
   if (!m || m.commandeId == null) return;
-  // Même calcul que le magasin : GPAO + réceptions façonniers + retouches.
-  await recalculerProduit(db, m.commandeId);
+  /* Même calcul que le magasin : GPAO + réceptions façonniers + retouches.
+   * Les OF frères (même client, même modèle) sont recalculés aussi : le
+   * surplus de ce modèle leur revient. */
+  await recalculerProduitGroupe(db, m.commandeId);
 }
 
 /** Comme synchroniserAvancementModele, mais à partir d'une journée : retrouve

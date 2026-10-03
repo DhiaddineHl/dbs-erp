@@ -306,7 +306,12 @@ export async function listPreparation(): Promise<PreparationRow[]> {
        * pour la référence, pas pour l'OF. Sur une ligne autonome, la quantité
        * du groupe est la sienne — le chiffre ne change pas. */
       besoinTissu: biz.besoinTissu(c, chuteDefaut, qteGroupe),
-      ecartTissu: biz.ecartTissu({ ...c, tissuRecu: tissuRecuEff }, chuteDefaut, qteGroupe),
+      /* Pour un OF rattaché, le tissu affiché est celui du porteur : on le
+       * compare au besoin de TOUT le groupe du porteur, pas au seul besoin de
+       * l'OF — sinon la matière du groupe passerait pour un excédent. */
+      ecartTissu: porteur
+        ? biz.ecartTissu({ ...porteur, tissuRecu: tissuRecuEff }, chuteDefaut, biz.totauxGroupe(porteur, enfantsDe.get(porteur.id) ?? []).qte)
+        : biz.ecartTissu({ ...c, tissuRecu: tissuRecuEff }, chuteDefaut, qteGroupe),
       ecartConsoPct: fx.ecartConsommationPct(c),
 
       /* Ce que la ligne AFFICHE en matière est ce que son porteur a saisi :

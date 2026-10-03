@@ -19,7 +19,7 @@ import {
   retcol,
   today,
 } from "./store";
-import { periodeGenerale, synthese, PERIODE_GENERALE_JOURS } from "@/lib/domain/rendement-personne";
+import { joursDansPlage, periodeGenerale, synthese, PERIODE_GENERALE_JOURS } from "@/lib/domain/rendement-personne";
 
 type HRow = {
   date: string;
@@ -42,10 +42,15 @@ type HRow = {
  * rendement-personne) : même identité et même calcul que l'écran TV, la carte
  * QR et le portail QR. Un jour = exactement le rendement affiché à la TV ; une
  * période = Σ minutes gagnées ÷ Σ heures, arrondi une seule fois. */
-function computeHisto(state: GpaoState, cle: string, from: string, to: string) {
+function computeHisto(state: GpaoState, cle: string, from: string, to: string, min: number | null = null, max: number | null = null) {
   const info = ouvrieresConnues(state).find((x) => x.cle === cle);
   if (!info) return null;
-  const jours = (joursParPersonne(state).get(cle) ?? []).filter((j) => j.date >= from && j.date <= to);
+  const periode = (joursParPersonne(state).get(cle) ?? []).filter((j) => j.date >= from && j.date <= to);
+  /* Filtre X–Y appliqué au rendement de CHAQUE journée (celui de l'écran du
+     jour) : une journée hors plage sort du résultat, et la moyenne est
+     recalculée sur les journées retenues. */
+  const filtre = min != null || max != null;
+  const jours = joursDansPlage(periode, min, max);
 
   const rows: HRow[] = jours.map((jp) => {
     const j = jp.meta;
@@ -66,7 +71,7 @@ function computeHisto(state: GpaoState, cle: string, from: string, to: string) {
     };
   });
   const bilan = synthese(jours);
-  return { ouv: info, from, to, rows, bilan };
+  return { ouv: info, from, to, rows, bilan, joursPeriode: periode.length, filtre: filtre ? { min, max } : null };
 }
 
 /* Recherche transversale : toutes les personnes dont le rendement de la
@@ -102,7 +107,10 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
   const defaultFrom = useMemo(() => periodeGenerale(today()).from, []);
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(today());
-  const [query, setQuery] = useState<{ cle: string; from: string; to: string } | null>(null);
+  const [query, setQuery] = useState<{ cle: string; from: string; to: string; min: number | null; max: number | null } | null>(null);
+  // Filtre du rendement de chaque journée (vide = toutes les journées).
+  const [jourMin, setJourMin] = useState("");
+  const [jourMax, setJourMax] = useState("");
 
   // Recherche par seuil de rendement (point 2).
   const [seuilMin, setSeuilMin] = useState("80");
@@ -110,7 +118,7 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
   const [seuilQuery, setSeuilQuery] = useState<{ from: string; to: string; min: number; max: number } | null>(null);
   const seuilData = seuilQuery ? computeSeuil(state, seuilQuery.from, seuilQuery.to, seuilQuery.min, seuilQuery.max) : null;
 
-  const data = query ? computeHisto(state, query.cle, query.from, query.to) : null;
+  const data = query ? computeHisto(state, query.cle, query.from, query.to, query.min, query.max) : null;
 
   const print = () => {
     if (!data || !data.rows.length) return;
@@ -149,8 +157,19 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
           <br />
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ padding: 7, border: "1px solid var(--border)", borderRadius: 8 }} />
         </div>
+        <div className="fld" style={{ margin: 0 }}>
+          <label style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>Rendement du jour entre</label>
+          <br />
+          <input type="number" value={jourMin} onChange={(e) => setJourMin(e.target.value)} placeholder="min %" style={{ padding: 7, border: "1px solid var(--border)", borderRadius: 8, width: 80 }} />{" "}
+          et{" "}
+          <input type="number" value={jourMax} onChange={(e) => setJourMax(e.target.value)} placeholder="max %" style={{ padding: 7, border: "1px solid var(--border)", borderRadius: 8, width: 80 }} />
+        </div>
         <div className="dright">
-          <button className="btn primary sm" disabled={!cle} onClick={() => setQuery({ cle, from, to })}>
+          <button
+            className="btn primary sm"
+            disabled={!cle}
+            onClick={() => setQuery({ cle, from, to, min: jourMin.trim() ? Number(jourMin) : null, max: jourMax.trim() ? Number(jourMax) : null })}
+          >
             Afficher
           </button>
           <button className="btn amber sm" onClick={print} disabled={!data || !data.rows.length}>
@@ -168,7 +187,15 @@ export function HistoView({ state, onOpenDay }: { state: GpaoState; onOpenDay: (
         <div className="empty">Ouvrière introuvable.</div>
       ) : !data.rows.length ? (
         <div className="empty">
-          Aucune donnée pour <b>{data.ouv.nom}</b> sur cette période.
+          {data.filtre && data.joursPeriode > 0 ? (
+            <>
+              Aucune des {data.joursPeriode} journées de <b>{data.ouv.nom}</b> n&apos;a un rendement dans cette plage.
+            </>
+          ) : (
+            <>
+              Aucune donnée pour <b>{data.ouv.nom}</b> sur cette période.
+            </>
+          )}
         </div>
       ) : (
         <HistoContent data={data} onOpenDay={onOpenDay} />
@@ -302,7 +329,10 @@ function HistoContent({ data, onOpenDay }: { data: NonNullable<ReturnType<typeof
         <div className="kpi">
           <div className="l">Journées</div>
           <div className="v">{data.rows.length}</div>
-          <div className="s">{tH} heures travaillées</div>
+          <div className="s">
+            {data.filtre ? `sur ${data.joursPeriode} travaillées · rendement ${data.filtre.min ?? 0}–${data.filtre.max ?? "∞"} % · ` : ""}
+            {tH} heures
+          </div>
         </div>
         <div className="kpi">
           <div className="l">Production totale</div>

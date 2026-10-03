@@ -150,10 +150,63 @@ export type Cloture = "" | "livree" | "facturee";
 
 export type FaitsCloture = CommandeFacts & { magasinExpedie?: boolean; statutLog?: string };
 
+/** Partie (ou totalité) expédiée au client : BL couvrant la quantité,
+ * marquée expédiée, exportée (date réelle) ou statut « Livrée » posé à la main. */
+export const estExpediee = (c: FaitsCloture) =>
+  !!(c.magasinExpedie || c.statutLog === "expedie" || c.dateExportReel || c.statutManuel === "livree");
+
 export function clotureCommande(c: FaitsCloture): Cloture {
   if ((c.factureQte || 0) > 0) return "facturee";
-  if (c.archived || c.magasinExpedie || c.statutLog === "expedie" || c.dateExportReel || c.statutManuel === "livree") return "livree";
+  if (c.archived || estExpediee(c)) return "livree";
   return "";
+}
+
+/* ─────────── cycle : active → terminée → archivée ───────────
+ *
+ * TERMINÉE = livrée ET facturée (règle validée par DBS le 02/10/2026) :
+ * expédiée (voir estExpediee) et portée par au moins une facture. Une commande
+ * seulement livrée attend encore sa facture ; seulement facturée (acompte,
+ * facture partielle) n'est pas encore partie : elles restent actives.
+ * ARCHIVÉE = rangée (commande.archived) : réversible, rien n'est effacé. */
+export type EtatCycle = "active" | "terminee" | "archivee";
+
+export function etatCycle(c: FaitsCloture): EtatCycle {
+  if (c.archived) return "archivee";
+  if (estExpediee(c) && (c.factureQte || 0) > 0) return "terminee";
+  return "active";
+}
+
+export const CYCLE_LABEL: Record<EtatCycle, string> = { active: "Active", terminee: "Terminée", archivee: "Archivée" };
+
+/* ─────────── suppression : jamais une commande qui a une histoire ───────────
+ *
+ * Supprimer efface la ligne ET, en cascade, sa coupe, son plan, ses
+ * réceptions… Ce n'est permis que pour une commande saisie par erreur, sur
+ * laquelle rien ne s'est passé. Sinon on l'archive. */
+export type HistoriqueCommande = {
+  of: string;
+  coupes: number;
+  plan: boolean;
+  receptions: number;
+  livraisons: number;
+  mouvementsTissu: number;
+  produit: number;
+  factureQte: number;
+  facNums: string[];
+};
+
+export function motifRefusSuppression(h: HistoriqueCommande): string | null {
+  const faits = [
+    h.coupes > 0 && "coupe",
+    h.plan && "plan de coupe",
+    h.receptions > 0 && "réception façonnier",
+    h.livraisons > 0 && "bon de livraison",
+    h.mouvementsTissu > 0 && "mouvements tissu",
+    h.produit > 0 && "production",
+    (h.factureQte > 0 || h.facNums.length > 0) && "facture",
+  ].filter(Boolean);
+  if (!faits.length) return null;
+  return `${h.of} a un historique (${faits.join(", ")}) : il ne se supprime pas, archivez-le (réversible, rien n'est perdu).`;
 }
 
 export const CLOTURE_LABEL: Record<Exclude<Cloture, "">, string> = { livree: "Livrée", facturee: "Facturée" };

@@ -399,9 +399,15 @@ export async function updateCommandeRow(id: number, patch: Data): Promise<Result
         case "chaineId":
           out.chaineId = v ? Number(v) : null;
           break;
+        case "coupeQte":
+          /* Le coupé d'une commande qui a des lâchers ou des fiches de coupe
+             est leur somme (recalculée à chaque écriture) : le taper ici le
+             contredirait. Il ne reste saisissable que pour l'historique repris. */
+          if (await svc.aDesCoupes(id)) return { ok: false, error: "Le coupé se calcule depuis le Service coupe (fiches et lâchers) : il ne se tape pas ici." };
+          out[k] = parseEntier(v);
+          break;
         case "qte":
         case "produit":
-        case "coupeQte":
         case "magasinQte":
         case "factureQte":
           out[k] = parseEntier(v);

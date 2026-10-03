@@ -9,7 +9,7 @@ import { auteurTissu } from "@/lib/auth/tissu";
 import * as tx from "@/lib/domain/tissu";
 import * as svc from "@/lib/services/tissu";
 import * as rl from "@/lib/domain/rouleau";
-import { prochainCodeRouleau, recalculerStatut, type Executeur } from "@/lib/services/rouleaux";
+import { creerEtiquettesAMesurer, prochainCodeRouleau, recalculerStatut, type Executeur } from "@/lib/services/rouleaux";
 import { journaliser } from "@/lib/services/activite";
 
 /** Recalcule `commande.tissuLibere` pour une ou plusieurs commandes à partir
@@ -75,6 +75,9 @@ export type SaisieLot = {
   /** Rouleaux physiques du lot : chacun reçoit un ID permanent et son QR. Si
    * la liste est donnée, la quantité reçue du lot est leur somme. */
   rouleaux?: SaisieRouleau[];
+  /** Nombre d'étiquettes « à mesurer » : rouleaux dont le métrage sera saisi
+   * au scan, au magasin (en plus des rouleaux déjà saisis, le cas échéant). */
+  aMesurer?: string;
 };
 
 export type SaisieRouleau = { metrage?: string; annonce?: string; laize?: string; poids?: string; observations?: string };
@@ -92,6 +95,9 @@ function rouleauxSaisis(l: SaisieLot) {
     .filter((r) => r.metrage > 0)
     .slice(0, 300);
 }
+
+/** Nombre d'étiquettes « à mesurer » demandées pour un lot (300 au plus). */
+const nbAMesurer = (l: SaisieLot) => Math.min(300, entierOuNull(l.aMesurer) ?? 0);
 
 /** Crée les rouleaux d'un lot à réception : un code R-AAAA-NNNNNN chacun, statut
  * « en attente » (le scan au magasin les passera « en stock »), et un mouvement
@@ -155,7 +161,7 @@ export async function creerReception(input: {
   try {
     const a = await auteur();
     const lotsValides = (input.lots ?? []).filter(
-      (l) => nombre(l.quantiteRecue) > 0 || (l.couleur ?? "").trim() || rouleauxSaisis(l).length > 0,
+      (l) => nombre(l.quantiteRecue) > 0 || (l.couleur ?? "").trim() || rouleauxSaisis(l).length > 0 || nbAMesurer(l) > 0,
     );
     if (lotsValides.length === 0) return { ok: false, error: "Ajoutez au moins un lot avec une quantité." };
 
@@ -191,7 +197,10 @@ export async function creerReception(input: {
         pris.push(identifiant);
 
         const rouleaux = rouleauxSaisis(l);
-        const qte = rouleaux.length
+        const aMesurer = nbAMesurer(l);
+        // Lot suivi par rouleau : son reçu est la somme des rouleaux MESURÉS
+        // (les étiquettes « à mesurer » l'augmenteront une à une, au scan).
+        const qte = rouleaux.length || aMesurer
           ? Math.round(rouleaux.reduce((s, r) => s + r.metrage, 0) * 100) / 100
           : nombre(l.quantiteRecue);
         const [lot] = await t
@@ -206,7 +215,7 @@ export async function creerReception(input: {
             laize: nombreOuNull(l.laize),
             quantiteRecue: qte,
             unite: l.unite || "m",
-            nbRouleaux: rouleaux.length || entierOuNull(l.nbRouleaux),
+            nbRouleaux: rouleaux.length + aMesurer || entierOuNull(l.nbRouleaux),
             note: l.note ?? "",
             lotFournisseur: (l.lotFournisseur ?? "").trim(),
             codeCouleur: (l.codeCouleur ?? "").trim(),
@@ -217,9 +226,10 @@ export async function creerReception(input: {
           })
           .returning({ id: tissuLot.id });
 
-        if (rouleaux.length) {
+        if (rouleaux.length || aMesurer) {
           // Un mouvement d'entrée PAR rouleau (la somme fait l'entrée du lot).
-          rouleauIds.push(...(await creerRouleauxReception(t, lot.id, rouleaux, numero, a.name)));
+          if (rouleaux.length) rouleauIds.push(...(await creerRouleauxReception(t, lot.id, rouleaux, numero, a.name)));
+          if (aMesurer) rouleauIds.push(...(await creerEtiquettesAMesurer(t, lot.id, aMesurer, a.name)));
         } else if (qte > 0) {
           await t.insert(tissuMouvement).values({
             lotId: lot.id,
@@ -248,7 +258,8 @@ export async function ajouterLot(receptionId: number, lot: SaisieLot): Promise<R
     let identifiant = (lot.identifiant ?? "").trim().toUpperCase() || tx.prochainIdentifiant(lot.couleur ?? "", pris);
     if (pris.map((x) => x.toUpperCase()).includes(identifiant)) identifiant = tx.prochainIdentifiant(lot.couleur ?? identifiant, pris);
     const rouleaux = rouleauxSaisis(lot);
-    const qte = rouleaux.length ? Math.round(rouleaux.reduce((s, r) => s + r.metrage, 0) * 100) / 100 : nombre(lot.quantiteRecue);
+    const aMesurer = nbAMesurer(lot);
+    const qte = rouleaux.length || aMesurer ? Math.round(rouleaux.reduce((s, r) => s + r.metrage, 0) * 100) / 100 : nombre(lot.quantiteRecue);
     const [rec] = await db.select({ numero: tissuReception.numero }).from(tissuReception).where(eq(tissuReception.id, receptionId));
     await db.transaction(async (t) => {
       const [row] = await t
@@ -263,14 +274,16 @@ export async function ajouterLot(receptionId: number, lot: SaisieLot): Promise<R
           laize: nombreOuNull(lot.laize),
           quantiteRecue: qte,
           unite: lot.unite || "m",
-          nbRouleaux: rouleaux.length || entierOuNull(lot.nbRouleaux),
+          nbRouleaux: rouleaux.length + aMesurer || entierOuNull(lot.nbRouleaux),
           note: lot.note ?? "",
           lotFournisseur: (lot.lotFournisseur ?? "").trim(),
           codeCouleur: (lot.codeCouleur ?? "").trim(),
         })
         .returning({ id: tissuLot.id });
-      if (rouleaux.length) await creerRouleauxReception(t, row.id, rouleaux, `${rec?.numero ?? ""} (ajout)`.trim(), a.name);
-      else if (qte > 0)
+      if (rouleaux.length || aMesurer) {
+        if (rouleaux.length) await creerRouleauxReception(t, row.id, rouleaux, `${rec?.numero ?? ""} (ajout)`.trim(), a.name);
+        if (aMesurer) await creerEtiquettesAMesurer(t, row.id, aMesurer, a.name);
+      } else if (qte > 0)
         await t.insert(tissuMouvement).values({ lotId: row.id, sens: "entree", quantite: qte, motif: "Réception (ajout)", createdBy: a.name });
     });
     revalider();

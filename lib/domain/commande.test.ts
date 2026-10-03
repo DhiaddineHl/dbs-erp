@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { apercuCommande, clotureCommande, montantSaisi, quantiteSaisie } from "./commande";
+import { apercuCommande, clotureCommande, etatCycle, montantSaisi, motifRefusSuppression, quantiteSaisie } from "./commande";
 
 /* Les règles de saisie du carnet de commandes.
  *
@@ -145,5 +145,20 @@ describe("clotureCommande — commandes à ranger", () => {
     assert.equal(clotureCommande({ ...base, dateExportReel: "2026-09-01" }), "livree");
     assert.equal(clotureCommande({ ...base, statutManuel: "livree" }), "livree");
     assert.equal(clotureCommande({ ...base, statutLog: "pret" }), "");
+  });
+});
+
+describe("cycle de commande et suppression", () => {
+  const base = { qte: 1000, produit: 0, factureQte: 0, prixVente: null, prixFacon: null, dateExport: null, dateExportReel: null, receptTissu: null, archived: false, statutManuel: null };
+  it("terminée = livrée ET facturée", () => {
+    assert.equal(etatCycle({ ...base, magasinExpedie: true }), "active");
+    assert.equal(etatCycle({ ...base, factureQte: 1000 }), "active");
+    assert.equal(etatCycle({ ...base, magasinExpedie: true, factureQte: 995 }), "terminee");
+    assert.equal(etatCycle({ ...base, archived: true }), "archivee");
+  });
+  it("une commande avec historique ne se supprime pas", () => {
+    const h = { of: "OF-1", coupes: 0, plan: false, receptions: 0, livraisons: 0, mouvementsTissu: 0, produit: 0, factureQte: 0, facNums: [] };
+    assert.equal(motifRefusSuppression(h), null);
+    assert.match(motifRefusSuppression({ ...h, coupes: 2, plan: true }) ?? "", /coupe, plan de coupe.*archivez/);
   });
 });
