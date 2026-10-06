@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Coquille commune des documents imprimables (réclamation, demande de
  * complément, bilan matière, bon de retour, liste d'achat…) : même en-tête
- * DBS FASHION, même bandeau d'actions masqué à l'impression, mêmes
+ * de la société, même bandeau d'actions masqué à l'impression, mêmes
  * signatures. Page normale : l'impression du navigateur produit le PDF. */
 export function DocumentImprimable({
   service,
@@ -36,7 +37,7 @@ export function DocumentImprimable({
 
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div>
-          <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+          <div className="text-xl font-extrabold tracking-tight">{ENTREPRISE.nomMaj}</div>
           <div className="text-[11px] uppercase tracking-widest text-neutral-500">{service}</div>
         </div>
         <div className="text-right">
@@ -61,7 +62,7 @@ export function DocumentImprimable({
         </div>
       )}
       <div className="mt-6 border-t border-neutral-300 pt-2 text-[10.5px] text-neutral-500">
-        Document généré par PilotPro — DBS Fashion.{pied ? ` ${pied}` : ""}
+        Document généré par PilotPro — {ENTREPRISE.nom}.{pied ? ` ${pied}` : ""}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { Boxes, ClipboardList, Landmark, Layers, PencilRuler, type LucideIcon } from "lucide-react";
 import type { PreparationRow } from "@/lib/services/preparation";
 import type { DomaineDroit } from "@/lib/domain/feux";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Les cinq écrans partagent la même mécanique — KPI, onglets, recherche,
  * tableau, fiche dépliante. Chacun ne fournit que sa configuration, comme le
@@ -170,7 +171,7 @@ const MAGFOUR: EcranConfig = {
   sous: "Réception des fournitures par commande et par modèle",
   aide:
     "Le prévu se calcule depuis la nomenclature du modèle (qté par pièce × pièces + casse) — bouton « Appliquer la " +
-    "nomenclature ». Chaque ligne a son origine : fournie par le client, ou achetée par DBS (CMT). Les réceptions se " +
+    "nomenclature ». Chaque ligne a son origine : fournie par le client, ou achetée par " + ENTREPRISE.nomCourt + " (CMT). Les réceptions se " +
     "saisissent par bon du client (plusieurs commandes d'un coup), les excédents partent en restes client. Dès " +
     "qu'une ligne de détail existe, c'est elle qui pilote le feu et le statut global se verrouille.",
   domaine: "four",

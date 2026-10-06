@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth/server";
 import { bilanMatiereCommande } from "@/lib/services/matiere-tissu";
 import { Cadre, DocumentImprimable, nbFr } from "@/components/shared/document-imprimable";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Bilan matière de fin de commande : reçu du client, consommé, chute, reste,
  * rendu — et la consommation réelle face à celle que le client a donnée.
@@ -22,7 +23,7 @@ export default async function BilanMatierePage({ params }: { params: Promise<{ i
       numero={c.of}
       sousTitre={c.client}
       retour={{ href: "/magtissu", label: "Retour au magasin tissu" }}
-      signatures={["DBS Fashion — nom, date, signature", "Client — visa"]}
+      signatures={[`${ENTREPRISE.nom} — nom, date, signature`, "Client — visa"]}
       pied="Consommé = sorties de magasin vers la coupe. Pièces = pièces coupées (ou produites à défaut). Conso client = celle de la nomenclature."
     >
       <div className="grid grid-cols-3 gap-3">

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { NAV_STRUCTURE, entreeAutorisee } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { useNonLus } from "@/components/messagerie/etat";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const STAGE_COLOR: Record<number, string> = {
   1: "var(--s1)",
@@ -39,12 +40,13 @@ export function Sidebar({
   return (
     <aside className="flex h-full w-[248px] flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-sidebar-border bg-sidebar px-5 py-4">
-        <span className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-brand to-purple text-white">
+        <span className="flex size-9 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-brand to-purple text-white">
           <Image
-            src="/dbs-fashion-logo.png"
+            src={ENTREPRISE.logo}
             alt="Logo"
-            width={50}
-            height={60}
+            width={36}
+            height={36}
+            className="size-full object-cover"
           />
         </span>
         <span className="text-base font-extrabold tracking-tight text-white">

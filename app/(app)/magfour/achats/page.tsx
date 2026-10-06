@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth/server";
 import { manques } from "@/lib/domain/fournitures";
 import { lignesEnManque } from "@/lib/services/fournitures";
 import { DocumentImprimable, nbFr } from "@/components/shared/document-imprimable";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Liste d'achat DBS (commandes CMT) : les manques des lignes « acheté DBS »,
  * cumulés par article et regroupés par fournisseur — en quantités. */
@@ -11,10 +12,10 @@ export default async function ListeAchatPage() {
   return (
     <DocumentImprimable
       service="Magasin fournitures"
-      titre="LISTE D'ACHAT — FOURNITURES DBS"
+      titre={`LISTE D'ACHAT — FOURNITURES ${ENTREPRISE.nomMaj}`}
       retour={{ href: "/magfour/manques", label: "Retour aux manques" }}
       signatures={["Établie par", "Visa responsable"]}
-      pied="Uniquement les lignes « acheté par DBS » (CMT). Les fournitures du client font l'objet d'une demande de complément."
+      pied={`Uniquement les lignes « acheté par ${ENTREPRISE.nomCourt} » (CMT). Les fournitures du client font l'objet d'une demande de complément.`}
     >
       {achats.length === 0 ? (
         <p className="mt-6 text-center text-neutral-500">Rien à acheter.</p>

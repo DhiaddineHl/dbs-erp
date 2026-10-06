@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { COULEUR_RENDEMENT, niveau } from "@/lib/domain/rendement";
 import { vueDirection } from "@/lib/services/portail";
 import { getSetting } from "@/lib/services/permissions";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* QR direction — suivi des chaînes en temps réel, sans nom d'ouvrière.
  *
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 const nb = new Intl.NumberFormat("fr-FR");
 
 export async function generateMetadata() {
-  return { title: "Suivi chaînes — DBS Fashion", robots: { index: false, follow: false } };
+  return { title: `Suivi chaînes — ${ENTREPRISE.nom}`, robots: { index: false, follow: false } };
 }
 
 export default async function DirectionPage({
@@ -35,7 +36,7 @@ export default async function DirectionPage({
       <div className="mx-auto max-w-3xl">
         <header className="mb-5 flex items-end justify-between">
           <div>
-            <div className="text-[11px] uppercase tracking-widest text-white/50">DBS Fashion</div>
+            <div className="text-[11px] uppercase tracking-widest text-white/50">{ENTREPRISE.nom}</div>
             <h1 className="text-2xl font-extrabold tracking-tight">Suivi des chaînes</h1>
           </div>
           <div className="text-right">

@@ -28,6 +28,7 @@ import {
   togglePermissionAction,
   updateUserAction,
 } from "./actions";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 type ManagedUser = { id: string; name: string; email: string; role: string };
 type PermMatrix = Record<string, Record<string, boolean>>;
@@ -79,7 +80,7 @@ export function ParametresClient({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <Label className="text-[11px] font-semibold text-secondary-foreground">
-              Prix façon DBS par défaut (€/pcs)
+              Prix façon {ENTREPRISE.nomCourt} par défaut (€/pcs)
             </Label>
             <Input
               type="number"
@@ -91,7 +92,7 @@ export function ParametresClient({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label className="text-[11px] font-semibold text-secondary-foreground">Société</Label>
-            <Input value="DBS Fashion — Confection export" disabled className="bg-muted" />
+            <Input value={`${ENTREPRISE.nom} — ${ENTREPRISE.activite}`} disabled className="bg-muted" />
           </div>
         </div>
       </SectionPanel>

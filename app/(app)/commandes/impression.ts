@@ -1,6 +1,7 @@
 import type { CommandeRow } from "@/lib/services/commandes";
 import { DEVISES, type Montants, formatMontants } from "@/lib/domain/montants";
 import type { CleColonne } from "./colonnes";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Liste de commandes imprimable.
  *
@@ -93,7 +94,7 @@ export function imprimerSelection(lignes: CommandeRow[], masquees: ReadonlySet<C
     .filter(Boolean)
     .join(" · ");
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Commandes sélectionnées — DBS Fashion</title><style>
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Commandes sélectionnées — ${ENTREPRISE.nom}</title><style>
     *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
     body{font-family:Arial,Helvetica,sans-serif;color:#141b2d;margin:24px;font-size:12px}
     .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #141b2d;padding-bottom:10px;margin-bottom:14px}
@@ -107,11 +108,11 @@ export function imprimerSelection(lignes: CommandeRow[], masquees: ReadonlySet<C
     @media print{@page{size:A4 landscape;margin:10mm}}
   </style></head><body>
     <div class="top">
-      <div><div class="co">STE DBS FASHION</div><div class="sub">Diar Ben Salem, Beni Khiar, Nabeul</div></div>
+      <div><div class="co">${ENTREPRISE.nomMaj}</div><div class="sub">${ENTREPRISE.adresseCourte}</div></div>
       <div style="text-align:right"><h1>Liste de commandes</h1><div class="sub">${esc(sousTitre)}</div></div>
     </div>
     <table><thead><tr>${entetes}</tr></thead><tbody>${corps}<tr class="tot">${totaux}</tr></tbody></table>
-    <p style="color:#889;font-size:10px;margin-top:16px">Document généré par PilotPro — DBS Fashion.</p>
+    <p style="color:#889;font-size:10px;margin-top:16px">Document généré par PilotPro — ${ENTREPRISE.nom}.</p>
   </body></html>`;
 
   const w = window.open("", "_blank");

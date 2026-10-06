@@ -7,7 +7,7 @@ import {
   type FactStore,
   type Facture,
 } from "@/lib/facturation/store";
-import { type FactureForm, buildFactureDocHTML, printDocument } from "@/lib/facturation/print";
+import { type CoordonneesBancaires, type FactureForm, buildFactureDocHTML, printDocument } from "@/lib/facturation/print";
 import {
   DEVISES,
   DEVISE_DEFAUT,
@@ -88,6 +88,9 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
   const [tauxTva, setTauxTva] = useState(init?.tauxTva ?? "0");
   const sym = DEVISES[devise].symbole;
   const [lignes, setLignes] = useState<LineRow[]>(init?.lignes ?? [emptyLine()]);
+  // Saisie libre, imprimée seulement si renseignée — pas enregistrée avec la facture.
+  const [banque, setBanque] = useState<CoordonneesBancaires>({ nom: "", rib: "", swift: "" });
+  const setBanqueChamp = (k: keyof CoordonneesBancaires, v: string) => setBanque((b) => ({ ...b, [k]: v }));
   // when arriving via "Voir", open straight on the preview of the loaded facture
   const [preview, setPreview] = useState<string | null>(init ? buildFactureDocHTML(toFormData(init)) : null);
 
@@ -130,6 +133,7 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
         return { modele: l.modele, desig: l.desig, ref: l.ref, couleur: l.couleur, qte: q, pu: p, mt: q * p };
       })
       .filter((r) => r.modele || r.qte),
+    banque,
   });
 
   // Récapitulatif en direct — le serveur refait le même calcul à l'enregistrement.
@@ -408,6 +412,18 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
               <option key={x}>{x}</option>
             ))}
           </select>
+        </div>
+        <div className="form-group">
+          <label>Banque</label>
+          <input value={banque.nom} onChange={(e) => setBanqueChamp("nom", e.target.value)} placeholder="ex: BIAT" />
+        </div>
+        <div className="form-group">
+          <label>RIB / IBAN</label>
+          <input value={banque.rib} onChange={(e) => setBanqueChamp("rib", e.target.value)} placeholder="ex: TN59 …" />
+        </div>
+        <div className="form-group">
+          <label>SWIFT / BIC</label>
+          <input value={banque.swift} onChange={(e) => setBanqueChamp("swift", e.target.value)} placeholder="ex: BIATTNTT" />
         </div>
         <div className="form-group full">
           <label>Matières premières (références SA / EUR1)</label>

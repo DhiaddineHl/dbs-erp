@@ -4,6 +4,7 @@ import { STATUTS_BL, type StatutBl } from "@/lib/domain/aval";
 import { getBl } from "@/lib/services/aval";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { formatMontant } from "@/lib/domain/montants";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR");
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-").reverse().join("/") : iso || "—");
@@ -35,7 +36,7 @@ export default async function BlImprimerPage({ params }: { params: Promise<{ id:
 
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div>
-          <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+          <div className="text-xl font-extrabold tracking-tight">{ENTREPRISE.nomMaj}</div>
           <div className="text-[11px] uppercase tracking-widest text-neutral-500">Confection export</div>
         </div>
         <div className="text-right">
@@ -136,7 +137,7 @@ export default async function BlImprimerPage({ params }: { params: Promise<{ id:
       )}
 
       <div className="mt-10 grid grid-cols-2 gap-8 text-[11px]">
-        {["Pour DBS Fashion", "Réception client — nom, date et signature"].map((l) => (
+        {[`Pour ${ENTREPRISE.nom}`, "Réception client — nom, date et signature"].map((l) => (
           <div key={l}>
             <div className="font-semibold text-neutral-500">{l}</div>
             <div className="mt-1 h-16 rounded border border-dashed border-neutral-400" />

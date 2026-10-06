@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as A from "@/lib/actions/tissu";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 
@@ -74,7 +75,7 @@ export function SortieLot({
 
   return (
     <Cadre>
-      <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">DBS Fashion · Magasin tissu · {utilisateur}</div>
+      <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">{ENTREPRISE.nom} · Magasin tissu · {utilisateur}</div>
       <h1 className="font-mono text-4xl font-black">{lot.identifiant}</h1>
       <div className="text-sm text-slate-700">
         {lot.client || "—"} · {[lot.reference, lot.couleur].filter(Boolean).join(" · ")}

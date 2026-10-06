@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth/server";
 import { bonRetourTissu } from "@/lib/services/matiere-tissu";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Bon de retour tissu. Deux flux distincts, même document :
  *   - RT-  : reliquats rendus au CLIENT (matière qu'il nous a confiée) ;
@@ -23,7 +24,7 @@ export default async function BonRetourPage({ params }: { params: Promise<{ nume
       numero={b.numero}
       sousTitre={`du ${dateFr(b.date)}`}
       retour={fournisseur ? { href: "/magtissu?onglet=rouleaux", label: "Retour aux rouleaux" } : { href: "/magtissu?onglet=reliquats", label: "Retour aux reliquats" }}
-      signatures={fournisseur ? ["DBS Fashion — remis par", "Fournisseur / transporteur — reçu par"] : ["DBS Fashion — remis par", "Client / transporteur — reçu par"]}
+      signatures={fournisseur ? [`${ENTREPRISE.nom} — remis par`, "Fournisseur / transporteur — reçu par"] : [`${ENTREPRISE.nom} — remis par`, "Client / transporteur — reçu par"]}
       pied={fournisseur ? `Motif du retour : ${b.motif || "—"}` : "Reliquats de la matière confiée par le client, restitués après coupe."}
     >
       <div className="grid grid-cols-3 gap-3">

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Habillage commun des écrans mobiles du magasin tissu : gros boutons, gros
  * chiffres, lisibles avec des gants et en plein jour. */
@@ -21,7 +22,7 @@ export function Cadre({ children, retour }: { children: React.ReactNode; retour?
 }
 
 export function Entete({ utilisateur, titre }: { utilisateur: string; titre: string }) {
-  return <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">DBS Fashion · {titre} · {utilisateur}</div>;
+  return <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">{ENTREPRISE.nom} · {titre} · {utilisateur}</div>;
 }
 
 export function Info({ label, v, u, fort }: { label: string; v: number | string; u?: string; fort?: boolean }) {

@@ -3,6 +3,7 @@ import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { requireUser } from "@/lib/auth/server";
 import * as pc from "@/lib/domain/plan-coupe";
 import { contexteCommande, getPlan } from "@/lib/services/plan-coupe";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR");
 const m2 = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -40,7 +41,7 @@ export default async function FicheMatelassagePage({ params }: { params: Promise
 
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div>
-          <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+          <div className="text-xl font-extrabold tracking-tight">{ENTREPRISE.nomMaj}</div>
           <div className="text-[11px] uppercase tracking-widest text-neutral-500">Bureau modélisme</div>
         </div>
         <div className="text-right">

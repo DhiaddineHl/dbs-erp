@@ -15,6 +15,7 @@ import {
 import { DEVISES, formatMontant } from "@/lib/domain/montants";
 import { reattribuerClientAction, suggererClientAction } from "@/lib/actions/facturation";
 import type { SuggestionClient } from "@/lib/services/facturation";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 export function DetailModal({
   facture: f,
@@ -144,7 +145,7 @@ export function DetailModal({
                     <td className="intern">
                       <select value={c.lieu} onChange={(e) => onLieu(i, e.target.value)}>
                         <option value="">— choisir —</option>
-                        <option value="interne">🏭 Interne DBS</option>
+                        <option value="interne">🏭 Interne {ENTREPRISE.nomCourt}</option>
                         <option value="faconnier">🤝 Façonnier</option>
                       </select>
                     </td>

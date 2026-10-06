@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { type Chaine, type GpaoState, type Modele, type OperationRef, type CommandeInterne, findC, findM } from "./store";
 import { cleOperation } from "@/lib/domain/atelier";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
@@ -253,7 +254,7 @@ export function ModeleModal({
       <h2>{edit ? "✏ Modifier modèle" : "＋ Nouveau modèle"}</h2>
       {!edit && commandesInternes.length > 0 && (
         <div className="fld">
-          <label>Depuis une commande DBS (interne)</label>
+          <label>Depuis une commande {ENTREPRISE.nomCourt} (interne)</label>
           <select defaultValue="" onChange={(e) => choisirCommande(e.target.value)}>
             <option value="">— Choisir un modèle/référence de commande —</option>
             {commandesInternes.map((c, i) => (

@@ -68,6 +68,7 @@ import { EquilibragePanel } from "./equilibrage-panel";
 import { ArretsRetouchesView } from "./arrets-retouches";
 import { TvMode } from "./tv-mode";
 import { imprimerFicheModele, imprimerResumeProduction } from "./impressions";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 type View = "jours" | "jour" | "chaines" | "modeles" | "cumul" | "histo" | "garderobe" | "simulation" | "arrets" | "rentabilite";
 
@@ -665,7 +666,7 @@ export default function GpaoApp({
       <header className="hdr">
         <span style={{ fontSize: 20 }}>🏭</span>
         <h1>GPAO Production</h1>
-        <span className="tag">AGENT DE MÉTHODE — DBS FASHION</span>
+        <span className="tag">AGENT DE MÉTHODE — {ENTREPRISE.nomMaj}</span>
         <div className="right">
           <span className="saved">{savedAt}</span>
           <a
@@ -2061,7 +2062,7 @@ function printJournee(state: GpaoState, dayId: number) {
     String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   let h = `<h1>RAPPORT JOURNALIER DE PRODUCTION</h1>`;
-  h += `<div class="psub">DBS Fashion — Suivi de rendement chaîne · Document agent de méthode</div>`;
+  h += `<div class="psub">${ENTREPRISE.nom} — Suivi de rendement chaîne · Document agent de méthode</div>`;
   h += `<div class="pmeta"><span><b>Date :</b> ${fmtDate(j.date)}</span><span><b>Chaîne :</b> ${esc(
     c?.nom ?? "?",
   )}${c?.chef ? ` (${esc(c.chef)})` : ""}</span><span><b>Modèle :</b> ${esc(m?.nom ?? "?")} — Réf ${esc(
@@ -2103,7 +2104,7 @@ function printJournee(state: GpaoState, dayId: number) {
   h += `<div class="psig"><div>Agent de méthode</div><div>Chef de chaîne</div><div>Direction production</div></div>`;
   h += `<div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString(
     "fr-FR",
-  )} — GPAO DBS Fashion</div>`;
+  )} — GPAO ${ENTREPRISE.nom}</div>`;
 
   const w = window.open("", "_blank", "width=1100,height=800");
   if (!w) return;

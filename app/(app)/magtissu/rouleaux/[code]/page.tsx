@@ -11,6 +11,7 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ActionsRouleau } from "@/app/m/tissu/r/[code]/actions-rouleau";
 import { TimelineRouleau } from "./timeline";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso || "—");
@@ -65,7 +66,7 @@ export default async function FicheRouleauPage({ params }: { params: Promise<{ c
               <dl className="grid flex-1 grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
                 <Ligne l="Tissu" v={[r.lot.reference, r.lot.composition].filter(Boolean).join(" · ")} />
                 <Ligne l="Couleur" v={[r.lot.couleur, r.lot.codeCouleur].filter(Boolean).join(" · ")} />
-                <Ligne l="Lot DBS" v={r.lot.identifiant} />
+                <Ligne l={`Lot ${ENTREPRISE.nomCourt}`} v={r.lot.identifiant} />
                 <Ligne l="Lot fournisseur" v={r.lot.lotFournisseur} />
                 <Ligne l="Laize" v={r.laize != null ? `${r.laize} cm` : ""} />
                 <Ligne l="Poids" v={r.poids != null ? `${r.poids} kg` : ""} />

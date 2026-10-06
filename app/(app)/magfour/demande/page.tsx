@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth/server";
 import { manques } from "@/lib/domain/fournitures";
 import { lignesEnManque } from "@/lib/services/fournitures";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Demande de complément de fournitures au client (lignes « fourni client »). */
 export default async function DemandeFournituresPage({ searchParams }: { searchParams: Promise<{ client?: string }> }) {
@@ -16,7 +17,7 @@ export default async function DemandeFournituresPage({ searchParams }: { searchP
       titre="DEMANDE DE COMPLÉMENT FOURNITURES"
       sousTitre={client}
       retour={{ href: "/magfour/manques", label: "Retour aux manques" }}
-      signatures={["DBS Fashion — nom, date, signature"]}
+      signatures={[`${ENTREPRISE.nom} — nom, date, signature`]}
       pied="Quantités calculées depuis la nomenclature (qté par pièce × pièces commandées + casse) ou le prévu de la commande, moins ce qui est déjà reçu."
     >
       <div className="grid grid-cols-2 gap-3">

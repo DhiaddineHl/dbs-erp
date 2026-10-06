@@ -16,6 +16,7 @@ import {
   nbI,
 } from "./store";
 import { DEVISES, type Devise, calculerTotaux, formatMontant } from "@/lib/domain/montants";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -40,7 +41,22 @@ export type FactureForm = {
   /** Taux de TVA (%) ; 0 = facture hors taxes, mise en page inchangée. */
   tauxTva: number;
   lignes: { modele: string; desig: string; ref: string; couleur: string; qte: number; pu: number; mt: number }[];
+  /** Saisies sur la facture ; le bloc n'est imprimé que si l'un des champs est rempli. */
+  banque?: CoordonneesBancaires;
 };
+
+export type CoordonneesBancaires = { nom: string; rib: string; swift: string };
+
+function banqueHTML(b: CoordonneesBancaires | undefined): string {
+  const nom = b?.nom.trim(), rib = b?.rib.trim(), swift = b?.swift.trim();
+  if (!nom && !rib && !swift) return "";
+  const lignes = [
+    rib && `RIB : ${esc(rib)}`,
+    (swift || nom) && [swift && `SWIFT : ${esc(swift)}`, nom && esc(nom)].filter(Boolean).join(" — "),
+  ].filter(Boolean);
+  return `<div class="footer-block"><div class="footer-title">Coordonnées bancaires</div>
+        <p class="rib">${lignes.join("<br>")}</p></div>`;
+}
 
 export function buildFactureDocHTML(d: FactureForm): string {
   const rows = d.lignes.filter((r) => r.modele || r.qte);
@@ -78,8 +94,8 @@ export function buildFactureDocHTML(d: FactureForm): string {
 
   return `<div class="facture-doc"><div class="facture-stripe"></div><div class="facture-body">
     <div class="facture-header"><div class="facture-emetteur">
-      <div class="company">STE DBS FASHION</div>
-      <p>Diar Ben Salem - Beni Khiar 8060 - Nabeul, Tunisie<br>MF : 1802841E/A/M/000 — Tél : 20 210 211</p></div>
+      <div class="company">${ENTREPRISE.nomMaj}</div>
+      <p>${ENTREPRISE.adresse}<br>MF : ${ENTREPRISE.matriculeFiscal}${ENTREPRISE.telephone ? ` — Tél : ${ENTREPRISE.telephone}` : ""}</p></div>
       <div class="facture-badge"><div class="num">${esc(d.typeDoc)} N° ${esc(d.num || "—")}</div><div class="date">Le ${fdate(
     d.date,
   )}</div><div style="font-size:9px;opacity:.6;margin-top:3px">${esc(d.incoterm)}</div></div></div>
@@ -113,8 +129,7 @@ export function buildFactureDocHTML(d: FactureForm): string {
         Nombre de colis : ${esc(d.colis || pcs + " Colis")}<br>Incoterm : ${esc(d.incoterm)}<br>Mode de paiement : ${esc(
     d.paiement,
   )}</p></div>
-      <div class="footer-block"><div class="footer-title">Coordonnées bancaires</div>
-        <p class="rib">RIB : TN59 0805 7021 0251 0024 8106<br>SWIFT : BIATTNTT — BANQUE BIAT</p></div></div>
+      ${banqueHTML(d.banque)}</div>
     ${d.matieres ? `<div class="footer-matieres">${esc(d.matieres).split("\n").join("<br>")}</div>` : ""}
   </div></div>`;
 }
@@ -123,7 +138,7 @@ export function buildFactureDocHTML(d: FactureForm): string {
 function reportHeader(titre: string, periode: string) {
   return (
     `<div style="display:flex;justify-content:space-between;align-items:flex-start">` +
-    `<div><h1>DBS FASHION</h1><div class="r-sub">Diar Ben Salem - Beni Khiar 8060 - Nabeul — MF : 1802841E/A/M/000</div></div>` +
+    `<div><h1>${ENTREPRISE.nomMaj}</h1><div class="r-sub">${ENTREPRISE.adresse} — MF : ${ENTREPRISE.matriculeFiscal}</div></div>` +
     `<div style="text-align:right;font-size:10px;color:#6B7589">Édité le ${fdate(
       new Date().toISOString().split("T")[0],
     )}</div></div>` +
@@ -134,7 +149,7 @@ function reportHeader(titre: string, periode: string) {
   );
 }
 const reportFooter = (devise: Devise) =>
-  `<div class="r-foot"><span>DBS Fashion — Document interne de gestion</span><span>Montants hors taxes, en ${esc(
+  `<div class="r-foot"><span>${ENTREPRISE.nom} — Document interne de gestion</span><span>Montants hors taxes, en ${esc(
     DEVISES[devise].unite[1],
   )}</span></div>`;
 

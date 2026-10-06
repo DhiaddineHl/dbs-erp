@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth/server";
 import { qrSvg } from "@/lib/atelier/qr";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { basePortail } from "@/lib/services/portail";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* QR « Saisie production » de l'agent de méthode : scanné avec la tablette,
  * il ouvre la saisie heure par heure des chaînes (connexion demandée la
@@ -22,7 +23,7 @@ export default async function QrSaisiePage() {
         </Link>
       </div>
       <div className="mx-auto flex max-w-[170mm] flex-col items-center py-6 text-center">
-        <div className="text-sm font-bold tracking-[0.3em]">DBS FASHION · GPAO</div>
+        <div className="text-sm font-bold tracking-[0.3em]">{ENTREPRISE.nomMaj} · GPAO</div>
         <h1 className="mt-2 text-4xl font-black">Saisie de production</h1>
         <p className="mt-1 text-lg">Agent de méthode — tablette</p>
         <div className="my-6 w-[120mm] [&_svg]:h-auto [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: svg }} />

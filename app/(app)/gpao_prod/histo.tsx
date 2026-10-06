@@ -20,6 +20,7 @@ import {
   today,
 } from "./store";
 import { periodeGenerale, synthese, PERIODE_GENERALE_JOURS } from "@/lib/domain/rendement-personne";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 type HRow = {
   date: string;
@@ -272,7 +273,7 @@ function printSeuil(data: NonNullable<ReturnType<typeof computeSeuil>>) {
   const h = `<h1>OUVRIÈRES PAR SEUIL DE RENDEMENT</h1>
     <div class="psub">Rendement moyen entre ${data.min}% et ${data.max}% · du ${data.from} au ${data.to} · ${data.rows.length} ouvrière(s)</div>
     <table><thead><tr><th>#</th><th style="text-align:left">Ouvrière</th><th style="text-align:left">Poste</th><th>Jours</th><th>Heures</th><th>Pièces</th><th>Rend. moyen</th></tr></thead><tbody>${rows}</tbody></table>
-    <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")} — GPAO DBS Fashion</div>`;
+    <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")} — GPAO ${ENTREPRISE.nom}</div>`;
   const w = window.open("", "_blank", "width=1000,height=800");
   if (!w) return;
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ouvrières par seuil</title><style>
@@ -400,7 +401,7 @@ function printHisto(data: NonNullable<ReturnType<typeof computeHisto>>) {
   const retPctG = tProd > 0 ? Math.round((tRet / tProd) * 1000) / 10 : 0;
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  let h = `<h1>HISTORIQUE DE RENDEMENT — OUVRIÈRE</h1><div class="psub">DBS Fashion — Agent de méthode</div>`;
+  let h = `<h1>HISTORIQUE DE RENDEMENT — OUVRIÈRE</h1><div class="psub">${ENTREPRISE.nom} — Agent de méthode</div>`;
   h += `<div class="pmeta"><span><b>Ouvrière :</b> ${esc(data.ouv.nom)}</span><span><b>Matricule :</b> ${esc(
     data.ouv.matricule || "—",
   )}</span><span><b>Poste :</b> ${esc(data.ouv.poste || "—")}</span><span><b>SAM :</b> ${
@@ -421,7 +422,7 @@ function printHisto(data: NonNullable<ReturnType<typeof computeHisto>>) {
   }
   h += `</tbody></table><div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString(
     "fr-FR",
-  )} — GPAO DBS Fashion</div>`;
+  )} — GPAO ${ENTREPRISE.nom}</div>`;
 
   const w = window.open("", "_blank", "width=1100,height=800");
   if (!w) return;

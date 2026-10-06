@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth/server";
 import { demandeComplementTissu } from "@/lib/services/matiere-tissu";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Demande de complément tissu au client : pour chacune de ses commandes, le
  * besoin (sa conso × pièces × chute) que ni le tissu reçu ni son stock libre
@@ -17,7 +18,7 @@ export default async function ComplementPage({ searchParams }: { searchParams: P
       titre="DEMANDE DE COMPLÉMENT TISSU"
       sousTitre={client}
       retour={{ href: "/magtissu", label: "Retour au magasin tissu" }}
-      signatures={["DBS Fashion — nom, date, signature"]}
+      signatures={[`${ENTREPRISE.nom} — nom, date, signature`]}
       pied="Besoin calculé depuis la consommation et le taux de chute de la nomenclature, pour les quantités commandées."
     >
       <div className="grid grid-cols-2 gap-3">

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { AlerteReception } from "@/lib/domain/aval";
 import * as A from "@/lib/actions/aval";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR");
 const dateFr = (iso: string) => iso.split("-").reverse().join("/");
@@ -101,7 +102,7 @@ export function MagasinMobile({
   return (
     <Cadre>
       <header className="mb-4">
-        <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">DBS Fashion · Magasin produits finis</div>
+        <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">{ENTREPRISE.nom} · Magasin produits finis</div>
         <div className="flex items-end justify-between">
           <h1 className="text-2xl font-extrabold tracking-tight">Réceptions</h1>
           <div className="text-right text-xs text-slate-500">

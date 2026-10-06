@@ -6,6 +6,7 @@ import { OBJECTIFS_DEFAUT, type ParamsUsine } from "@/lib/domain/cout-usine";
 import { comparerSousTraitance, type AnalyseModele, type RapportRentabilite, type VerdictModele } from "@/lib/domain/rentabilite";
 import { enregistrerParamsUsine, lireParamsUsine, rentabilite } from "./actions";
 import type { GpaoState } from "./store";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 type Rapport = RapportRentabilite & { configure: boolean };
 
@@ -631,7 +632,7 @@ function imprimerTableauDeBord(r: Rapport) {
     )}</td><td>${e2(m.coutPiece)}</td><td>${e2(m.plancher?.prix)}</td><td class="${m.marge < 0 ? "neg" : "pos"}"><b>${e0(m.marge)}</b></td><td>${pct(m.tauxMarge)}</td></tr>`;
   const tete = `<tr><th class="l">Modèle</th><th>Pièces</th><th>Rend.</th><th>Prix</th><th>Coût/pc</th><th>Plancher</th><th>Marge</th><th>Taux</th></tr>`;
   const html = `
-  <div class="hd"><div><div class="brand">DBS FASHION</div><div class="sub">Atelier de confection — GPAO</div></div>
+  <div class="hd"><div><div class="brand">${ENTREPRISE.nomMaj}</div><div class="sub">Atelier de confection — GPAO</div></div>
   <div class="tr"><div class="t">TABLEAU DE BORD DIRECTION</div><div class="sub">Du ${dateFr(r.from)} au ${dateFr(r.to)} · ${b.jours} jours</div></div></div>
   <div class="ks4">
     ${kpi("CA produit", e0(b.ca), `${nb.format(b.pieces)} pièces`)}
@@ -661,7 +662,7 @@ function imprimerTableauDeBord(r: Rapport) {
     r.params.rendementCible
   } %) × coût standard, marge ${r.params.margeCible} % sur le prix de vente.</div>
   <div class="sig"><div>Responsable production</div><div>Direction</div></div>
-  <div class="foot">Imprimé le ${new Date().toLocaleString("fr-FR")} — PilotPro / GPAO DBS Fashion</div>`;
+  <div class="foot">Imprimé le ${new Date().toLocaleString("fr-FR")} — PilotPro / GPAO ${ENTREPRISE.nom}</div>`;
   const w = window.open("", "_blank", "width=1000,height=900");
   if (!w) return;
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Tableau de bord direction</title><style>

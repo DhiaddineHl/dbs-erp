@@ -4,6 +4,7 @@ import { qrSvg } from "@/lib/atelier/qr";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { basePortail } from "@/lib/services/portail";
 import { chargerRouleaux, type RouleauRow } from "@/lib/services/rouleaux";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso || "—");
@@ -161,7 +162,7 @@ function Grande({ r, svg }: { r: RouleauRow; svg: string }) {
     <div className="etq flex gap-[3mm]">
       <div className="h-[44mm] w-[44mm] shrink-0" dangerouslySetInnerHTML={{ __html: svg }} />
       <div className="flex min-w-0 flex-1 flex-col text-[8.5pt] leading-[1.25]">
-        <div className="text-[8pt] font-bold tracking-[0.2em]">DBS FASHION</div>
+        <div className="text-[8pt] font-bold tracking-[0.2em]">{ENTREPRISE.nomMaj}</div>
         <div className="font-mono text-[15pt] font-black leading-tight">{r.code}</div>
         <div className="truncate font-bold">{tissu(r)}</div>
         <div className="truncate">Coul. {couleur(r)}</div>
@@ -184,7 +185,7 @@ function Petite({ r, svg }: { r: RouleauRow; svg: string }) {
     <div className="etq flex gap-[1.5mm]">
       <div className="qr-petite shrink-0" dangerouslySetInnerHTML={{ __html: svg }} />
       <div className="flex min-w-0 flex-1 flex-col text-[6.5pt] leading-[1.2]">
-        <div className="text-[6pt] font-bold tracking-[0.15em]">DBS FASHION</div>
+        <div className="text-[6pt] font-bold tracking-[0.15em]">{ENTREPRISE.nomMaj}</div>
         <div className="font-mono text-[8.5pt] font-black leading-tight">{r.code}</div>
         <div className="truncate font-bold">{tissu(r)}</div>
         <div className="truncate">{couleur(r)}</div>
@@ -205,7 +206,7 @@ function A6({ r, svg }: { r: RouleauRow; svg: string }) {
     ["Composition", r.lot.composition || "—"],
     ["Couleur", couleur(r)],
     ["Lot fournisseur", r.lot.lotFournisseur || "—"],
-    ["Lot DBS", r.lot.identifiant],
+    [`Lot ${ENTREPRISE.nomCourt}`, r.lot.identifiant],
     ["Client", r.reception.client || "—"],
     ["Fournisseur", r.reception.fournisseur || "—"],
     ["Laize", r.laize != null ? `${nb.format(r.laize)} cm` : "—"],
@@ -214,7 +215,7 @@ function A6({ r, svg }: { r: RouleauRow; svg: string }) {
   return (
     <div className="etq flex flex-col items-stretch">
       <div className="flex items-baseline justify-between border-b-2 border-black pb-[1.5mm]">
-        <span className="text-[10pt] font-bold tracking-[0.25em]">DBS FASHION</span>
+        <span className="text-[10pt] font-bold tracking-[0.25em]">{ENTREPRISE.nomMaj}</span>
         <span className="text-[8pt]">Rouleau tissu</span>
       </div>
       <div className="mt-[2mm] text-center font-mono text-[21pt] font-black leading-none">{r.code}</div>

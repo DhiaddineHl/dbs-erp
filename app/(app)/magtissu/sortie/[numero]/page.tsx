@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth/server";
 import { bonSortie } from "@/lib/services/rouleaux";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Bon de sortie groupée de tissu (BST-AAAA-NNN). Vers un sous-traitant, c'est
  * le bon de livraison qui accompagne les rouleaux et qu'il signe à réception. */
@@ -20,7 +21,7 @@ export default async function BonSortiePage({ params }: { params: Promise<{ nume
       numero={b.numero}
       sousTitre={`du ${dateFr(b.date.slice(0, 10))}`}
       retour={{ href: "/magtissu?onglet=rouleaux", label: "Retour aux rouleaux" }}
-      signatures={st ? ["DBS Fashion — remis par", `${b.faconnierNom || "Sous-traitant"} — reçu par`] : ["Magasin tissu — remis par", "Coupe — reçu par"]}
+      signatures={st ? [`${ENTREPRISE.nom} — remis par`, `${b.faconnierNom || "Sous-traitant"} — reçu par`] : ["Magasin tissu — remis par", "Coupe — reçu par"]}
       pied={b.motif ? `Motif : ${b.motif}` : "Tissu confié pour la coupe du modèle indiqué. Tout reliquat revient au magasin tissu avec son étiquette QR."}
     >
       <div className="grid grid-cols-3 gap-3">

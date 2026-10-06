@@ -9,6 +9,7 @@ const restesParDevise = (fs: EncaissementRow[]): Montants =>
   fs.reduce<Montants>((m, f) => ({ ...m, [f.devise]: (m[f.devise] ?? 0) + f.reste }), {});
 import { libelleEcheance } from "@/lib/domain/finance";
 import type { EncaissementRow } from "@/lib/services/finance";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Relances — les factures impayées dont l'échéance est passée ou proche, avec
  * l'e-mail prêt à envoyer. Le seuil permet d'anticiper : à 7 jours, on prévient
@@ -180,7 +181,7 @@ function Kpi({ label, valeur, classe }: { label: string; valeur: string; classe?
  * avec la réserve d'usage si le règlement s'est croisé avec l'envoi. */
 function construireEmail(client: string, factures: EncaissementRow[], compte: string) {
   const echues = factures.some((f) => (f.joursRetard ?? 0) > 0);
-  const sujet = `${echues ? "Relance — factures échues" : "Rappel d'échéance"} — DBS FASHION`;
+  const sujet = `${echues ? "Relance — factures échues" : "Rappel d'échéance"} — ${ENTREPRISE.nomMaj}`;
 
   const lignes = factures
     .map(
@@ -207,8 +208,8 @@ function construireEmail(client: string, factures: EncaissementRow[], compte: st
     "En cas de règlement déjà intervenu, nous vous prions de ne pas tenir compte de ce message.",
     "",
     "Cordialement,",
-    "Service Comptabilité — STE DBS FASHION",
-    "Diar Ben Salem, Beni Khiar, Nabeul — Tunisie",
+    `Service Comptabilité — ${ENTREPRISE.nomMaj}`,
+    `${ENTREPRISE.adresseCourte} — Tunisie`,
   ].join("\n");
 
   return { sujet, corps, client };

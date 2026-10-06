@@ -39,6 +39,7 @@ import {
   formatMontants,
   totaliser,
 } from "@/lib/domain/montants";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /** Symbole et formateur d'une devise — chaque groupe affiche la sienne. */
 const formateurs = (d: Devise) => ({ sym: DEVISES[d].symbole, fm: (n: number) => formatMontant(n, d) });
@@ -624,7 +625,7 @@ function Marges({ groupe, onOpen }: { groupe: GroupeDevise; onOpen: (f: Facture)
     <div className="page">
       <div className="info-box">
         <strong style={{ color: "var(--navy)" }}>Cliquez sur une facture pour l&apos;ouvrir</strong> et renseigner,
-        article par article : où la pièce a été fabriquée (<span className="tag tag-navy">Interne DBS</span> ou{" "}
+        article par article : où la pièce a été fabriquée (<span className="tag tag-navy">Interne {ENTREPRISE.nomCourt}</span> ou{" "}
         <span className="tag tag-gold">Façonnier</span>). Pour l&apos;<strong>interne</strong>, le coût prend
         automatiquement le prix de facturation (marge nulle) ; pour un <strong>façonnier</strong>, saisissez le prix de
         façon payé. <span className="mono">Marge = CA facturé − Fournitures − Σ(Qté × Coût/pièce)</span>
@@ -819,7 +820,7 @@ function Stats({ groupe }: { groupe: GroupeDevise }) {
     <div className="page">
       <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(3,1fr)" }}>
         <div className="kpi-card">
-          <div className="kpi-label">Production interne DBS</div>
+          <div className="kpi-label">Production interne {ENTREPRISE.nomCourt}</div>
           <div className="kpi-value" style={{ color: "var(--navy)" }}>
             {fm(agg.interne.ca)}
           </div>
@@ -848,7 +849,7 @@ function Stats({ groupe }: { groupe: GroupeDevise }) {
           <div className="chart-title">CA par lieu de production (articles renseignés)</div>
           {(
             [
-              ["Interne DBS", agg.interne.ca, "var(--navy)"],
+              [`Interne ${ENTREPRISE.nomCourt}`, agg.interne.ca, "var(--navy)"],
               ["Façonniers", agg.faconnier.ca, "var(--gold)"],
               ["Non renseigné", agg.nd.ca, "#C5C0B6"],
             ] as [string, number, string][]
@@ -1058,7 +1059,7 @@ function Rapports({ groupe }: { groupe: GroupeDevise }) {
           <button
             className="btn btn-gold"
             disabled={!html}
-            onClick={() => printDocument(html, "report", "Rapport DBS Fashion")}
+            onClick={() => printDocument(html, "report", `Rapport ${ENTREPRISE.nom}`)}
           >
             🖨 Imprimer / PDF
           </button>
