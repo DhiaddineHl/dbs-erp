@@ -25,8 +25,11 @@ export const config = {
    *
    * Ce dernier est public par nécessité : on y arrive en scannant un QR depuis
    * un téléphone personnel, sans compte. Son contrôle d'accès est la clé
-   * opaque de l'URL, vérifiée dans la page elle-même. */
+   * opaque de l'URL, vérifiée dans la page elle-même.
+   *
+   * Le manifeste aussi : le navigateur le télécharge SANS cookie, et une
+   * redirection vers /login empêcherait d'installer l'application. */
   matcher: [
-    "/((?!login|portail|api/auth|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+    "/((?!login|portail|api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
   ],
 };

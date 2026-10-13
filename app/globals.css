@@ -225,3 +225,62 @@
   100% { box-shadow: inset 0 0 0 0 transparent; }
 }
 .scan-cadre { animation: scan-cadre 0.7s ease-out forwards; }
+
+/* ─────────── TÉLÉPHONE : les tableaux larges défilent ───────────
+ *
+ * Les écrans du bureau alignent parfois quinze colonnes. Sur un téléphone,
+ * elles étaient simplement coupées : la moitié du tableau n'existait plus.
+ *
+ * Passer la table en bloc à largeur contrainte lui rend une barre de
+ * défilement horizontale, sans toucher à l'alignement des colonnes (le
+ * navigateur recrée une boîte de tableau à l'intérieur). Les tableaux déjà
+ * placés dans un conteneur défilant sont laissés tels quels, sinon on
+ * empilerait deux barres l'une dans l'autre.
+ *
+ * `screen` seulement : à l'impression, la pagination doit reprendre la main
+ * sur le tableau entier. */
+@media screen and (max-width: 1023px) {
+  .app-main table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .app-main .overflow-x-auto table,
+  .app-main .overflow-auto table {
+    display: table;
+    overflow-x: visible;
+  }
+  /* Une ligne de tableau ne se coupe pas en deux sur un petit écran :
+     mieux vaut défiler que lire un mot par ligne. */
+  .app-main table :is(th, td) {
+    white-space: nowrap;
+  }
+  /* …sauf là où le texte EST le contenu (notes, libellés longs). */
+  .app-main table :is(th, td).saut-ligne {
+    white-space: normal;
+  }
+}
+
+/* ─────────── TÉLÉPHONE : les tuiles d'indicateurs par deux ───────────
+ *
+ * Les écrans posent leurs indicateurs dans une grille « auto-fit » calée sur
+ * 150 à 200 px. Sur un téléphone il reste ~330 px : il en tient deux, mais
+ * la grille, gouttière comprise, n'en calculait qu'un. Six indicateurs
+ * faisaient alors six écrans de défilement avant le premier tableau.
+ *
+ * On force donc deux colonnes sous 640 px, uniquement pour les tuiles
+ * étroites — les grilles bâties sur 220 px ou plus portent du contenu, pas
+ * des chiffres, et restent sur une colonne. */
+@media screen and (max-width: 639px) {
+  .app-main [class*="minmax(120px"],
+  .app-main [class*="minmax(135px"],
+  .app-main [class*="minmax(140px"],
+  .app-main [class*="minmax(150px"],
+  .app-main [class*="minmax(170px"],
+  .app-main [class*="minmax(180px"],
+  .app-main [class*="minmax(190px"],
+  .app-main [class*="minmax(200px"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

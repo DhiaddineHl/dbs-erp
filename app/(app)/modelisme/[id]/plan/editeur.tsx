@@ -112,6 +112,11 @@ export function EditeurPlan({
       setEnregistre(true);
       setPlan((p) => ({ ...p, par: res.data.par, date: res.data.date || null }));
       toast.success("Plan enregistré");
+      /* La consommation part d'office dans la Nomenclature : on le dit, pour
+         que personne ne cherche le bouton à cliquer derrière. */
+      if (res.data.consoReportee != null) {
+        toast.success(`Nomenclature mise à jour : ${m3.format(res.data.consoReportee)} m/pièce`);
+      }
       if (res.data.correctionRefusee) toast.warning(res.data.correctionRefusee);
       const propose = res.data.corrigerTailles || res.data.validerTraces;
       if (propose) setSuites(res.data);
@@ -702,7 +707,9 @@ export function EditeurPlan({
       {/* ═══════════ liaison avec la commande ═══════════ */}
       <SectionPanel title="Liaison avec la commande" icon="↩">
         <p className="mb-3 text-[11px] text-muted-foreground">
-          Chaque report écrit sur la fiche commande et laisse une ligne dans son journal.
+          Chaque report écrit sur la fiche commande et laisse une ligne dans son journal. La{" "}
+          <b>consommation de la matière principale part d&apos;office dans la Nomenclature</b> à chaque enregistrement
+          du plan — les boutons ci-dessous servent à reporter une autre matière, ou à refaire le report à la demande.
           {calc.estime && " Les longueurs sont encore estimées : la consommation réelle ne peut pas être reportée."}
         </p>
         <div className="flex flex-wrap gap-2">

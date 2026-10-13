@@ -38,10 +38,14 @@ export function KpiCard({
 }) {
   const accent = ACCENT[tone];
   return (
-    <Card className="relative overflow-hidden p-4 transition-shadow hover:shadow-md">
+    <Card
+      /* La carte de base espace ses lignes de 16 px : sur un téléphone,
+         quatre indicateurs devenaient quatre écrans. On resserre. */
+      className="relative overflow-hidden p-3 [--card-spacing:--spacing(1.5)] transition-shadow hover:shadow-md lg:p-4 lg:[--card-spacing:--spacing(4)]"
+    >
       <div className={cn("absolute inset-y-0 left-0 w-[3px]", accent.bar)} />
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="text-[10px] font-semibold uppercase leading-tight tracking-wide text-muted-foreground lg:text-[11px]">
           {label}
         </span>
         {Icon && (
@@ -57,14 +61,14 @@ export function KpiCard({
       </div>
       <div
         className={cn(
-          "mt-2 text-[28px] font-extrabold leading-none tracking-tight tabular-nums",
+          "text-[22px] font-extrabold leading-none tracking-tight tabular-nums lg:mt-2 lg:text-[28px]",
           VALUE_COLOR[tone],
         )}
       >
         {value}
       </div>
       {sub && (
-        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground lg:mt-1.5">
           {sub}
         </div>
       )}
@@ -73,8 +77,10 @@ export function KpiCard({
 }
 
 export function KpiGrid({ children }: { children: React.ReactNode }) {
+  /* Deux par ligne dès le téléphone : un indicateur par écran obligeait à
+   * faire défiler quatre fois pour voir les chiffres du matin. */
   return (
-    <div className="mb-5 grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mb-4 grid grid-cols-2 gap-2.5 lg:mb-5 lg:gap-3.5 xl:grid-cols-4">
       {children}
     </div>
   );

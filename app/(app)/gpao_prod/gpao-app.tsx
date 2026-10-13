@@ -6,6 +6,7 @@ import "./gpao.css";
 import * as gpao from "./actions";
 import { relireJournee, saisirProduction } from "@/lib/actions/saisie-gpao";
 import type { Saisie } from "@/lib/domain/saisie-gpao";
+import * as pq from "@/lib/domain/paquets";
 import {
   type Chaine,
   type GpaoState,
@@ -265,6 +266,24 @@ export default function GpaoApp({
     }
     if ((j.ops[ouvId]?.[col] ?? null) === valeur) return;
     saisir(j.id, [{ type: "op", ouvId, col, valeur }], { ops });
+  };
+  /* Numéros de paquets travaillés dans l'heure — relevé FACULTATIF, à côté
+     des pièces. Il ne touche jamais la production : `sortie` reste la seule
+     source de l'avancement (voir lib/domain/paquets.ts). */
+  const setPaquets = (ouvId: number, col: string, val: string) => {
+    const j = currentDayId != null ? findJ(state, currentDayId) : null;
+    if (!j || j.cloture) return;
+    const lu = pq.lirePaquets(val);
+    if (!lu.ok) return toast("⚠ " + lu.error);
+    const avant = j.paquets?.[ouvId]?.[col] ?? [];
+    if (avant.length === lu.numeros.length && avant.every((n, i) => n === lu.numeros[i])) return;
+    const paquets = { ...(j.paquets || {}), [ouvId]: { ...(j.paquets?.[ouvId] || {}) } };
+    if (lu.numeros.length) paquets[ouvId][col] = lu.numeros;
+    else {
+      delete paquets[ouvId][col];
+      if (!Object.keys(paquets[ouvId]).length) delete paquets[ouvId];
+    }
+    saisir(j.id, [{ type: "paquets", ouvId, col, numeros: lu.numeros }], { paquets });
   };
   const setRet = (ouvId: number, val: string) => {
     const j = currentDayId != null ? findJ(state, currentDayId) : null;
@@ -548,6 +567,29 @@ export default function GpaoApp({
     toast(`⚠ Alerte rendement sous ${seuilAlerte} %`);
   };
 
+  /** Relevé des paquets : allumé ou éteint pour toute l'usine. Éteint, les
+   * écrans redeviennent exactement ceux d'avant — rien n'est perdu. */
+  const majSuiviPaquets = async (v: boolean) => {
+    if (v === state.reglages.suiviPaquets) return;
+    mutate((s) => {
+      s.reglages.suiviPaquets = v;
+    });
+    const res = await gpao.enregistrerReglages({ suiviPaquets: v });
+    if (!res.ok) return toast("⚠ " + res.error);
+    toast(v ? "🏷 Relevé des paquets activé" : "Relevé des paquets masqué (rien n'est effacé)");
+  };
+  /** Pièces par paquet de l'usine, quand le modèle n'en fixe pas. */
+  const majTaillePaquet = async (v: number) => {
+    const taillePaquet = Math.max(1, Math.min(pq.PAQUET_MAX, Math.round(v) || pq.TAILLE_PAQUET_DEFAUT));
+    if (taillePaquet === state.reglages.taillePaquet) return;
+    mutate((s) => {
+      s.reglages.taillePaquet = taillePaquet;
+    });
+    const res = await gpao.enregistrerReglages({ taillePaquet });
+    if (!res.ok) return toast("⚠ " + res.error);
+    toast(`🏷 Paquets de ${taillePaquet} pièces par défaut`);
+  };
+
   const importerOuvrieres = async (chaineId: number, lignes: { nom: string; poste: string; sam: number }[]) => {
     setImportOuv(null);
     const res = await gpao.importerOuvrieres(chaineId, lignes);
@@ -721,6 +763,9 @@ export default function GpaoApp({
           onBack={() => setView("jours")}
           onSortie={setSortie}
           onOp={setOp}
+          onPaquets={setPaquets}
+          onSuiviPaquets={majSuiviPaquets}
+          onTaillePaquet={majTaillePaquet}
           onRet={setRet}
           onObjManuel={setObjManuel}
           onPostesHeure={setPosteHeureOuv}
@@ -1033,6 +1078,9 @@ function JourDetail({
   onBack,
   onSortie,
   onOp,
+  onPaquets,
+  onSuiviPaquets,
+  onTaillePaquet,
   onRet,
   onObjManuel,
   onPostesHeure,
@@ -1052,6 +1100,9 @@ function JourDetail({
   onBack: () => void;
   onSortie: (col: string, val: string) => void;
   onOp: (ouvId: number, col: string, val: string) => void;
+  onPaquets: (ouvId: number, col: string, val: string) => void;
+  onSuiviPaquets: (v: boolean) => void;
+  onTaillePaquet: (v: number) => void;
   onRet: (ouvId: number, val: string) => void;
   onObjManuel: (val: string) => void;
   onPostesHeure: (ouvId: number) => void;
@@ -1083,6 +1134,66 @@ function JourDetail({
   const alertes = alertesRendement(state, j, state.reglages.seuilAlerte);
   const retouches = alertesRetouche(state, j);
   const sam = bilanSam(state, j);
+
+  /* ─── relevé des paquets (facultatif) ───
+     Le recoupement est une LECTURE : il compare ce qui est déjà saisi, il
+     n'ajoute aucune production. Quand le relevé est éteint, rien de tout
+     ceci n'est calculé ni affiché. */
+  const suiviPaquets = state.reglages.suiviPaquets;
+  const taillePq = pq.taillePaquet(m?.taillePaquet, state.reglages.taillePaquet);
+  const ctrlPaquets = suiviPaquets
+    ? pq.controleJournee({
+        lignes: roster.flatMap((o) =>
+          j.cols.map((cn) => ({
+            ouvId: o.id,
+            nom: o.nom,
+            col: cn,
+            pieces: j.ops[o.id]?.[cn],
+            poste: j.opsPoste?.[o.id]?.[cn] || o.poste,
+            numeros: j.paquets?.[o.id]?.[cn] ?? [],
+          })),
+        ),
+        qteOf: m?.qte,
+        taille: taillePq,
+      })
+    : null;
+  const nbPaquetsOf = pq.nbPaquetsOf(m?.qte, taillePq);
+  /** Petite case « paquets » sous la quantité de l'heure. */
+  const CasePaquets = ({ ouvId, col }: { ouvId: number; col: string }) => {
+    if (!suiviPaquets) return null;
+    const nums = j.paquets?.[ouvId]?.[col] ?? [];
+    const texte = pq.formatPaquets(nums);
+    const souci = pq.controleHeure({
+      pieces: j.ops[ouvId]?.[col],
+      numeros: nums,
+      qteOf: m?.qte,
+      taille: taillePq,
+      nbPaquets: nbPaquetsOf,
+    });
+    return (
+      <input
+        key={`pq-${ouvId}-${col}-${texte}`}
+        className="hcell"
+        defaultValue={texte}
+        placeholder="🏷"
+        disabled={dis}
+        title={souci ? souci.message : "Numéros de paquets travaillés dans l'heure (facultatif) — ex. 12, 13 ou 12-15"}
+        style={{
+          display: "block",
+          margin: "2px auto 0",
+          width: 52,
+          fontSize: 10,
+          padding: "2px 2px",
+          fontWeight: 500,
+          color: souci ? (souci.niveau === "erreur" ? "#b91c1c" : "#b45309") : "var(--muted)",
+          background: souci ? (souci.niveau === "erreur" ? "#fee2e2" : "#fef3c7") : undefined,
+          ...(disStyle ?? {}),
+        }}
+        onBlur={(e) => onPaquets(ouvId, col, e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+    );
+  };
 
   return (
     <div className="page">
@@ -1415,6 +1526,7 @@ function JourDetail({
                             style={{ boxShadow: "inset 0 0 0 2px #5b3fae", borderRadius: 4, cursor: "pointer" }}
                             onClick={() => onPostesHeure(o.id)}
                           />
+                          <CasePaquets ouvId={o.id} col={cn} />
                         </td>
                       );
                     }
@@ -1445,6 +1557,7 @@ function JourDetail({
                           onBlur={(e) => onOp(o.id, cn, e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                         />
+                        <CasePaquets ouvId={o.id} col={cn} />
                       </td>
                     );
                   })}
@@ -1532,6 +1645,101 @@ function JourDetail({
         </div>
       </div>
 
+      {suiviPaquets && ctrlPaquets && (
+        <div
+          style={{
+            marginTop: 10,
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            background: "#fff",
+            padding: "10px 12px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
+            <b style={{ fontSize: 13 }}>🏷 Recoupement par paquets</b>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              paquets de <b>{taillePq}</b> pièces
+              {nbPaquetsOf > 0 && (
+                <>
+                  {" · "}OF de {m?.qte} pièces = <b>{nbPaquetsOf}</b> paquets
+                </>
+              )}
+              {ctrlPaquets.couverture.nbVus > 0 && (
+                <>
+                  {" · "}vus aujourd&apos;hui : <b>{ctrlPaquets.couverture.nbVus}</b> (
+                  {pq.formatPaquets(ctrlPaquets.couverture.vus)})
+                </>
+              )}
+            </span>
+          </div>
+
+          {!ctrlPaquets.utilise ? (
+            <div style={{ fontSize: 11, color: "var(--muted)" }}>
+              Aucun numéro noté pour l&apos;instant. Dans la petite case <b>🏷</b> sous chaque heure, tapez les paquets
+              travaillés : <b>12, 13</b> ou <b>12-15</b>. C&apos;est facultatif, et cela ne change rien au comptage de
+              la production.
+            </div>
+          ) : (
+            <>
+              {ctrlPaquets.alertes.length > 0 ? (
+                <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 11.5 }}>
+                  {ctrlPaquets.alertes.map((a, i) => (
+                    <li key={i} style={{ color: a.niveau === "erreur" ? "#b91c1c" : "#b45309", fontWeight: 600 }}>
+                      {a.niveau === "erreur" ? "⛔" : "⚠"} {a.nom ? `${a.nom}${a.col ? ` · ${a.col}` : ""} — ` : ""}
+                      {a.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div style={{ fontSize: 11.5, color: "#15803d", fontWeight: 600, marginBottom: 8 }}>
+                  ✓ Les pièces déclarées tiennent dans les paquets notés.
+                </div>
+              )}
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+                <thead>
+                  <tr style={{ color: "var(--muted)", textAlign: "left" }}>
+                    <th style={{ padding: "2px 4px" }}>Ouvrière</th>
+                    <th style={{ padding: "2px 4px", textAlign: "right" }}>Pièces</th>
+                    <th style={{ padding: "2px 4px" }}>Paquets notés</th>
+                    <th style={{ padding: "2px 4px", textAlign: "right" }}>Contenu</th>
+                    <th style={{ padding: "2px 4px", textAlign: "right" }}>Écart</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ctrlPaquets.bilans
+                    .filter((b) => b.paquets.length > 0)
+                    .map((b) => (
+                      <tr key={b.ouvId} style={{ borderTop: "1px solid var(--border)" }}>
+                        <td style={{ padding: "2px 4px", fontWeight: 600 }}>{b.nom}</td>
+                        <td style={{ padding: "2px 4px", textAlign: "right" }}>{b.pieces}</td>
+                        <td style={{ padding: "2px 4px", color: "var(--muted)" }}>
+                          {b.paquets.length} — {pq.formatPaquets(b.paquets)}
+                        </td>
+                        <td style={{ padding: "2px 4px", textAlign: "right" }}>{b.capacite}</td>
+                        <td
+                          style={{
+                            padding: "2px 4px",
+                            textAlign: "right",
+                            fontWeight: 700,
+                            color: b.alerte ? (b.alerte.niveau === "erreur" ? "#b91c1c" : "#b45309") : "var(--muted)",
+                          }}
+                        >
+                          {b.ecart > 0 ? `+${b.ecart}` : b.ecart}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--muted)" }}>
+                Un écart négatif est normal : un paquet entamé en fin d&apos;heure se finit à l&apos;heure suivante. Ce
+                qui est impossible, c&apos;est de produire plus de pièces que les paquets notés n&apos;en contiennent.
+                Ce tableau ne compte pas la production : elle reste celle de la sortie de chaîne.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       <EquilibragePanel state={state} journee={j} />
 
       <div className="note" style={{ marginTop: 10 }}>
@@ -1562,6 +1770,37 @@ function JourDetail({
           }}
         />{" "}
         % de rendement — réglage commun à tous les postes.
+        <br />
+        🏷{" "}
+        <label style={{ cursor: "pointer", fontWeight: 600 }}>
+          <input
+            type="checkbox"
+            checked={suiviPaquets}
+            onChange={(e) => onSuiviPaquets(e.target.checked)}
+            style={{ verticalAlign: "middle", marginRight: 4 }}
+          />
+          Relever les numéros de paquets
+        </label>{" "}
+        — une petite case sous chaque heure, pour recouper les pièces déclarées avec les paquets travaillés. Paquets de{" "}
+        <input
+          type="number"
+          min={1}
+          max={999}
+          defaultValue={state.reglages.taillePaquet}
+          onBlur={(e) => onTaillePaquet(+e.target.value)}
+          title="Pièces par paquet dans l'usine — un modèle peut en fixer une autre dans sa fiche"
+          style={{
+            width: 48,
+            padding: "1px 4px",
+            border: "1px solid var(--border)",
+            borderRadius: 5,
+            textAlign: "center",
+            fontWeight: 700,
+            fontSize: 11,
+          }}
+        />{" "}
+        pièces par défaut{m && m.taillePaquet ? ` (ce modèle : ${m.taillePaquet})` : ""}. Ce relevé ne compte jamais la
+        production.
       </div>
     </div>
   );

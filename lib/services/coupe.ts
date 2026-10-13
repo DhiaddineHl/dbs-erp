@@ -10,6 +10,7 @@ import { getSetting } from "@/lib/services/permissions";
 import { getPlan } from "@/lib/services/plan-coupe";
 import { recalculerCommande } from "@/lib/services/aval";
 import { chargerRouleaux, declarerConsommation, recalculerStatut } from "@/lib/services/rouleaux";
+import { annulerPaquetsDeFiche, creerPaquetsPourFiche } from "@/lib/services/paquets";
 
 /* Module COUPE — la coupe part du PLAN DE COUPE.
  *
@@ -294,6 +295,11 @@ export async function validerFiche(v: SaisieFiche, par: string): Promise<{ id: n
       );
 
     for (const id of groupe) await recalculerCommande(t, id);
+    /* Les paquets de cette coupe naissent ici, une fois les lignes écrites :
+     * ils se déduisent d'elles (un OF × une taille → ses paquets). Ne fait
+     * rien si le suivi par paquets n'est pas activé. Le coupé, lui, ne change
+     * pas d'un iota : `coupe` reste la seule source de `commande.coupeQte`. */
+    await creerPaquetsPourFiche(t, fiche.id, par);
     return { id: fiche.id, numero };
   });
 }
@@ -329,6 +335,9 @@ export async function annulerFiche(id: number, motif: string, par: string): Prom
       }
     }
     for (const r of rouleaux) await recalculerStatut(t, r);
+    // Les paquets nés de cette fiche sont annulés, jamais supprimés : leurs
+    // étiquettes ont pu être collées, et l'historique doit rester lisible.
+    await annulerPaquetsDeFiche(t, id, `Fiche ${f.numero} annulée : ${motif.trim()}`, par);
     const lignes = await t.select({ c: coupe.commandeId }).from(coupe).where(eq(coupe.ficheId, id));
     for (const c of new Set([f.commandeId, ...lignes.map((l) => l.c)])) await recalculerCommande(t, c);
     return f.numero;

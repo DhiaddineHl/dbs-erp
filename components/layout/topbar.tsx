@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Search } from "lucide-react";
+import { LogOut, Menu, Search } from "lucide-react";
 import { PAGE_META } from "@/lib/nav";
 import { authClient } from "@/lib/auth/client";
 import { journaliserDeconnexion } from "@/lib/actions/journal";
@@ -21,7 +21,14 @@ function useClock() {
   return now;
 }
 
-export function Topbar({ user }: { user: { name: string; email: string; role: string; roleLabel: string } }) {
+export function Topbar({
+  user,
+  onOuvrirMenu,
+}: {
+  user: { name: string; email: string; role: string; roleLabel: string };
+  /** Téléphone : ouvre le menu, qui y est un panneau coulissant. */
+  onOuvrirMenu?: () => void;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const id = pathname.split("/")[1] || "cockpit";
@@ -39,10 +46,21 @@ export function Topbar({ user }: { user: { name: string; email: string; role: st
   }
 
   return (
-    <header className="z-10 flex h-[60px] items-center gap-4 border-b bg-card px-6 shadow-sm">
-      <div className="leading-tight">
-        <div className="text-base font-bold">{meta.label}</div>
-        <div className="text-[11px] font-normal text-muted-foreground">
+    <header className="z-10 flex h-[60px] items-center gap-3 border-b bg-card px-3 shadow-sm lg:gap-4 lg:px-6">
+      {onOuvrirMenu && (
+        <button
+          type="button"
+          onClick={onOuvrirMenu}
+          aria-label="Ouvrir le menu"
+          className="-ml-1 flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
+        >
+          <Menu className="size-6" />
+        </button>
+      )}
+      <div className="min-w-0 leading-tight">
+        <div className="truncate text-base font-bold">{meta.label}</div>
+        {/* Le sous-titre coûte une ligne que le téléphone n'a pas. */}
+        <div className="hidden text-[11px] font-normal text-muted-foreground sm:block">
           {meta.subtitle}
         </div>
       </div>
@@ -55,7 +73,7 @@ export function Topbar({ user }: { user: { name: string; email: string; role: st
         />
       </div>
 
-      <div className="ml-auto flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-2 lg:gap-4">
         <div className="hidden text-right text-[12px] text-muted-foreground tabular-nums sm:block">
           <div>
             {now

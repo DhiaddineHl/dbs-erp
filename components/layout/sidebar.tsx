@@ -18,10 +18,13 @@ const STAGE_COLOR: Record<number, string> = {
 export function Sidebar({
   modules,
   badges = {},
+  onNaviguer,
 }: {
   modules: Record<string, boolean>;
   /** Pastilles calculées sur les données (lib/services/compteurs-menu.ts). */
   badges?: Record<string, number>;
+  /** Sur téléphone, le menu est un panneau : choisir une page le referme. */
+  onNaviguer?: () => void;
 }) {
   const pathname = usePathname();
   // Messagerie : pastille en direct (relevée par la veille), pas au chargement de page.
@@ -73,8 +76,9 @@ export function Sidebar({
                 <Link
                   key={item.id}
                   href={item.href}
+                  onClick={onNaviguer}
                   className={cn(
-                    "flex items-center gap-3 border-l-[2.5px] border-transparent px-5 py-2 text-[12.5px] text-slate-400 transition-colors hover:bg-sidebar-accent hover:text-slate-200",
+                    "flex items-center gap-3 border-l-[2.5px] border-transparent px-5 py-3 text-[13.5px] text-slate-400 transition-colors hover:bg-sidebar-accent hover:text-slate-200 lg:py-2 lg:text-[12.5px]",
                     active &&
                       "border-l-brand bg-gradient-to-r from-brand/20 to-transparent font-semibold text-white",
                   )}

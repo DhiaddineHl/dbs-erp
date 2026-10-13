@@ -92,6 +92,13 @@ export type CommandeRow = {
   ecartTissu: number | null;
   /** OF porteur qui gère la matière de cette ligne (OF réuni / part), sinon "". */
   matierePorteur: string;
+  /** Date RÉELLE d'arrivée du tissu, saisie une seule fois au magasin
+   * (réception du lot). "" = pas encore arrivé. La date PRÉVUE
+   * (`receptTissu`) reste intacte : on compare les deux. */
+  tissuRecuLe: string;
+  /** Jours de retard de l'arrivée sur la date promise au planning
+   * (positif = en retard). Null quand l'une des deux manque. */
+  tissuRetard: number | null;
   /* Couverture depuis le magasin tissu par lots. */
   tissuAffecte: number;
   tissuConsomme: number;
@@ -237,7 +244,18 @@ export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow
         : c;
       const statutKey = biz.statutEffectif(pourAffichage, ctx);
       // OF réuni ou part : le tissu est acheté et suivi sur l'OF porteur.
-      const matierePorteur = (c.parentId != null && parId.get(c.parentId)?.ofNumber) || "";
+      const porteur = c.parentId != null ? parId.get(c.parentId) : undefined;
+      const matierePorteur = porteur?.ofNumber || "";
+      /* La date d'arrivée du tissu vient du MAGASIN : le magasinier la saisit
+       * à la réception du lot, et elle remonte ici sans que personne la
+       * retape. Un OF réuni reprend celle de son porteur, qui porte la
+       * matière du groupe. */
+      const tissuRecuLe = biz.dateTissuRecu({
+        dateLots: couvertureTissu.get(c.id)?.dateReception,
+        dateSaisie: iso(c.tissuDateReelle),
+        dateLotsPorteur: porteur ? couvertureTissu.get(porteur.id)?.dateReception : "",
+        dateSaisiePorteur: porteur ? iso(porteur.tissuDateReelle) : "",
+      });
       const r = biz.retard(pourAffichage, now);
 
       return {
@@ -302,6 +320,8 @@ export async function listCommandes(opts: ListOptions = {}): Promise<CommandeRow
           ? null
           : biz.ecartTissu({ ...c, tissuRecu: (couvertureTissu.get(c.id)?.affecte ?? 0) > 0 ? couvertureTissu.get(c.id)!.affecte : c.tissuRecu }, chuteDefaut, groupe.qte),
         matierePorteur,
+        tissuRecuLe,
+        tissuRetard: biz.retardReception(iso(c.receptTissu), tissuRecuLe),
         tissuAffecte: couvertureTissu.get(c.id)?.affecte ?? 0,
         tissuConsomme: couvertureTissu.get(c.id)?.consomme ?? 0,
         tissuLots: couvertureTissu.get(c.id)?.lots ?? [],

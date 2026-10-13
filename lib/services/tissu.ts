@@ -361,14 +361,28 @@ export async function commandesPourAffectation() {
  * (nomenclature) est calculé ailleurs (fiche commande) ; ici on ne remonte que
  * ce que le magasin par lots sait : affecté / consommé / lots d'origine.
  * Sert à la vue « tissu » de la commande et aux alertes. */
-export type CouvertureTissuCommande = { affecte: number; consomme: number; lots: string[] };
+export type CouvertureTissuCommande = {
+  affecte: number;
+  consomme: number;
+  lots: string[];
+  /** Date de réception du DERNIER lot arrivé pour cette commande ("" si
+   * aucun). C'est la date réelle d'arrivée du tissu : le magasin la saisit
+   * une fois, à la réception, et tous les écrans la lisent ici. */
+  dateReception: string;
+};
 
 export async function couvertureTissuParCommande(): Promise<Map<number, CouvertureTissuCommande>> {
   const [affs, mvts] = await Promise.all([
     db
-      .select({ commandeId: tissuAffectation.commandeId, quantite: tissuAffectation.quantite, ident: tissuLot.identifiant })
+      .select({
+        commandeId: tissuAffectation.commandeId,
+        quantite: tissuAffectation.quantite,
+        ident: tissuLot.identifiant,
+        dateReception: tissuReception.date,
+      })
       .from(tissuAffectation)
-      .leftJoin(tissuLot, eq(tissuAffectation.lotId, tissuLot.id)),
+      .leftJoin(tissuLot, eq(tissuAffectation.lotId, tissuLot.id))
+      .leftJoin(tissuReception, eq(tissuLot.receptionId, tissuReception.id)),
     db
       .select({ id: tissuMouvement.id, commandeId: tissuMouvement.commandeId, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId })
       .from(tissuMouvement)
@@ -379,7 +393,7 @@ export async function couvertureTissuParCommande(): Promise<Map<number, Couvertu
   const get = (id: number) => {
     let e = out.get(id);
     if (!e) {
-      e = { affecte: 0, consomme: 0, lots: [] };
+      e = { affecte: 0, consomme: 0, lots: [], dateReception: "" };
       out.set(id, e);
     }
     return e;
@@ -389,6 +403,10 @@ export async function couvertureTissuParCommande(): Promise<Map<number, Couvertu
     const e = get(a.commandeId);
     e.affecte += a.quantite;
     if (a.ident && !e.lots.includes(a.ident)) e.lots.push(a.ident);
+    // La plus RÉCENTE : le tissu d'une commande est complet quand le dernier
+    // lot est arrivé. Les dates sont en ISO, l'ordre alphabétique suffit.
+    const d = a.dateReception ?? "";
+    if (d && d > e.dateReception) e.dateReception = d;
   }
   // Sorti NET : un retour au magasin annule la part correspondante de la sortie.
   for (const m of mvts) {

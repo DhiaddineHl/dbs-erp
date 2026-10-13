@@ -362,6 +362,7 @@ function assainir(plan: pc.Plan): pc.Plan {
 export async function enregistrerPlan(commandeId: number, brut: pc.Plan, auteur: Auteur) {
   const plan = assainir(brut);
   const date = biz.todayISO();
+  let report: number | null = null;
 
   await db.transaction(async (tx) => {
     const [c] = await tx.select().from(commande).where(eq(commande.id, commandeId));
@@ -407,9 +408,37 @@ export async function enregistrerPlan(commandeId: number, brut: pc.Plan, auteur:
       avant: avant ? "plan existant" : "aucun plan",
       apres: resume,
     });
+
+    /* La consommation du plan part D'OFFICE dans la Nomenclature.
+     *
+     * Le plan est le seul endroit où cette valeur se calcule vraiment
+     * (métrage des tracés ÷ pièces placées) : la retaper à la main dans la
+     * Nomenclature, c'était deux chiffres pour une seule vérité. Le report
+     * est donc automatique, et il laisse sa ligne dans le journal de la
+     * fiche — l'ancienne valeur n'est jamais perdue.
+     *
+     * Trois garde-fous : seule la matière PRINCIPALE compte (la doublure ne
+     * se consomme pas par pièce de la même façon) ; les longueurs doivent
+     * être MESURÉES, pas estimées ; et on n'écrit que si la valeur change. */
+    report = await reporterConsoDuPlan(tx, commandeId, plan, auteur);
   });
 
-  return { ...plan, par: auteur.name, date };
+  return { ...plan, par: auteur.name, date, consoReportee: report };
+}
+
+/** Consommation réelle de la matière principale, reportée sur la commande.
+ * Renvoie la valeur écrite, ou null quand il n'y avait rien à reporter. */
+async function reporterConsoDuPlan(tx: Tx, commandeId: number, plan: pc.Plan, auteur: Auteur): Promise<number | null> {
+  const m = pc.matierePrincipale(plan);
+  // Longueurs encore estimées : ce ne serait pas une consommation constatée.
+  if (!m || pc.estEstime(m)) return null;
+  const conso = pc.consoReellePiece(m, plan.sizes);
+  if (conso == null || conso <= 0) return null;
+  const valeur = +conso.toFixed(3);
+  const [c] = await tx.select({ consoReel: commande.consoReel }).from(commande).where(eq(commande.id, commandeId));
+  if (!c || c.consoReel === valeur) return null;
+  await reporterConso(tx, commandeId, "consoReel", valeur, auteur, "reportée automatiquement à l'enregistrement du plan");
+  return valeur;
 }
 
 /* ─────────── reports vers la commande ─────────── */
@@ -421,6 +450,7 @@ async function reporterConso(
   champ: "consoTheo" | "consoReel",
   valeur: number,
   auteur: Auteur,
+  detail = "reportée depuis le plan de matelassage",
 ) {
   const [c] = await tx.select().from(commande).where(eq(commande.id, commandeId));
   if (!c) throw new Error("Commande introuvable");
@@ -428,7 +458,7 @@ async function reporterConso(
   await tx.update(commande).set({ [champ]: valeur, updatedAt: new Date() }).where(eq(commande.id, commandeId));
   const label = champ === "consoTheo" ? "consommation théorique" : "consommation réelle";
   await journaliserFiche(tx, commandeId, auteur, "nomen", `Report du plan de coupe — ${label}`, {
-    detail: "reportée depuis le plan de matelassage",
+    detail,
     avant,
     apres: valeur,
   });

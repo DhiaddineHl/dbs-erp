@@ -11,8 +11,10 @@ import { CommandesClient } from "../commandes/commandes-client";
 const nb = new Intl.NumberFormat("fr-FR");
 
 /* Export du planning : aucune colonne d'argent, et la réception tissu en plus —
- * c'est une date que le planning tient et que le carnet n'affiche pas. Le
- * fichier peut donc circuler à l'atelier tel quel. */
+ * c'est une date que le planning tient et que le carnet n'affiche pas. Deux
+ * colonnes pour le tissu : la date PROMISE et la date RÉELLE remontée du
+ * magasin — l'écart entre les deux est ce qui intéresse l'atelier. Le fichier
+ * peut donc circuler tel quel. */
 const COLONNES_CSV: Column[] = [
   { key: "of", label: "N° OF" },
   { key: "parentOf", label: "Sous-commande de" },
@@ -24,7 +26,9 @@ const COLONNES_CSV: Column[] = [
   { key: "faconnier", label: "Façonnier" },
   { key: "qte", label: "Qté" },
   { key: "produit", label: "Produit" },
-  { key: "receptTissu", label: "Réception tissu" },
+  { key: "receptTissu", label: "Réception tissu prévue" },
+  { key: "tissuRecuLe", label: "Tissu reçu le" },
+  { key: "tissuRetard", label: "Retard réception (j)" },
   { key: "dateExport", label: "Export" },
   { key: "retard", label: "Retard" },
   { key: "av", label: "Avancement" },
@@ -74,7 +78,8 @@ export default async function PlanningPage() {
   const csvRows = actives.map((c) => ({
     of: c.of, parentOf: c.parentOf, modele: c.modele, refArticle: c.refArticle, couleur: c.couleur, saison: c.saison,
     client: c.client, faconnier: c.faconnier, qte: c.qte, produit: c.produit,
-    receptTissu: c.receptTissu, dateExport: c.dateExport, retard: c.retard[1],
+    receptTissu: c.receptTissu, tissuRecuLe: c.tissuRecuLe, tissuRetard: c.tissuRetard,
+    dateExport: c.dateExport, retard: c.retard[1],
     av: c.av, statut: c.statut[1],
   }));
 

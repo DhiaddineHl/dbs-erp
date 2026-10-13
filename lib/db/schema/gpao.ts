@@ -90,6 +90,11 @@ export const modele = pgTable("modele", {
   /** Effectif servant à estimer les pièces/heure dans la fiche modèle.
    * 0 = reprendre l'effectif de la première chaîne. */
   estimEff: integer().notNull().default(0),
+  /** Pièces par paquet à la coupe pour ce modèle (suivi par paquets).
+   * 0 = reprendre le réglage de l'usine (« gpao.taillePaquet », 25 par
+   * défaut). Le cahier des charges interdit d'imposer 25 : certains modèles
+   * se lient par 17 ou par 20. */
+  taillePaquet: integer().notNull().default(0),
 });
 
 export const chaine = pgTable("chaine", {
@@ -171,6 +176,12 @@ export const journee = pgTable("journee", {
   opsPoste: jsonb().$type<Record<number, Record<string, string>>>().notNull().default({}),
   opsDetail: jsonb().$type<Record<number, Record<string, OpDetail[]>>>().notNull().default({}),
   arrets: jsonb().$type<Record<number, Arret[]>>().notNull().default({}),
+  /** Numéros de PAQUETS travaillés, par ouvrière puis par heure.
+   *
+   * Facultatif : une journée sans rien ici se comporte exactement comme
+   * avant. C'est un relevé de RECOUPEMENT — il ne compte jamais la
+   * production, qui reste celle de `sortie` (voir lib/domain/paquets.ts). */
+  paquets: jsonb().$type<Record<number, Record<string, number[]>>>().notNull().default({}),
 });
 
 /* ─────────── Relations ─────────── */

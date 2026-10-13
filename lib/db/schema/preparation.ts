@@ -247,6 +247,11 @@ export const commandePlan = pgTable("commande_plan", {
   /** Surplus toléré par taille quand le proposeur arrondit. */
   surplusTolere: integer().notNull().default(0),
 
+  /** Liasses de ce modèle pour le suivi par paquets : « Col », « Devant »,
+   * « Manches », « Dos ». Choisies depuis un gabarit réutilisable puis
+   * ajustables. Vide = le paquet voyage d'un seul bloc. */
+  liasses: jsonb().$type<string[]>().notNull().default([]),
+
   par: text().notNull().default(""),
   date: date(),
   updatedAt: timestamp().notNull().defaultNow(),

@@ -6,12 +6,13 @@ import { listOperations, listPersonnel } from "@/lib/services/atelier";
 import { listFusions } from "@/lib/services/identite-ouvrieres";
 import { getSetting } from "@/lib/services/permissions";
 import { estDisponible } from "@/lib/domain/atelier";
+import { TAILLE_PAQUET_DEFAUT } from "@/lib/domain/paquets";
 import { SEUIL_ALERTE_DEFAUT, TV_ROTATION_DEFAUT } from "./store";
 
 /* Shared GPAO state lives in Postgres now — load it server-side so every user
  * sees the same journées, chaînes and modèles. */
 export default async function GpaoProdPage() {
-  const [modeles, chaines, journees, clients, personnes, operations, seuilAlerte, tvRotSec, commandesInternes, fusions] =
+  const [modeles, chaines, journees, clients, personnes, operations, seuilAlerte, tvRotSec, commandesInternes, fusions, suiviPaquets, taillePaquet] =
     await Promise.all([
       getModeles(),
       getChaines(),
@@ -23,6 +24,8 @@ export default async function GpaoProdPage() {
       getSetting<number>("gpao.tvRotSec", TV_ROTATION_DEFAUT),
       listCommandesInternes(),
       listFusions(),
+      getSetting<boolean>("gpao.suiviPaquets", false),
+      getSetting<number>("gpao.taillePaquet", TAILLE_PAQUET_DEFAUT),
     ]);
 
   const state: GpaoState = {
@@ -52,7 +55,7 @@ export default async function GpaoProdPage() {
     operations: operations
       .filter((o) => !o.archive)
       .map((o) => ({ id: o.id, nom: o.nom, sam: o.sam })),
-    reglages: { seuilAlerte, tvRotSec },
+    reglages: { seuilAlerte, tvRotSec, suiviPaquets, taillePaquet },
     nextOuvId: 0,
     tvDayId: null,
   };

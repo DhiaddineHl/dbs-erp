@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { cleNom } from "@/lib/domain/atelier";
+import * as pq from "@/lib/domain/paquets";
 import * as rd from "@/lib/domain/rendement";
 import * as rp from "@/lib/domain/rendement-personne";
 
@@ -25,6 +26,8 @@ export type Modele = {
   archive: boolean;
   estimEff: number;
   commandeId?: number | null;
+  /** Pièces par paquet à la coupe (0 = réglage de l'usine). */
+  taillePaquet?: number;
 };
 /** cell value: number, or marker strings RI / ABS */
 export type Cell = number | "RI" | "ABS";
@@ -57,6 +60,9 @@ export type Journee = {
   opsDetail?: Record<number, Record<string, OpDetail[]>>;
   /** Arrêts / temps non productifs par ouvrière (motif + durée en secondes). */
   arrets?: Record<number, Arret[]>;
+  /** Numéros de paquets travaillés, par ouvrière puis par heure. Relevé de
+   * recoupement : il ne compte jamais la production (voir domain/paquets). */
+  paquets?: Record<number, Record<string, number[]>>;
   /** manual chain hourly objective override (0/undefined = automatic) */
   objManuel?: number;
 };
@@ -93,10 +99,20 @@ export const SEUIL_ALERTE_DEFAUT = rd.SEUIL_ALERTE_DEFAUT;
 /** Secondes d'affichage par chaîne avant rotation sur l'écran d'atelier. */
 export const TV_ROTATION_DEFAUT = 12;
 
-export type Reglages = { seuilAlerte: number; tvRotSec: number };
+export type Reglages = {
+  seuilAlerte: number;
+  tvRotSec: number;
+  /** Relevé des numéros de paquets à côté de la saisie horaire. Éteint par
+   * défaut : tant qu'il l'est, les écrans sont exactement ceux d'avant. */
+  suiviPaquets: boolean;
+  /** Pièces par paquet de l'usine, quand le modèle n'en fixe pas. */
+  taillePaquet: number;
+};
 export const REGLAGES_DEFAUT: Reglages = {
   seuilAlerte: SEUIL_ALERTE_DEFAUT,
   tvRotSec: TV_ROTATION_DEFAUT,
+  suiviPaquets: false,
+  taillePaquet: pq.TAILLE_PAQUET_DEFAUT,
 };
 
 export function uid() {

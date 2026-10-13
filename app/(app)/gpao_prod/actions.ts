@@ -10,6 +10,7 @@ import * as rent from "@/lib/services/rentabilite";
 import * as ident from "@/lib/services/identite-ouvrieres";
 import { completerFiches } from "@/lib/services/identite-ouvrieres";
 import { normaliserParams, type ParamsUsine } from "@/lib/domain/cout-usine";
+import { PAQUET_MAX, TAILLE_PAQUET_DEFAUT } from "@/lib/domain/paquets";
 import type { journee as journeeTable } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 
@@ -238,6 +239,7 @@ export async function saveModele(input: {
   qte: number;
   estimEff: number;
   commandeId?: number | null;
+  taillePaquet?: number;
 }) {
   try {
     await assertUser();
@@ -249,6 +251,8 @@ export async function saveModele(input: {
       qte: input.qte,
       estimEff: input.estimEff,
       commandeId: input.commandeId ?? null,
+      // 0 = ce modèle suit la taille de paquet réglée pour l'usine.
+      taillePaquet: Math.max(0, Math.min(PAQUET_MAX, Math.round(Number(input.taillePaquet) || 0))),
     };
     if (input.id) {
       await g.updateModele(input.id, champs);
@@ -293,9 +297,18 @@ export async function deleteModele(id: number) {
 
 /** Seuil d'alerte et cadence de rotation TV : réglés une fois, partagés par
  * tous les postes — l'atelier n'a pas à les reconfigurer écran par écran. */
-export async function enregistrerReglages(r: { seuilAlerte?: number; tvRotSec?: number }) {
+export async function enregistrerReglages(r: {
+  seuilAlerte?: number;
+  tvRotSec?: number;
+  suiviPaquets?: boolean;
+  taillePaquet?: number;
+}) {
   try {
     await assertUser();
+    if (r.suiviPaquets !== undefined) await setSetting("gpao.suiviPaquets", !!r.suiviPaquets);
+    if (r.taillePaquet !== undefined) {
+      await setSetting("gpao.taillePaquet", Math.max(1, Math.min(PAQUET_MAX, Math.round(r.taillePaquet) || TAILLE_PAQUET_DEFAUT)));
+    }
     if (r.seuilAlerte !== undefined) {
       await setSetting("gpao.seuilAlerte", Math.max(1, Math.min(200, Math.round(r.seuilAlerte))));
     }

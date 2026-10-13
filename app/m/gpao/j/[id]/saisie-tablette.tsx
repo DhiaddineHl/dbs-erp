@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { relireJournee, saisirProduction } from "@/lib/actions/saisie-gpao";
 import { cleOperation } from "@/lib/domain/atelier";
+import * as pq from "@/lib/domain/paquets";
 import * as rd from "@/lib/domain/rendement";
 import * as sg from "@/lib/domain/saisie-gpao";
 import type { JourneeTablette } from "@/lib/services/saisie-gpao";
@@ -19,6 +20,7 @@ import {
   chRetTotal,
   chSortieTotal,
   ouvProd,
+  REGLAGES_DEFAUT,
   ouvRend,
   ouvRet,
   ouvRetPct,
@@ -61,6 +63,7 @@ const matricesDe = (j: Row): sg.Matrices => ({
   opsPoste: j.opsPoste ?? {},
   opsDetail: j.opsDetail ?? {},
   arrets: j.arrets ?? {},
+  paquets: j.paquets ?? {},
 });
 
 const cleFile = (id: number) => `gpao-saisies-${id}`;
@@ -86,11 +89,17 @@ export function SaisieTablette({
   initial,
   operations,
   seuilAlerte,
+  suiviPaquets,
+  taillePaquet,
 }: {
   utilisateur: string;
   initial: JourneeTablette;
   operations: { nom: string; sam: number }[];
   seuilAlerte: number;
+  /** Relevé des numéros de paquets activé pour l'usine (réglage partagé). */
+  suiviPaquets: boolean;
+  /** Pièces par paquet de l'usine (le modèle peut en fixer une autre). */
+  taillePaquet: number;
 }) {
   const { chaine, modele } = initial;
   const id = initial.journee.id;
@@ -211,17 +220,27 @@ export function SaisieTablette({
 
   /* ─────────── calculs : les mêmes que l'écran GPAO du bureau ─────────── */
   const jj: Journee = useMemo(() => ({ ...j, objManuel: j.objManuel ?? undefined, ouvrieres: roster }) as Journee, [j, roster]);
+  /* Relevé des paquets : tout est calculé à partir de ce qui est déjà saisi.
+     Éteint, rien n'est calculé ni affiché — l'écran reste celui d'avant. */
+  const tailleP = pq.taillePaquet(modele.taillePaquet, taillePaquet);
+  const infoPaquets = useMemo(
+    () =>
+      suiviPaquets
+        ? { actif: true, taille: tailleP, qteOf: modele.qte, nbPaquets: pq.nbPaquetsOf(modele.qte, tailleP) }
+        : null,
+    [suiviPaquets, tailleP, modele.qte],
+  );
   const etat: GpaoState = useMemo(
     () => ({
-      modeles: [{ ...modele, qte: 0, archive: false, estimEff: 0 }],
+      modeles: [{ ...modele, archive: false, estimEff: 0 }],
       chaines: [{ id: chaine.id, nom: chaine.nom, chef: chaine.chef, effectif: j.effectif, ouvrieres: roster }],
       journees: [jj],
       personnes: [],
       operations: [],
-      reglages: { seuilAlerte, tvRotSec: 12 },
+      reglages: { ...REGLAGES_DEFAUT, seuilAlerte, taillePaquet, suiviPaquets },
       nextOuvId: 0,
     }),
-    [modele, chaine, roster, jj, j.effectif, seuilAlerte],
+    [modele, chaine, roster, jj, j.effectif, seuilAlerte, suiviPaquets, taillePaquet],
   );
   const objH = chObjH(etat, jj);
   const objJour = chObjJour(etat, jj);
@@ -378,6 +397,7 @@ export function SaisieTablette({
             poserCase={poserCase}
             suivante={suivante}
             saisir={saisir}
+            paquets={infoPaquets}
             ouvrirPoste={(ouvId) => setFeuille({ type: "poste", ouvId, col: onglet })}
             heureSuivante={() => {
               const i = heures.indexOf(onglet);
@@ -460,6 +480,7 @@ export function SaisieTablette({
             objH={objH}
             alertes={alertes.map((a) => `${a.ouv.nom} (${a.rend} %)`)}
             seuilAlerte={seuilAlerte}
+            paquets={infoPaquets}
             ferme={ferme}
             onCloturer={() => {
               const incompletes = heures.filter((c) => !sg.avancementHeure(m, roster, c).complete);
@@ -513,6 +534,7 @@ function VueHeure({
   saisir,
   ouvrirPoste,
   heureSuivante,
+  paquets,
 }: {
   col: string;
   j: Journee;
@@ -520,6 +542,8 @@ function VueHeure({
   roster: Ligne[];
   objH: number;
   ferme: boolean;
+  /** Relevé des paquets : éteint, la ligne n'apparaît pas du tout. */
+  paquets: { actif: boolean; taille: number; qteOf: number; nbPaquets: number } | null;
   poserCase: (i: number, el: HTMLInputElement | null) => void;
   suivante: (i: number) => void;
   saisir: (...s: sg.Saisie[]) => boolean;
@@ -546,7 +570,8 @@ function VueHeure({
           const change = !!detail?.length || !!m.opsPoste[o.id]?.[col] || !!m.opsSam[o.id]?.[col];
           const pct = rd.heureTravaillee(brute, o.id, col) ? Math.round((rd.gagneHeure(brute, o, col) / 3600) * 100) : null;
           return (
-            <div key={o.id} className={`flex items-center gap-2 border-b px-3 py-2 last:border-0 ${pctBg(pct)}`}>
+            <div key={o.id} className={`border-b px-3 py-2 last:border-0 ${pctBg(pct)}`}>
+              <div className="flex items-center gap-2">
               <div className="w-7 text-center text-sm text-slate-400">{i + 1}</div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-lg font-bold">{o.nom}</div>
@@ -591,6 +616,16 @@ function VueHeure({
                 ⇄
               </button>
               <div className={`w-16 text-right text-lg font-extrabold tabular-nums ${pctTone(pct)}`}>{pct === null ? (v === "ABS" || v === "RI" ? v : "—") : `${pct}%`}</div>
+              </div>
+              {paquets?.actif && (
+                <LignePaquets
+                  numeros={m.paquets[o.id]?.[col] ?? []}
+                  pieces={v}
+                  info={paquets}
+                  disabled={ferme}
+                  onValider={(nums) => saisir({ type: "paquets", ouvId: o.id, col, numeros: nums })}
+                />
+              )}
             </div>
           );
         })}
@@ -634,6 +669,56 @@ function VueHeure({
   );
 }
 
+/* ═══════════ relevé des numéros de paquets (facultatif) ═══════════
+ *
+ * Une ligne discrète sous l'ouvrière : l'agent note les paquets travaillés
+ * dans l'heure. Rien n'est obligatoire, et rien de ce qui est noté ici
+ * n'entre dans le comptage de la production. */
+
+function LignePaquets({
+  numeros,
+  pieces,
+  info,
+  disabled,
+  onValider,
+}: {
+  numeros: number[];
+  pieces: pq.Pieces;
+  info: { taille: number; qteOf: number; nbPaquets: number };
+  disabled: boolean;
+  onValider: (nums: number[]) => void;
+}) {
+  const texte = pq.formatPaquets(numeros);
+  const souci = pq.controleHeure({ pieces, numeros, qteOf: info.qteOf, taille: info.taille, nbPaquets: info.nbPaquets });
+  const ton = !souci ? "border-slate-200" : souci.niveau === "erreur" ? "border-red-400 bg-red-50" : "border-amber-400 bg-amber-50";
+  return (
+    <div className="mt-1.5 flex items-center gap-2 pl-7">
+      <span className="text-sm text-slate-400">🏷</span>
+      <input
+        key={`pq-${texte}`}
+        defaultValue={texte}
+        disabled={disabled}
+        inputMode="numeric"
+        placeholder="paquets — ex. 12, 13 ou 12-15"
+        className={`min-w-0 flex-1 rounded-lg border-2 px-3 py-1.5 text-base tabular-nums ${ton}`}
+        onBlur={(e) => {
+          const lu = pq.lirePaquets(e.target.value);
+          if (!lu.ok) return void toast.error(lu.error);
+          const avant = numeros;
+          if (avant.length === lu.numeros.length && avant.every((n, i) => n === lu.numeros[i])) return;
+          onValider(lu.numeros);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+      {souci && (
+        <span className={`max-w-[45%] text-xs font-semibold ${souci.niveau === "erreur" ? "text-red-700" : "text-amber-700"}`}>
+          {souci.niveau === "erreur" ? "⛔" : "⚠"} {souci.message}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /* ═══════════ récapitulatif de la journée ═══════════ */
 
 function Recap({
@@ -646,7 +731,9 @@ function Recap({
   ferme,
   onCloturer,
   onHeure,
+  paquets,
 }: {
+  paquets: { actif: boolean; taille: number; qteOf: number; nbPaquets: number } | null;
   j: Journee;
   m: sg.Matrices;
   roster: Ligne[];
@@ -658,6 +745,23 @@ function Recap({
   onHeure: (col: string) => void;
 }) {
   const brute = j as unknown as rd.JourneeBrute;
+  /* Recoupement des paquets : une lecture de ce qui est déjà saisi. */
+  const ctrl = paquets?.actif
+    ? pq.controleJournee({
+        lignes: roster.flatMap((o) =>
+          j.cols.map((c) => ({
+            ouvId: o.id,
+            nom: o.nom,
+            col: c,
+            pieces: m.ops[o.id]?.[c],
+            poste: m.opsPoste[o.id]?.[c] || o.poste,
+            numeros: m.paquets[o.id]?.[c] ?? [],
+          })),
+        ),
+        qteOf: paquets.qteOf,
+        taille: paquets.taille,
+      })
+    : null;
   return (
     <div className="space-y-3">
       {alertes.length > 0 && (
@@ -725,6 +829,62 @@ function Recap({
           </tbody>
         </table>
       </div>
+
+      {ctrl && ctrl.utilise && (
+        <div className="rounded-2xl bg-white p-4 shadow-sm">
+          <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <b className="text-base">🏷 Recoupement par paquets</b>
+            <span className="text-xs text-slate-500">
+              paquets de {paquets!.taille} pièces
+              {ctrl.couverture.nbPaquets > 0 ? ` · OF = ${ctrl.couverture.nbPaquets} paquets` : ""} · vus aujourd&apos;hui :{" "}
+              {pq.formatPaquets(ctrl.couverture.vus) || "—"}
+            </span>
+          </div>
+          {ctrl.alertes.length > 0 ? (
+            <ul className="mb-2 space-y-1 text-sm">
+              {ctrl.alertes.map((a, i) => (
+                <li key={i} className={a.niveau === "erreur" ? "font-semibold text-red-700" : "font-semibold text-amber-700"}>
+                  {a.niveau === "erreur" ? "⛔" : "⚠"} {a.nom ? `${a.nom}${a.col ? ` · ${a.col}` : ""} — ` : ""}
+                  {a.message}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mb-2 text-sm font-semibold text-emerald-700">✓ Les pièces déclarées tiennent dans les paquets notés.</div>
+          )}
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-xs uppercase text-slate-500">
+                <th className="py-1 text-left">Ouvrière</th>
+                <th className="py-1 text-right">Pièces</th>
+                <th className="py-1 text-left">Paquets notés</th>
+                <th className="py-1 text-right">Contenu</th>
+                <th className="py-1 text-right">Écart</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ctrl.bilans
+                .filter((b) => b.paquets.length > 0)
+                .map((b) => (
+                  <tr key={b.ouvId} className="border-b last:border-0">
+                    <td className="py-1 font-semibold">{b.nom}</td>
+                    <td className="py-1 text-right tabular-nums">{b.pieces}</td>
+                    <td className="py-1 text-slate-500">{pq.formatPaquets(b.paquets)}</td>
+                    <td className="py-1 text-right tabular-nums">{b.capacite}</td>
+                    <td className={`py-1 text-right font-bold tabular-nums ${b.alerte ? (b.alerte.niveau === "erreur" ? "text-red-700" : "text-amber-700") : "text-slate-400"}`}>
+                      {b.ecart > 0 ? `+${b.ecart}` : b.ecart}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          <p className="mt-2 text-xs text-slate-500">
+            Un écart négatif est normal : un paquet entamé en fin d&apos;heure se finit à l&apos;heure suivante. Ce
+            relevé ne compte pas la production — elle reste celle de la sortie de chaîne.
+          </p>
+        </div>
+      )}
+
       {!ferme && (
         <button onClick={onCloturer} className="w-full rounded-2xl bg-emerald-600 py-4 text-lg font-extrabold text-white">
           ✓ Clôturer la journée

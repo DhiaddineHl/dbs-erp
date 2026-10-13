@@ -600,6 +600,9 @@ export function CommandesClient({
                   valeur={c.receptTissu}
                   onSave={(v) => enregistrer(c.id, "receptTissu", v)}
                 />
+                {/* Arrivée RÉELLE, remontée du magasin tissu : personne ne la
+                    retape, et elle n'écrase pas la date promise au-dessus. */}
+                <ArriveeTissu commande={c} />
                 <DatePlanning
                   label="Export"
                   valeur={c.dateExport}
@@ -1108,6 +1111,37 @@ function DatePlanning({
         }}
       />
     </label>
+  );
+}
+
+/* Arrivée réelle du tissu, sous la date promise au planning.
+ *
+ * Le magasinier la saisit UNE fois, à la réception du lot ; elle remonte ici
+ * toute seule. On montre les deux dates, jamais une à la place de l'autre :
+ * « promis le 5, arrivé le 12 » est exactement ce que le planning doit voir. */
+function ArriveeTissu({ commande: c }: { commande: CommandeRow }) {
+  if (!c.tissuRecuLe) {
+    if (!c.receptTissu) return null;
+    return (
+      <span className="pl-10 text-[9px] text-muted-foreground" title="Aucun lot de tissu reçu pour cette commande">
+        pas encore arrivé
+      </span>
+    );
+  }
+  const r = c.tissuRetard;
+  const tard = r != null && r > 0;
+  return (
+    <span
+      className={`pl-10 text-[9px] font-semibold ${tard ? "text-warning-foreground" : "text-success-foreground"}`}
+      title={
+        `Tissu reçu au magasin le ${dateFr(c.tissuRecuLe)}` +
+        (r == null ? "" : r > 0 ? ` — ${r} jour(s) après la date prévue` : r < 0 ? ` — ${-r} jour(s) avant la date prévue` : " — le jour prévu") +
+        (c.matierePorteur ? ` (matière reçue sur ${c.matierePorteur})` : "")
+      }
+    >
+      ✓ reçu {dateFr(c.tissuRecuLe)}
+      {tard ? ` (+${r} j)` : ""}
+    </span>
   );
 }
 

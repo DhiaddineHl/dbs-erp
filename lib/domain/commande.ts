@@ -68,6 +68,41 @@ export function joursJusqua(iso: string | null | undefined, from: Date = new Dat
   return Math.round((target - base) / 86_400_000);
 }
 
+/* ─────────── date RÉELLE d'arrivée du tissu ───────────
+ *
+ * Le magasin saisit la réception UNE fois, sur le lot. Tous les écrans — le
+ * planning, la direction technique, la nomenclature — lisent cette même date :
+ * personne ne la retape, et elle ne peut donc pas se contredire d'un écran à
+ * l'autre.
+ *
+ * La date PRÉVUE (`receptTissu`) n'est jamais écrasée : c'est l'engagement du
+ * planning, et le comparer à l'arrivée réelle est précisément ce qui sert. */
+
+export type SourcesTissuRecu = {
+  /** Dernière réception des lots affectés à CETTE commande ("" si aucun). */
+  dateLots?: string | null;
+  /** Ancien champ saisi à la main sur la fiche (avant le magasin par lots). */
+  dateSaisie?: string | null;
+  /** Mêmes deux sources, côté OF porteur, pour un OF réuni ou une part. */
+  dateLotsPorteur?: string | null;
+  dateSaisiePorteur?: string | null;
+};
+
+/** Date à laquelle le tissu est réellement arrivé, ou "" s'il n'est pas là.
+ *
+ * Ce que la commande a elle-même reçu passe devant ; sinon on reprend son
+ * porteur, puisque le tissu d'un groupe s'achète une fois pour la référence
+ * et se réceptionne sur l'OF porteur. */
+export function dateTissuRecu(v: SourcesTissuRecu): string {
+  return (v.dateLots || "") || (v.dateSaisie || "") || (v.dateLotsPorteur || "") || (v.dateSaisiePorteur || "");
+}
+
+/** Jours de retard de l'arrivée sur la date promise au planning.
+ * Positif = arrivé en retard, négatif = en avance, null = pas comparable. */
+export function retardReception(prevue: string | null | undefined, reelle: string | null | undefined): number | null {
+  return prevue && reelle ? joursEntre(prevue, reelle) : null;
+}
+
 /** Whole days between two ISO dates (b − a). Null if either is unparseable. */
 export function joursEntre(a: string | null | undefined, b: string | null | undefined): number | null {
   if (!a || !b) return null;

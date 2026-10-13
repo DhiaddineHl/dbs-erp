@@ -6,7 +6,7 @@ const roster = [
   { id: 1, nom: "Fadila", poste: "Repassage", sam: 90 },
   { id: 2, nom: "Wided", poste: "Assemblage", sam: 75 },
 ];
-const vide = (): Matrices => ({ cols: ["H1", "H2", "H3"], cloture: false, sortie: {}, ops: {}, ret: {}, opsSam: {}, opsPoste: {}, opsDetail: {}, arrets: {} });
+const vide = (): Matrices => ({ cols: ["H1", "H2", "H3"], cloture: false, sortie: {}, ops: {}, ret: {}, opsSam: {}, opsPoste: {}, opsDetail: {}, arrets: {}, paquets: {} });
 const appliquer = (m: Matrices, ...ss: Saisie[]) => {
   for (const s of ss) {
     const r = appliquerSaisie(m, roster, s);

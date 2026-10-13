@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { getChaines, getJournees, getModeles } from "@/lib/services/gpao";
 import { getSetting } from "@/lib/services/permissions";
 import type { GpaoState, Journee } from "../../store";
-import { SEUIL_ALERTE_DEFAUT, TV_ROTATION_DEFAUT } from "../../store";
+import { REGLAGES_DEFAUT, SEUIL_ALERTE_DEFAUT, TV_ROTATION_DEFAUT } from "../../store";
 import { TvPage } from "./tv-page";
 
 /* Écran d'atelier, sur sa propre adresse.
@@ -39,7 +39,7 @@ export default async function TvJourPage({ params }: { params: Promise<{ id: str
     journees: journees.map((j): Journee => ({ ...j, objManuel: j.objManuel ?? undefined })),
     personnes: [],
     operations: [],
-    reglages: { seuilAlerte, tvRotSec },
+    reglages: { ...REGLAGES_DEFAUT, seuilAlerte, tvRotSec },
     nextOuvId: 0,
     tvDayId: jourId,
   };

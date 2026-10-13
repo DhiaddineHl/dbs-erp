@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { apercuCommande, clotureCommande, etatCycle, montantSaisi, motifRefusSuppression, quantiteSaisie } from "./commande";
+import * as biz from "./commande";
 
 /* Les règles de saisie du carnet de commandes.
  *
@@ -160,5 +161,29 @@ describe("cycle de commande et suppression", () => {
     const h = { of: "OF-1", coupes: 0, plan: false, receptions: 0, livraisons: 0, mouvementsTissu: 0, produit: 0, factureQte: 0, facNums: [] };
     assert.equal(motifRefusSuppression(h), null);
     assert.match(motifRefusSuppression({ ...h, coupes: 2, plan: true }) ?? "", /coupe, plan de coupe.*archivez/);
+  });
+});
+
+describe("date réelle d'arrivée du tissu", () => {
+  it("le magasin par lots fait foi", () => {
+    assert.equal(biz.dateTissuRecu({ dateLots: "2026-10-12", dateSaisie: "2026-09-01" }), "2026-10-12");
+  });
+  it("sans lot, l'ancien champ saisi à la main reste lu", () => {
+    assert.equal(biz.dateTissuRecu({ dateLots: "", dateSaisie: "2026-09-01" }), "2026-09-01");
+  });
+  it("un OF réuni reprend la réception de son porteur", () => {
+    assert.equal(biz.dateTissuRecu({ dateLotsPorteur: "2026-10-12" }), "2026-10-12");
+    // Ce que l'OF a reçu lui-même passe devant celle du porteur.
+    assert.equal(biz.dateTissuRecu({ dateLots: "2026-10-05", dateLotsPorteur: "2026-10-12" }), "2026-10-05");
+  });
+  it("rien reçu : chaîne vide, pas une fausse date", () => {
+    assert.equal(biz.dateTissuRecu({}), "");
+    assert.equal(biz.dateTissuRecu({ dateLots: null, dateSaisie: null }), "");
+  });
+  it("retard de l'arrivée sur la date promise", () => {
+    assert.equal(biz.retardReception("2026-10-05", "2026-10-12"), 7);
+    assert.equal(biz.retardReception("2026-10-12", "2026-10-05"), -7);
+    assert.equal(biz.retardReception("2026-10-05", ""), null);
+    assert.equal(biz.retardReception(null, "2026-10-05"), null);
   });
 });

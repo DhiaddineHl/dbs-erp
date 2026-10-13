@@ -34,6 +34,7 @@ const matrices = (j: JourneeRow): sg.Matrices => ({
   opsPoste: j.opsPoste ?? {},
   opsDetail: j.opsDetail ?? {},
   arrets: j.arrets ?? {},
+  paquets: j.paquets ?? {},
 });
 
 /** Applique une ou plusieurs saisies à une journée, atomiquement. */
@@ -81,7 +82,7 @@ export type JourneeTablette = {
   journee: JourneeRow;
   roster: JourneeOuvriere[];
   chaine: { id: number; nom: string; chef: string };
-  modele: { id: number; nom: string; ref: string; client: string; sam: number };
+  modele: { id: number; nom: string; ref: string; client: string; sam: number; qte: number; taillePaquet: number };
 };
 
 export async function journeeTablette(id: number): Promise<JourneeTablette | null> {
@@ -89,14 +90,17 @@ export async function journeeTablette(id: number): Promise<JourneeTablette | nul
   if (!j) return null;
   const [[c], [m], roster] = await Promise.all([
     db.select({ id: chaine.id, nom: chaine.nom, chef: chaine.chef }).from(chaine).where(eq(chaine.id, j.chaineId)),
-    db.select({ id: modele.id, nom: modele.nom, ref: modele.ref, client: modele.client, sam: modele.sam }).from(modele).where(eq(modele.id, j.modeleId)),
+    db
+      .select({ id: modele.id, nom: modele.nom, ref: modele.ref, client: modele.client, sam: modele.sam, qte: modele.qte, taillePaquet: modele.taillePaquet })
+      .from(modele)
+      .where(eq(modele.id, j.modeleId)),
     rosterDe(db, j),
   ]);
   return {
     journee: j,
     roster,
     chaine: c ?? { id: j.chaineId, nom: "?", chef: "" },
-    modele: m ?? { id: j.modeleId, nom: "?", ref: "", client: "", sam: 0 },
+    modele: m ?? { id: j.modeleId, nom: "?", ref: "", client: "", sam: 0, qte: 0, taillePaquet: 0 },
   };
 }
 

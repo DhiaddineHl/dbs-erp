@@ -9,6 +9,7 @@ import {
   Layers,
   Boxes,
   Scissors,
+  Tags,
   PencilRuler,
   Landmark,
   ClipboardList as ClipboardListIcon,
@@ -90,7 +91,10 @@ export const NAV_STRUCTURE: NavGroup[] = [
   {
     label: "3 · Préparation atelier",
     stage: 3,
-    items: [{ id: "coupe", label: "Service Coupe", href: "/coupe", icon: Scissors }],
+    items: [
+      { id: "coupe", label: "Service Coupe", href: "/coupe", icon: Scissors },
+      { id: "paquets", label: "Suivi paquets", href: "/paquets", icon: Tags },
+    ],
   },
   {
     label: "Méthodes",
@@ -161,6 +165,7 @@ const SUBTITLES: Record<string, string> = {
   magtissu: "Réception, métrage et contrôle du tissu",
   magfour: "Réception des fournitures par référence",
   coupe: "Planning coupe — commandes au tissu libéré",
+  paquets: "Où en est chaque paquet, de la coupe à l'assemblage",
   planning: "Carnet de commandes côté planning — affectation, tissu, export",
   gpao_prod: "Suivi journalier, chaînes, modèles, rendement",
   br: "Bons de réception façonniers, contrôle qualité",

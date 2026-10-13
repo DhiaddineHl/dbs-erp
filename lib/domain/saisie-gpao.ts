@@ -11,6 +11,8 @@
  * s'écraser. La tablette et le bureau passent par le même chemin — il n'y a
  * qu'une saisie, faite une seule fois. */
 
+import { PAQUET_MAX, PAQUETS_MAX_PAR_CASE } from "./paquets";
+
 export type Cellule = number | "RI" | "ABS";
 export type OpDetail = { poste: string; sam: number; qte: number };
 export type Arret = { motif: string; secondes: number };
@@ -27,6 +29,9 @@ export type Matrices = {
   opsPoste: Record<number, Record<string, string>>;
   opsDetail: Record<number, Record<string, OpDetail[]>>;
   arrets: Record<number, Arret[]>;
+  /** Numéros de paquets travaillés, par ouvrière puis par heure. Relevé
+   * facultatif de recoupement : il ne compte aucune production. */
+  paquets: Record<number, Record<string, number[]>>;
 };
 export type ChampMatrice = Exclude<keyof Matrices, "cols">;
 
@@ -48,6 +53,8 @@ export type Saisie =
   | { type: "arretRetrait"; ouvId: number; index: number }
   /** Liste complète des arrêts d'une ouvrière (fenêtre du bureau). */
   | { type: "arrets"; ouvId: number; liste: Arret[] }
+  /** Numéros de paquets travaillés dans l'heure (liste vide = effacer). */
+  | { type: "paquets"; ouvId: number; col: string; numeros: number[] }
   /** Retire une ouvrière de la journée : sa saisie part avec elle. */
   | { type: "retirerOuvriere"; ouvId: number }
   | { type: "cloture"; valeur: boolean };
@@ -145,6 +152,7 @@ export function appliquerSaisie(
     opsPoste: clone(depart.opsPoste),
     opsDetail: clone(depart.opsDetail),
     arrets: clone(depart.arrets),
+    paquets: clone(depart.paquets),
   };
   const heure = (col: string) => m.cols.includes(col);
   const ligne = (id: number) => roster.find((o) => o.id === id);
@@ -241,9 +249,22 @@ export function appliquerSaisie(
       else delete m.arrets[s.ouvId];
       return ok("arrets");
     }
+    case "paquets": {
+      if (!ligne(s.ouvId)) return { ok: false, error: "Ouvrière absente de cette journée." };
+      if (!heure(s.col)) return { ok: false, error: `Heure ${s.col} inconnue pour cette journée.` };
+      /* On renettoie côté serveur ce que l'écran a déjà lu : un appel direct
+       * ne doit pas pouvoir glisser un numéro aberrant dans la journée. */
+      const nums = [...new Set((s.numeros ?? []).map((n) => Math.trunc(Number(n))))]
+        .filter((n) => Number.isFinite(n) && n >= 1 && n <= PAQUET_MAX)
+        .sort((a, b) => a - b);
+      if (nums.length > PAQUETS_MAX_PAR_CASE) return { ok: false, error: `Maximum ${PAQUETS_MAX_PAR_CASE} paquets dans une case.` };
+      if (nums.length) poserCase(m.paquets, s.ouvId, s.col, nums);
+      else viderCase(m.paquets, s.ouvId, s.col);
+      return ok("paquets");
+    }
     case "retirerOuvriere": {
-      for (const k of ["ops", "ret", "opsSam", "opsPoste", "opsDetail", "arrets"] as const) delete (m[k] as Record<number, unknown>)[s.ouvId];
-      return ok("ops", "ret", "opsSam", "opsPoste", "opsDetail", "arrets");
+      for (const k of ["ops", "ret", "opsSam", "opsPoste", "opsDetail", "arrets", "paquets"] as const) delete (m[k] as Record<number, unknown>)[s.ouvId];
+      return ok("ops", "ret", "opsSam", "opsPoste", "opsDetail", "arrets", "paquets");
     }
     case "cloture":
       m.cloture = !!s.valeur;

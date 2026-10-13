@@ -68,6 +68,10 @@ export type SuitesEnregistrement = {
   /** Signature retenue en base, pour que l'éditeur l'affiche sans recharger. */
   par: string;
   date: string;
+  /** Consommation de la matière principale reportée d'office dans la
+   * Nomenclature (m/pièce), ou null s'il n'y avait rien à reporter
+   * (longueurs encore estimées, aucune pièce placée, valeur inchangée). */
+  consoReportee: number | null;
 };
 
 export async function enregistrerPlan(commandeId: number, plan: pc.Plan): Promise<Result<SuitesEnregistrement>> {
@@ -106,7 +110,14 @@ export async function enregistrerPlan(commandeId: number, plan: pc.Plan): Promis
     const validerTraces = pc.planComplet(enregistre) && !dejaFait;
 
     revalider(commandeId);
-    return ok({ corrigerTailles, correctionRefusee, validerTraces, par: enregistre.par, date: enregistre.date ?? "" });
+    return ok({
+      corrigerTailles,
+      correctionRefusee,
+      validerTraces,
+      par: enregistre.par,
+      date: enregistre.date ?? "",
+      consoReportee: enregistre.consoReportee,
+    });
   } catch (e) {
     return fail(e);
   }

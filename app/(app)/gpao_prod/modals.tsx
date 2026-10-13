@@ -223,7 +223,7 @@ export function ModeleModal({
   /** Commandes attribuées à DBS (interne) : source de nom/référence. */
   commandesInternes?: CommandeInterne[];
   onClose: () => void;
-  onSave: (data: { nom: string; ref: string; client: string; sam: number; qte: number; estimEff: number; commandeId: number | null }) => void;
+  onSave: (data: { nom: string; ref: string; client: string; sam: number; qte: number; estimEff: number; commandeId: number | null; taillePaquet: number }) => void;
   /** Effectif proposé par défaut pour l'estimation (celui de la 1re chaîne). */
   effectifDefaut?: number;
 }) {
@@ -234,6 +234,9 @@ export function ModeleModal({
   const [qte, setQte] = useState(edit?.qte ?? 5000);
   const [estimEff, setEstimEff] = useState(edit?.estimEff || effectifDefaut || 22);
   const [commandeId, setCommandeId] = useState<number | null>(edit?.commandeId ?? null);
+  /* Pièces par paquet à la coupe : 0 = suivre le réglage de l'usine. Sert
+   * seulement au relevé des paquets, jamais au comptage de la production. */
+  const [taillePaquet, setTaillePaquet] = useState(edit?.taillePaquet ?? 0);
 
   /* Choisir une commande interne (DBS) pré-remplit nom, référence, client,
    * quantité, ET lie la commande (pour remonter la prod GPAO dans son
@@ -312,6 +315,14 @@ export function ModeleModal({
           <label>Effectif chaîne (estimation p/h)</label>
           <input type="number" value={estimEff} onChange={(e) => setEstimEff(+e.target.value)} />
         </div>
+        <div className="fld">
+          <label>Pièces par paquet (coupe)</label>
+          <input type="number" min={0} max={999} value={taillePaquet} onChange={(e) => setTaillePaquet(+e.target.value)} />
+          <div className="cinfo">
+            0 = reprendre le réglage de l&apos;usine.
+            {qte > 0 && taillePaquet > 0 ? ` ${qte} pièces = ${Math.ceil(qte / taillePaquet)} paquets.` : ""}
+          </div>
+        </div>
       </div>
       <div className="macts">
         <button className="btn" onClick={onClose}>
@@ -328,6 +339,7 @@ export function ModeleModal({
               qte: qte || 0,
               estimEff: estimEff || 0,
               commandeId,
+              taillePaquet: Math.max(0, taillePaquet || 0),
             })
           }
         >

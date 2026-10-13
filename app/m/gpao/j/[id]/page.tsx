@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { accesGpaoPage } from "@/lib/auth/gpao";
+import { TAILLE_PAQUET_DEFAUT } from "@/lib/domain/paquets";
 import { CLE_SEUIL_ALERTE, SEUIL_ALERTE_DEFAUT } from "@/lib/domain/rendement";
 import { listOperations } from "@/lib/services/atelier";
 import { getSetting } from "@/lib/services/permissions";
@@ -26,10 +27,12 @@ export default async function SaisieJourneePage({ params }: { params: Promise<{ 
       </div>
     );
   }
-  const [data, operations, seuilAlerte] = await Promise.all([
+  const [data, operations, seuilAlerte, suiviPaquets, taillePaquet] = await Promise.all([
     journeeTablette(Number(id)),
     listOperations(),
     getSetting<number>(CLE_SEUIL_ALERTE, SEUIL_ALERTE_DEFAUT),
+    getSetting<boolean>("gpao.suiviPaquets", false),
+    getSetting<number>("gpao.taillePaquet", TAILLE_PAQUET_DEFAUT),
   ]);
   if (!data) notFound();
   return (
@@ -38,6 +41,8 @@ export default async function SaisieJourneePage({ params }: { params: Promise<{ 
       initial={data}
       operations={operations.filter((o) => !o.archive).map((o) => ({ nom: o.nom, sam: o.sam }))}
       seuilAlerte={seuilAlerte}
+      suiviPaquets={suiviPaquets}
+      taillePaquet={taillePaquet}
     />
   );
 }
