@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { VeilleVersion } from "@/components/shared/veille-version";
+import { versionApp } from "@/lib/version";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -36,6 +38,7 @@ export default function RootLayout({
       <body className="min-h-full">
         {children}
         <Toaster richColors position="top-right" />
+        <VeilleVersion version={versionApp()} />
       </body>
     </html>
   );

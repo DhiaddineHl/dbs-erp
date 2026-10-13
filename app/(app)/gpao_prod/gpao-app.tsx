@@ -73,6 +73,9 @@ import { imprimerFicheModele, imprimerResumeProduction } from "./impressions";
 type View = "jours" | "jour" | "chaines" | "modeles" | "cumul" | "histo" | "garderobe" | "simulation" | "arrets" | "rentabilite";
 
 /** Map a DB journée row (objManuel is nullable) to the client Journee shape. */
+/** Message quand l'appel au serveur n'a pas abouti du tout. */
+const ECHEC_APPEL = "⚠ Saisie NON enregistrée — vérifiez la connexion puis rechargez la page";
+
 function normJournee(row: Record<string, unknown>): Journee {
   const r = row as Journee & { objManuel: number | null };
   return { ...r, objManuel: r.objManuel ?? undefined };
@@ -151,12 +154,17 @@ export default function GpaoApp({
    * applied by the caller). Errors surface as a toast + refresh from server. */
   const persistDay = useCallback(
     (id: number, patch: Partial<Journee>) => {
-      void gpao.updateDay(id, patch as Record<string, unknown>).then((res) => {
-        if (!res.ok) {
-          toast("⚠ " + (res.error || "Échec de l'enregistrement"));
-          router.refresh();
-        }
-      });
+      gpao
+        .updateDay(id, patch as Record<string, unknown>)
+        .then((res) => {
+          if (!res.ok) {
+            toast("⚠ " + (res.error || "Échec de l'enregistrement"));
+            router.refresh();
+          }
+        })
+        // L'appel lui-même a échoué (réseau, ou page restée ouverte pendant
+        // une mise à jour) : sans ce catch, la saisie disparaissait en silence.
+        .catch(() => toast(ECHEC_APPEL));
     },
     [router, toast],
   );
@@ -182,17 +190,23 @@ export default function GpaoApp({
       if (j) Object.assign(j, optimiste);
     });
     enVol.current++;
-    void saisirProduction(id, saisies).then((res) => {
-      enVol.current--;
-      if (!res.ok) {
-        toast("⚠ " + res.error);
-        void relireJournee(id).then((r) => r.ok && remplacerJournee(r.journee));
-        return;
-      }
-      markSaved();
-      // Une réponse plus ancienne ne doit pas effacer une frappe encore en vol.
-      if (enVol.current === 0) remplacerJournee(res.journee);
-    });
+    saisirProduction(id, saisies)
+      .then((res) => {
+        enVol.current--;
+        if (!res.ok) {
+          toast("⚠ " + res.error);
+          void relireJournee(id).then((r) => r.ok && remplacerJournee(r.journee)).catch(() => {});
+          return;
+        }
+        markSaved();
+        // Une réponse plus ancienne ne doit pas effacer une frappe encore en vol.
+        if (enVol.current === 0) remplacerJournee(res.journee);
+      })
+      .catch(() => {
+        enVol.current--;
+        setSavedAt("");
+        toast(ECHEC_APPEL);
+      });
   };
   const remplacerJournee = (row: Record<string, unknown>) => {
     const nj = normJournee(row);
@@ -209,9 +223,13 @@ export default function GpaoApp({
     const id = currentDayId;
     const t = setInterval(() => {
       if (enVol.current > 0 || document.hidden) return;
-      void relireJournee(id).then((r) => {
-        if (r.ok && enVol.current === 0) remplacerJournee(r.journee);
-      });
+      relireJournee(id)
+        .then((r) => {
+          if (r.ok && enVol.current === 0) remplacerJournee(r.journee);
+        })
+        .catch(() => {
+          /* relecture manquée : la suivante rattrapera */
+        });
     }, 15000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
