@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth/server";
 import { bonRetourFournitures } from "@/lib/services/fournitures";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Bon de retour des restes de fournitures au client. */
 export default async function BonRetourFournituresPage({ params }: { params: Promise<{ numero: string }> }) {
@@ -16,7 +17,7 @@ export default async function BonRetourFournituresPage({ params }: { params: Pro
       numero={b.numero}
       sousTitre={`du ${dateFr(b.date)}`}
       retour={{ href: "/magfour/restes", label: "Retour aux restes" }}
-      signatures={["DBS Fashion — remis par", "Client / transporteur — reçu par"]}
+      signatures={[`${ENTREPRISE.nom} — remis par`, "Client / transporteur — reçu par"]}
       pied="Restes des fournitures confiées par le client, restitués en quantités."
     >
       <div className="grid grid-cols-2 gap-3">

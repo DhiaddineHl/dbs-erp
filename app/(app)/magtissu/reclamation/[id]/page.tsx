@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth/server";
 import { listReceptions } from "@/lib/services/tissu";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Réclamation client — tissu : ce qui manque ou ne va pas à la RÉCEPTION,
  * face au bon de livraison du client. À envoyer avant la coupe : après, plus
@@ -22,7 +23,7 @@ export default async function ReclamationPage({ params }: { params: Promise<{ id
       numero={`${r.numero}`}
       sousTitre={`Réception du ${dateFr(r.date)}`}
       retour={{ href: "/magtissu?onglet=lots", label: "Retour au magasin tissu" }}
-      signatures={["Magasin DBS — nom, date, signature", "Visa responsable"]}
+      signatures={[`Magasin ${ENTREPRISE.nomCourt} — nom, date, signature`, "Visa responsable"]}
       pied="Écarts constatés à la réception, avant toute coupe. Les métrages mesurés font foi pour la mise en stock."
     >
       <div className="grid grid-cols-3 gap-3">

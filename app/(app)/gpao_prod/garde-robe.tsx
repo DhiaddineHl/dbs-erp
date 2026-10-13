@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { type GpaoState, gardeRobe } from "./store";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Garde-robe (point 3) : la liste des modèles/références déjà produits, avec
  * leur SAM RÉEL = minutes réellement produites ÷ pièces sorties, sur toutes les
@@ -96,7 +97,7 @@ function printGardeRobe(rows: ReturnType<typeof gardeRobe>) {
   const h = `<h1>GARDE-ROBE — MODÈLES PRODUITS &amp; SAM RÉEL</h1>
     <div class="psub">SAM réel = minutes produites ÷ pièces · ${rows.length} modèle(s)</div>
     <table><thead><tr><th>#</th><th style="text-align:left">Modèle</th><th style="text-align:left">Réf.</th><th style="text-align:left">Client</th><th>Jours</th><th>Min. prod.</th><th>Pièces</th><th>SAM théo (s)</th><th>SAM réel (s)</th><th>Écart</th></tr></thead><tbody>${body}</tbody></table>
-    <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")} — GPAO DBS Fashion</div>`;
+    <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")} — GPAO ${ENTREPRISE.nom}</div>`;
   const w = window.open("", "_blank", "width=1100,height=800");
   if (!w) return;
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Garde-robe</title><style>

@@ -30,6 +30,7 @@ import { DetailModal } from "./detail-modal";
 import { Generateur } from "./generateur";
 import { BoutonVentiler } from "./ventilation";
 import { buildReportHTML, printDocument } from "@/lib/facturation/print";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 type Tab = "dashboard" | "registre" | "generateur" | "encaissements" | "relances" | "marges" | "stats" | "rapports";
 
@@ -533,7 +534,7 @@ function Marges({ store, onOpen }: { store: FactStore; onOpen: (f: Facture) => v
     <div className="page">
       <div className="info-box">
         <strong style={{ color: "var(--navy)" }}>Cliquez sur une facture pour l&apos;ouvrir</strong> et renseigner,
-        article par article : où la pièce a été fabriquée (<span className="tag tag-navy">Interne DBS</span> ou{" "}
+        article par article : où la pièce a été fabriquée (<span className="tag tag-navy">Interne {ENTREPRISE.nomCourt}</span> ou{" "}
         <span className="tag tag-gold">Façonnier</span>). Pour l&apos;<strong>interne</strong>, le coût prend
         automatiquement le prix de facturation (marge nulle) ; pour un <strong>façonnier</strong>, saisissez le prix de
         façon payé. <span className="mono">Marge = CA facturé − Fournitures − Σ(Qté × Coût/pièce)</span>
@@ -728,7 +729,7 @@ function Stats({ store }: { store: FactStore }) {
     <div className="page">
       <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(3,1fr)" }}>
         <div className="kpi-card">
-          <div className="kpi-label">Production interne DBS</div>
+          <div className="kpi-label">Production interne {ENTREPRISE.nomCourt}</div>
           <div className="kpi-value" style={{ color: "var(--navy)" }}>
             {nb(agg.interne.ca)} €
           </div>
@@ -757,7 +758,7 @@ function Stats({ store }: { store: FactStore }) {
           <div className="chart-title">CA par lieu de production (articles renseignés)</div>
           {(
             [
-              ["Interne DBS", agg.interne.ca, "var(--navy)"],
+              [`Interne ${ENTREPRISE.nomCourt}`, agg.interne.ca, "var(--navy)"],
               ["Façonniers", agg.faconnier.ca, "var(--gold)"],
               ["Non renseigné", agg.nd.ca, "#C5C0B6"],
             ] as [string, number, string][]
@@ -967,7 +968,7 @@ function Rapports({ store }: { store: FactStore }) {
           <button
             className="btn btn-gold"
             disabled={!html}
-            onClick={() => printDocument(html, "report", "Rapport DBS Fashion")}
+            onClick={() => printDocument(html, "report", `Rapport ${ENTREPRISE.nom}`)}
           >
             🖨 Imprimer / PDF
           </button>

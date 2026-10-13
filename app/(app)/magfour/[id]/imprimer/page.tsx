@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth/server";
 import { getPreparation, journalDe } from "@/lib/services/preparation";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR");
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
@@ -59,7 +60,7 @@ export default async function BonReceptionFournituresPage({ params }: { params: 
 
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div>
-          <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+          <div className="text-xl font-extrabold tracking-tight">{ENTREPRISE.nomMaj}</div>
           <div className="text-[11px] uppercase tracking-widest text-neutral-500">Magasin fournitures</div>
         </div>
         <div className="text-right">
@@ -235,7 +236,7 @@ export default async function BonReceptionFournituresPage({ params }: { params: 
       </div>
 
       <div className="mt-6 border-t border-neutral-300 pt-2 text-[10.5px] text-neutral-500">
-        Document généré par PilotPro — DBS Fashion. Une fourniture manquante bloque le lancement en production tant
+        Document généré par PilotPro — {ENTREPRISE.nom}. Une fourniture manquante bloque le lancement en production tant
         qu&apos;une dérogation n&apos;a pas été accordée en direction technique.
       </div>
     </div>

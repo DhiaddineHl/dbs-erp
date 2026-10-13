@@ -3,6 +3,7 @@ import { getUser, userRole } from "@/lib/auth/server";
 import { redirect } from "next/navigation";
 import { getRoleModules } from "@/lib/services/permissions";
 import { suiviPaquetsActif } from "@/lib/services/paquets";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* ACCUEIL TÉLÉPHONE — le point d'entrée de l'atelier.
  *
@@ -36,7 +37,7 @@ export default async function AccueilMobile() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <div className="mx-auto max-w-md px-4 pb-16 pt-5">
-        <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">DBS Fashion · {user.name}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">{ENTREPRISE.nom} · {user.name}</div>
         <h1 className="mb-4 text-3xl font-black">PilotPro</h1>
 
         {tuiles.length === 0 ? (

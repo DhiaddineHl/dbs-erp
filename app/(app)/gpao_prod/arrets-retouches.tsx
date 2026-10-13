@@ -12,6 +12,7 @@ import {
   ouvRet,
   ouvRetPct,
 } from "./store";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR");
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso);
@@ -335,7 +336,7 @@ function printRapport(onglet: Onglet, from: string, to: string, arrets: ArretsAg
     .psub{text-align:center;font-size:11px;color:#444;margin-bottom:8px}
     table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px}th,td{border:1px solid #555;padding:4px 6px;text-align:center}th{background:#e6e6e6}
     @page{size:A4 portrait;margin:10mm}
-  </style></head><body><h1>${titre}</h1><div class="psub">Du ${dateFr(from)} au ${dateFr(to)} — GPAO DBS Fashion</div>${corps}
+  </style></head><body><h1>${titre}</h1><div class="psub">Du ${dateFr(from)} au ${dateFr(to)} — GPAO ${ENTREPRISE.nom}</div>${corps}
   <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")}</div></body></html>`);
   w.document.close();
   w.focus();

@@ -20,6 +20,7 @@ import {
   rapprocherModelesCommandes,
   simuler,
 } from "./actions";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 type CmdLien = { id: number; of: string; modele: string; ref: string; client: string; archived?: boolean };
 
@@ -140,7 +141,7 @@ export function SimulationView() {
           <button
             className="btn sm"
             disabled={pending}
-            title="Relie automatiquement les modèles GPAO à leur commande DBS (par référence, puis par nom) pour valoriser le CA de l'historique"
+            title={`Relie automatiquement les modèles GPAO à leur commande ${ENTREPRISE.nomCourt} (par référence, puis par nom) pour valoriser le CA de l'historique`}
             onClick={rapprocher}
           >
             🔗 Relier modèles ↔ commandes
@@ -529,7 +530,7 @@ function printSimulation(data: SimulationData, mode: "jour" | "modele", usine: P
     <tbody>${rows}</tbody>
     <tfoot><tr><td style="text-align:left" colspan="2"><b>TOTAL</b></td><td><b>${data.totalPieces}</b></td><td>—</td><td><b>${eur.format(data.totalCa)} €</b></td></tr></tfoot></table>
     ${blocBilanImpression(data, usine)}
-    <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")} — GPAO DBS Fashion</div>`;
+    <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")} — GPAO ${ENTREPRISE.nom}</div>`;
   const w = window.open("", "_blank", "width=1000,height=800");
   if (!w) return;
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Simulation</title><style>

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import type { AchatFournisseur, DemandeClient } from "@/lib/domain/fournitures";
 import type { Relance } from "@/lib/services/fournitures";
 import * as A from "@/lib/actions/fournitures";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso || "—");
@@ -105,7 +106,7 @@ export function ManquesClient({
                             {c.manques.map((m, i) => (
                               <span key={i} className="mr-1.5 inline-block rounded border px-1.5 py-0.5">
                                 {m.designation || "—"} : <b>{nb.format(m.manque)}</b> {m.unite}
-                                {m.origine === "dbs" && " (achat DBS)"}
+                                {m.origine === "dbs" && ` (achat ${ENTREPRISE.nomCourt})`}
                               </span>
                             ))}
                           </td>
@@ -142,7 +143,7 @@ export function ManquesClient({
         </SectionPanel>
 
         <SectionPanel
-          title={`🛒 Acheté DBS — liste d'achat (${achats.length} fournisseur(s))`}
+          title={`🛒 Acheté ${ENTREPRISE.nomCourt} — liste d'achat (${achats.length} fournisseur(s))`}
           actions={
             achats.length > 0 && (
               <Link href="/magfour/achats" target="_blank" className="text-[11px] font-semibold text-brand hover:underline">
@@ -152,7 +153,7 @@ export function ManquesClient({
           }
         >
           {achats.length === 0 ? (
-            <div className="py-4 text-center text-xs text-muted-foreground">Rien à acheter : aucune ligne « acheté DBS » en manque.</div>
+            <div className="py-4 text-center text-xs text-muted-foreground">Rien à acheter : aucune ligne « acheté {ENTREPRISE.nomCourt} » en manque.</div>
           ) : (
             <div className="space-y-2 text-xs">
               {achats.map((f) => (

@@ -9,6 +9,7 @@ import {
   findC,
   fmtDate,
 } from "./store";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Les deux documents que l'agent de méthode sort réellement : la fiche d'un
  * modèle (sa traçabilité complète) et le récapitulatif de production. Ils
@@ -45,7 +46,7 @@ function imprimer(titre: string, corps: string) {
 const piedDePage = () =>
   `<div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString(
     "fr-FR",
-  )} — GPAO DBS Fashion</div>`;
+  )} — GPAO ${ENTREPRISE.nom}</div>`;
 
 /** Fiche d'un modèle : le résumé, puis TOUTES ses journées avec leur cumul
  * roulant. C'est la pièce qu'on joint à un dossier de production. */
@@ -71,7 +72,7 @@ export function imprimerFicheModele(state: GpaoState, m: Modele): boolean {
   const statut = m.archive ? "ARCHIVÉ" : pct >= 100 ? "TERMINÉ" : "EN COURS";
 
   let h = `<h1>FICHE DE PRODUCTION — SUIVI PAR MODÈLE</h1>`;
-  h += `<div class="psub">DBS Fashion — Traçabilité complète du modèle · GPAO Production</div>`;
+  h += `<div class="psub">${ENTREPRISE.nom} — Traçabilité complète du modèle · GPAO Production</div>`;
   h += `<div class="pmeta"><span><b>Modèle :</b> ${esc(m.nom)}</span><span><b>Réf :</b> ${esc(
     m.ref || "—",
   )}</span><span><b>Client :</b> ${esc(m.client || "—")}</span><span><b>SAM :</b> ${
@@ -121,7 +122,7 @@ export function imprimerResumeProduction(
   if (!modeles.length) return false;
 
   let h = `<h1>RÉSUMÉ DE PRODUCTION PAR MODÈLE</h1>`;
-  h += `<div class="psub">DBS Fashion — ${esc(libelleFiltre)} · ${modeles.length} modèle(s) · GPAO Production</div>`;
+  h += `<div class="psub">${ENTREPRISE.nom} — ${esc(libelleFiltre)} · ${modeles.length} modèle(s) · GPAO Production</div>`;
   h += `<table><thead><tr><th style="text-align:left">Modèle</th><th>Réf</th><th style="text-align:left">Client</th><th>Commandé</th><th>Produit</th><th>Reste</th><th>%</th><th>Journées</th><th>Moy./jour</th><th>Dernière activité</th><th>État</th></tr></thead><tbody>`;
 
   let totQte = 0;

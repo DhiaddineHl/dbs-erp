@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth/server";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { CONTROLES_BR } from "@/lib/domain/aval";
 import { getBrImpression } from "@/lib/services/aval";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR");
 const dateFr = (iso: string | null | undefined) => (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-").reverse().join("/") : iso || "—");
@@ -32,7 +33,7 @@ export default async function BrImprimerPage({ params }: { params: Promise<{ id:
 
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div>
-          <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+          <div className="text-xl font-extrabold tracking-tight">{ENTREPRISE.nomMaj}</div>
           <div className="text-[11px] uppercase tracking-widest text-neutral-500">Magasin produits finis</div>
         </div>
         <div className="text-right">
@@ -114,7 +115,7 @@ export default async function BrImprimerPage({ params }: { params: Promise<{ id:
       )}
 
       <div className="mt-10 grid grid-cols-2 gap-8 text-[11px]">
-        {["Magasin DBS — nom, date, signature", "Façonnier — nom, date, signature"].map((l) => (
+        {[`Magasin ${ENTREPRISE.nomCourt} — nom, date, signature`, "Façonnier — nom, date, signature"].map((l) => (
           <div key={l}>
             <div className="font-semibold text-neutral-500">{l}</div>
             <div className="mt-1 h-16 rounded border border-dashed border-neutral-400" />
@@ -122,7 +123,7 @@ export default async function BrImprimerPage({ params }: { params: Promise<{ id:
         ))}
       </div>
       <div className="mt-6 border-t border-neutral-300 pt-2 text-[10.5px] text-neutral-500">
-        Document généré par PilotPro — DBS Fashion. Les pièces non conformes restent à la charge du façonnier jusqu&apos;à
+        Document généré par PilotPro — {ENTREPRISE.nom}. Les pièces non conformes restent à la charge du façonnier jusqu&apos;à
         leur retouche ou leur mise au rebut.
       </div>
     </div>

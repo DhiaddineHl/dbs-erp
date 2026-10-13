@@ -1,5 +1,6 @@
 import type { BonSortie } from "@/lib/services/rouleaux";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Mise en page commune du bon de sortie groupée (BST) et du bon
  * récapitulatif (BSR) : destinataire, modèle(s), total, une ligne par rouleau,
@@ -38,7 +39,7 @@ export function DocumentSortie({
       numero={b.numero}
       sousTitre={recap ? `émis le ${dateFr(recap.emisLe.slice(0, 10))} · sorties ${periode}` : j1 === j2 ? periode : `sorties ${periode}`}
       retour={{ href: "/magtissu?onglet=rouleaux", label: "Retour aux rouleaux" }}
-      signatures={st ? ["DBS Fashion — remis par", `${b.faconnierNom || "Sous-traitant"} — reçu par`] : ["Magasin tissu — remis par", "Coupe — reçu par"]}
+      signatures={st ? [`${ENTREPRISE.nom} — remis par`, `${b.faconnierNom || "Sous-traitant"} — reçu par`] : ["Magasin tissu — remis par", "Coupe — reçu par"]}
       pied={
         b.motif
           ? `Motif : ${b.motif}`

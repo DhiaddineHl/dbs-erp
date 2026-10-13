@@ -6,12 +6,13 @@
  *   - fourni client → demande de complément au client ;
  *   - acheté DBS    → liste d'achat, regroupée par fournisseur.
  * Tout est en quantités : pas de valeur (la matière n'est pas à DBS). */
+import { ENTREPRISE } from "@/lib/entreprise";
 
 export type OrigineFourniture = "client" | "dbs";
 
 export const ORIGINES_FOURNITURE: { value: OrigineFourniture; label: string; court: string }[] = [
   { value: "client", label: "Fourni par le client", court: "Client" },
-  { value: "dbs", label: "Acheté par DBS (CMT)", court: "DBS" },
+  { value: "dbs", label: `Acheté par ${ENTREPRISE.nomCourt} (CMT)`, court: ENTREPRISE.nomCourt },
 ];
 export const origineFourniture = (v: string): OrigineFourniture => (v === "dbs" ? "dbs" : "client");
 

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MessageCircle, X } from "lucide-react";
 import { couleurDe, initiales } from "@/lib/domain/messagerie";
 import { conversationOuverte, jouerSon, majNonLus, useNonLus } from "./etat";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Veille de la messagerie, présente sur TOUTES les pages de PilotPro :
  *   - relève les nouveaux messages toutes les quelques secondes ;
@@ -45,7 +46,7 @@ export function VeilleMessagerie() {
                 const n = new Notification(a.groupe ? `${a.auteur} · ${a.conversation}` : a.auteur, {
                   body: a.apercu,
                   tag: `msg-${a.conversationId}`,
-                  icon: "/dbs-fashion-logo.png",
+                  icon: ENTREPRISE.logo,
                 });
                 n.onclick = () => {
                   window.focus();

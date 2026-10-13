@@ -4,6 +4,7 @@ import { qrSvg } from "@/lib/atelier/qr";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { basePortail } from "@/lib/services/portail";
 import { listEmplacements } from "@/lib/services/rouleaux";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 /* Étiquettes QR des emplacements, en planche A4 (3 × 8, 70 × 37 mm), à
  * coller sur les rayons. Le QR mène à https://<app>/e/<CODE>. */
@@ -37,7 +38,7 @@ export default async function EtiquettesEmplacementsPage({ searchParams }: { sea
           <div key={e.id} className="etq">
             <div className="h-[33mm] w-[33mm] shrink-0" dangerouslySetInnerHTML={{ __html: svg }} />
             <div className="flex min-w-0 flex-col justify-center">
-              <div className="text-[6pt] font-bold tracking-[0.15em]">DBS FASHION · EMPLACEMENT</div>
+              <div className="text-[6pt] font-bold tracking-[0.15em]">{ENTREPRISE.nomMaj} · EMPLACEMENT</div>
               <div className="font-mono text-[18pt] font-black leading-tight">{e.code}</div>
               <div className="text-[7pt]">{[e.zone && `Zone ${e.zone}`, e.rayon && `Rayon ${e.rayon}`].filter(Boolean).join(" · ")}</div>
               <div className="truncate text-[7pt]">{e.libelle}</div>

@@ -16,6 +16,7 @@
  *  3. Les mois sans facture sont insérés à zéro : un axe temporel qui saute
  *     un mois ment sur la pente.
  */
+import { ENTREPRISE } from "@/lib/entreprise";
 
 export type LigneCoutee = {
   /** Date de la facture, ISO `YYYY-MM-DD`. */
@@ -38,7 +39,7 @@ const arrondi = (n: number) => Math.round(n * 100) / 100;
 export type Origine = "interne" | "faconnier" | "nonRenseigne";
 
 export const LIBELLES_ORIGINE: Record<Origine, string> = {
-  interne: "Interne DBS",
+  interne: `Interne ${ENTREPRISE.nomCourt}`,
   faconnier: "Façonniers",
   nonRenseigne: "Non renseigné",
 };

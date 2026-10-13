@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth/server";
 import { getPreparation, journalDe } from "@/lib/services/preparation";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
+import { ENTREPRISE } from "@/lib/entreprise";
 
 const nb = new Intl.NumberFormat("fr-FR");
 const m1 = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -57,7 +58,7 @@ export default async function BonReceptionTissuPage({ params }: { params: Promis
 
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div>
-          <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+          <div className="text-xl font-extrabold tracking-tight">{ENTREPRISE.nomMaj}</div>
           <div className="text-[11px] uppercase tracking-widest text-neutral-500">Magasin tissu</div>
         </div>
         <div className="text-right">
@@ -251,7 +252,7 @@ export default async function BonReceptionTissuPage({ params }: { params: Promis
 
       <div className="mt-6 border-t border-neutral-300 pt-2 text-[10.5px] text-neutral-500">
         {recu
-          ? "Document généré par PilotPro — DBS Fashion. Les réserves sur la qualité du tissu doivent être formulées avant lancement en coupe."
+          ? `Document généré par PilotPro — ${ENTREPRISE.nom}. Les réserves sur la qualité du tissu doivent être formulées avant lancement en coupe.`
           : "⚠ Aucune date de réception réelle n'est saisie : ce bon est un état d'attente, pas un accusé de réception."}
       </div>
     </div>
