@@ -7,6 +7,10 @@
  *  - Facturation reference (CLIENTS_DB / FACONNIERS) + 86 invoices (FACTURES_BASE)
  *  - GPAO defaults (1 modèle, 1 chaîne, 22 ouvrières)
  *  - Role-permission matrix defaults, prixFacon setting, default user accounts.
+ *
+ * By default only the last line runs (permissions, settings, accounts): the rest
+ * is DBS Fashion's own data and must not land in another company's database.
+ * `SEED_DEMO=1` loads it as well, for a local demo database.
  */
 import { randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
@@ -81,6 +85,8 @@ const {
   account,
 } = schema;
 
+const SEED_DEMO = process.env.SEED_DEMO === "1";
+
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema, casing: "snake_case" });
 
@@ -98,7 +104,7 @@ async function seedPermissions() {
       .values({ key: r.key, label: r.label, color: r.color, builtin: true })
       .onConflictDoNothing({ target: roleTable.key });
   }
-  for (const r of ROLES_DBS) {
+  for (const r of SEED_DEMO ? ROLES_DBS : []) {
     await db
       .insert(roleTable)
       .values({ key: r.key, label: r.label, color: r.color, builtin: false })
@@ -107,7 +113,7 @@ async function seedPermissions() {
 
   const tousRoles: { key: string; acces: Record<string, boolean> }[] = [
     ...BUILTIN_ROLES.map((r) => ({ key: r.key, acces: defaultModuleAccess(r.key) })),
-    ...ROLES_DBS.map((r) => {
+    ...(SEED_DEMO ? ROLES_DBS : []).map((r) => {
       // Un module absent de la liste de refus reste accessible ; un écran ajouté
       // depuis leur configuration l'est donc aussi, ce qui est le bon défaut.
       const acces: Record<string, boolean> = {};
@@ -482,6 +488,12 @@ async function main() {
   console.log("Seeding database…");
   await seedPermissions();
   await seedUsers();
+  if (!SEED_DEMO) {
+    console.log("  • données de démonstration ignorées (SEED_DEMO=1 pour les charger)");
+    console.log("Done.");
+    await pool.end();
+    return;
+  }
   await seedFacturation();
   await seedGpao();
   await seedReferentiel();

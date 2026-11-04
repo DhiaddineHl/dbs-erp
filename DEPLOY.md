@@ -78,7 +78,7 @@ origin check depend on this — if it's wrong, sign-in silently fails.)
 Push to the connected branch (or **Deploy**). Railway will:
 1. `npm install` + `npm run build`
 2. on start: `node scripts/migrate.mjs` → applies `./drizzle/*.sql`
-3. then the idempotent seed (default users, role permissions, reference + demo data)
+3. then the idempotent seed (default users, role permissions, settings — DBS demo data only with `SEED_DEMO=1`)
 4. then `next start`
 
 Watch the deploy logs for `✓ Migrations up to date.` and the seed summary.

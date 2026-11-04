@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node scripts/migrate.mjs && (node --import tsx scripts/seed.ts || echo seed-step-skipped) && (node --import tsx scripts/import-pilotpro.ts --auto || echo import-step-skipped) && next start",
+    "start": "node scripts/migrate.mjs && (node --import tsx scripts/seed.ts || echo seed-step-skipped) && next start",
     "start:app": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
