@@ -11,7 +11,7 @@ export type OrigineFourniture = "client" | "dbs";
 
 export const ORIGINES_FOURNITURE: { value: OrigineFourniture; label: string; court: string }[] = [
   { value: "client", label: "Fourni par le client", court: "Client" },
-  { value: "dbs", label: "Acheté par DBS (CMT)", court: "DBS" },
+  { value: "dbs", label: "Acheté par Patrick Confection (CMT)", court: "PC" },
 ];
 export const origineFourniture = (v: string): OrigineFourniture => (v === "dbs" ? "dbs" : "client");
 

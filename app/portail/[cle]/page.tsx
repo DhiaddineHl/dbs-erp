@@ -22,7 +22,7 @@ const dateFr = (iso: string) =>
     : iso;
 
 export async function generateMetadata() {
-  return { title: "Mon rendement — DBS Fashion", robots: { index: false, follow: false } };
+  return { title: "Mon rendement — Patrick Confection", robots: { index: false, follow: false } };
 }
 
 export default async function PortailPage({ params }: { params: Promise<{ cle: string }> }) {
@@ -42,7 +42,7 @@ export default async function PortailPage({ params }: { params: Promise<{ cle: s
     <div className="min-h-screen bg-slate-900 px-4 py-6 text-white" style={{ colorScheme: "dark" }}>
       <div className="mx-auto max-w-md">
         <header className="mb-5">
-          <div className="text-[11px] uppercase tracking-widest text-white/50">DBS Fashion</div>
+          <div className="text-[11px] uppercase tracking-widest text-white/50">Patrick Confection</div>
           <h1 className="text-2xl font-extrabold tracking-tight">{r.nom}</h1>
           <div className="text-[13px] text-white/60">
             Matricule {r.matricule}

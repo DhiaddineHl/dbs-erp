@@ -44,12 +44,6 @@ export const CLIENTS_DB: Record<string, { nom: string; adresse: string; livraiso
     livraison: "ANTONELLE/UJA - Pantin Logistique\n100 Av. du General Leclerc\nNiveau1-Cellule 6\n93500 Pantin-France",
     marque: "ANTONELLE",
   },
-  patrick: {
-    nom: "PATRICK CONFECTION",
-    adresse: "Dar Chaabane El Fehri\nNabeul\nMF:1115787P/A/M/000",
-    livraison: "Dar Chaabane El Fehri, Nabeul",
-    marque: "PATRICK CONFECTION",
-  },
 };
 
 export const CLIENT_NAMES: Record<string, string> = {
@@ -66,7 +60,7 @@ export const CLIENT_NAMES: Record<string, string> = {
   autre: "AUTRE",
 };
 
-export const FACONNIERS = ["SAJ", "KMZ", "ANIRATEX", "IDEAL", "TWINTEX", "Patrick Confection", "Autre"];
+export const FACONNIERS = ["SAJ", "KMZ", "ANIRATEX", "IDEAL", "TWINTEX", "Autre"];
 
 export const MOIS_FR: Record<string, string> = {
   "01": "Janvier", "02": "Février", "03": "Mars", "04": "Avril", "05": "Mai", "06": "Juin",

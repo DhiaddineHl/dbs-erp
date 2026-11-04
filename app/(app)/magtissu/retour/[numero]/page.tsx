@@ -23,7 +23,7 @@ export default async function BonRetourPage({ params }: { params: Promise<{ nume
       numero={b.numero}
       sousTitre={`du ${dateFr(b.date)}`}
       retour={fournisseur ? { href: "/magtissu?onglet=rouleaux", label: "Retour aux rouleaux" } : { href: "/magtissu?onglet=reliquats", label: "Retour aux reliquats" }}
-      signatures={fournisseur ? ["DBS Fashion — remis par", "Fournisseur / transporteur — reçu par"] : ["DBS Fashion — remis par", "Client / transporteur — reçu par"]}
+      signatures={fournisseur ? ["Patrick Confection — remis par", "Fournisseur / transporteur — reçu par"] : ["Patrick Confection — remis par", "Client / transporteur — reçu par"]}
       pied={fournisseur ? `Motif du retour : ${b.motif || "—"}` : "Reliquats de la matière confiée par le client, restitués après coupe."}
     >
       <div className="grid grid-cols-3 gap-3">

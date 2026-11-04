@@ -17,6 +17,8 @@
  *     un mois ment sur la pente.
  */
 
+import { estNomInterne } from "../entreprise";
+
 export type LigneCoutee = {
   /** Date de la facture, ISO `YYYY-MM-DD`. */
   date: string;
@@ -38,7 +40,7 @@ const arrondi = (n: number) => Math.round(n * 100) / 100;
 export type Origine = "interne" | "faconnier" | "nonRenseigne";
 
 export const LIBELLES_ORIGINE: Record<Origine, string> = {
-  interne: "Interne DBS",
+  interne: "Interne Patrick Confection",
   faconnier: "Façonniers",
   nonRenseigne: "Non renseigné",
 };
@@ -228,11 +230,10 @@ export type PartProduction = {
 export type RepartitionProduction = {
   parts: PartProduction[];
   total: number;
-  /** Part interne DBS, en pourcentage entier du total. */
+  /** Part interne, en pourcentage entier du total. */
   pctInterne: number;
 };
 
-const NOMS_INTERNES = ["dbs"];
 export const CLE_NON_ASSIGNE = "nonAssigne";
 
 /**
@@ -265,7 +266,7 @@ export function repartitionProduction(
     cle: nom,
     nom,
     pieces,
-    interne: NOMS_INTERNES.includes(nom.toLowerCase()),
+    interne: estNomInterne(nom),
     slot: i,
   }));
   if (queue.length) {
@@ -284,7 +285,7 @@ export function repartitionProduction(
 
   const total = nonAssigne + classes.reduce((s, [, p]) => s + p, 0);
   const interne = classes
-    .filter(([nom]) => NOMS_INTERNES.includes(nom.toLowerCase()))
+    .filter(([nom]) => estNomInterne(nom))
     .reduce((s, [, p]) => s + p, 0);
 
   return { parts, total, pctInterne: total > 0 ? Math.round((interne / total) * 100) : 0 };

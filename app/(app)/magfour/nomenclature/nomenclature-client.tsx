@@ -114,7 +114,7 @@ function CarteModele({
                 <th className="px-2 py-1.5 text-center">Unité</th>
                 <th className="px-2 py-1.5 text-center">Casse %</th>
                 <th className="px-2 py-1.5 text-left">Origine</th>
-                <th className="px-2 py-1.5 text-left">Fournisseur (si DBS)</th>
+                <th className="px-2 py-1.5 text-left">Fournisseur (si Patrick Confection)</th>
                 <th className="px-2 py-1.5 text-right">Prévu pour {nb.format(piecesRef)} pcs</th>
                 <th className="w-8" />
               </tr>
@@ -143,7 +143,7 @@ function CarteModele({
                     >
                       {ORIGINES_FOURNITURE.map((o) => (
                         <option key={o.value} value={o.value}>
-                          {o.court === "Client" ? "Fourni client" : "Acheté DBS"}
+                          {o.court === "Client" ? "Fourni client" : "Acheté Patrick Confection"}
                         </option>
                       ))}
                     </select>
@@ -221,7 +221,7 @@ function NouvelleLigne({ m, catalogue }: { m: ModeleNomenclature; catalogue: Cat
       <Input value={v.cassePct} onChange={(e) => set({ cassePct: e.target.value })} inputMode="decimal" className="h-8 w-16 bg-card" title="% de casse" />
       <select value={v.origine} onChange={(e) => set({ origine: e.target.value })} className="h-8 rounded-md border border-input bg-card px-1 text-xs">
         <option value="client">Fourni client</option>
-        <option value="dbs">Acheté DBS</option>
+        <option value="dbs">Acheté Patrick Confection</option>
       </select>
       {v.origine === "dbs" && <Input value={v.fournisseur} onChange={(e) => set({ fournisseur: e.target.value })} placeholder="Fournisseur" className="h-8 w-36 bg-card" />}
       <Button

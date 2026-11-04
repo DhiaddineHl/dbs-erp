@@ -1,4 +1,5 @@
 import type { Tone } from "@/components/shared/status-badge";
+import { estNomInterne } from "../entreprise";
 
 /* Business rules for the commande, ported from PilotPro's `biz` object and the
  * matière helpers (chutePct / consoEff / coupablePieces / _matStatut).
@@ -550,16 +551,16 @@ export function dernierSequenceOF(numeros: string[], annee: number = new Date().
 
 /* ─────────── interne ou sous-traitance ─────────── */
 
-/** « DBS » désigne l'atelier lui-même, pas un sous-traitant.
+/** Le nom de l'entreprise (lib/entreprise) désigne l'atelier lui-même, pas un sous-traitant.
  *
- * Une commande dont le façonnier est DBS (ou vide, ou une chaîne interne) est
+ * Une commande dont le façonnier porte ce nom (ou vide, ou une chaîne interne) est
  * produite en interne. Sans cette règle, des dizaines de commandes comptent
  * pour de la sous-traitance et faussent à la fois la marge à façon et le
  * chiffre d'affaires interne. */
 export function estSousTraitee(c: { faconnier?: string | null; chaineId?: number | null }): boolean {
   if (c.chaineId) return false;
   const f = String(c.faconnier ?? "").trim();
-  return f !== "" && !/^(dbs|interne)$/i.test(f);
+  return f !== "" && !estNomInterne(f);
 }
 
 /* ─────────── assignation : façonnier ou chaîne interne ─────────── */

@@ -11,10 +11,10 @@ export default async function ListeAchatPage() {
   return (
     <DocumentImprimable
       service="Magasin fournitures"
-      titre="LISTE D'ACHAT — FOURNITURES DBS"
+      titre="LISTE D'ACHAT — FOURNITURES PATRICK CONFECTION"
       retour={{ href: "/magfour/manques", label: "Retour aux manques" }}
       signatures={["Établie par", "Visa responsable"]}
-      pied="Uniquement les lignes « acheté par DBS » (CMT). Les fournitures du client font l'objet d'une demande de complément."
+      pied="Uniquement les lignes « acheté par Patrick Confection » (CMT). Les fournitures du client font l'objet d'une demande de complément."
     >
       {achats.length === 0 ? (
         <p className="mt-6 text-center text-neutral-500">Rien à acheter.</p>

@@ -31,7 +31,7 @@ export default async function TourneePage({ searchParams }: { searchParams: Prom
           ← Suivi paquets
         </Link>
         <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-          DBS Fashion · Tournée des paquets · {user.name}
+          Patrick Confection · Tournée des paquets · {user.name}
         </div>
         <h1 className="mb-3 text-3xl font-black">Tournée</h1>
         {!actif ? (

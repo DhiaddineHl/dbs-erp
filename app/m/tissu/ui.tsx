@@ -21,7 +21,7 @@ export function Cadre({ children, retour }: { children: React.ReactNode; retour?
 }
 
 export function Entete({ utilisateur, titre }: { utilisateur: string; titre: string }) {
-  return <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">DBS Fashion · {titre} · {utilisateur}</div>;
+  return <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Patrick Confection · {titre} · {utilisateur}</div>;
 }
 
 export function Info({ label, v, u, fort }: { label: string; v: number | string; u?: string; fort?: boolean }) {

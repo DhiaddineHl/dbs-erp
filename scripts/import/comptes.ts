@@ -20,7 +20,7 @@ const { account, role: roleTable, user } = schema;
  * L'adresse e-mail est fabriquée à partir du login : Better Auth en exige une,
  * et l'ancien système n'en avait pas. */
 
-const email = (login: string) => `${login.trim().toLowerCase().replace(/[^a-z0-9]+/g, ".")}@dbs.local`;
+const email = (login: string) => `${login.trim().toLowerCase().replace(/[^a-z0-9]+/g, ".")}@patrick.local`;
 
 export async function importerComptes(src: Sauvegarde, r: Rapport) {
   r.etape("Comptes utilisateurs");

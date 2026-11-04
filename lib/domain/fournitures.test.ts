@@ -19,7 +19,7 @@ describe("manques", () => {
     ligneId: 1, commandeId: 1, of: "OF-1", modele: "M", client: "Kiabi", designation: "Bouton", unite: "pcs",
     origine: "client", fournisseur: "", qtePrevue: 100, qteRecue: 40, dateExport: "2026-10-10", ...p,
   });
-  it("fourni client → demande au client ; acheté DBS → liste d'achat par fournisseur, cumulée", () => {
+  it("fourni client → demande au client ; acheté atelier → liste d'achat par fournisseur, cumulée", () => {
     const r = manques([
       l({}),
       l({ ligneId: 2, origine: "dbs", fournisseur: "Mercerie Sfax", designation: "Zip 18 cm", qtePrevue: 50, qteRecue: 0 }),

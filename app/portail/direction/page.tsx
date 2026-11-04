@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 const nb = new Intl.NumberFormat("fr-FR");
 
 export async function generateMetadata() {
-  return { title: "Suivi chaînes — DBS Fashion", robots: { index: false, follow: false } };
+  return { title: "Suivi chaînes — Patrick Confection", robots: { index: false, follow: false } };
 }
 
 export default async function DirectionPage({
@@ -35,7 +35,7 @@ export default async function DirectionPage({
       <div className="mx-auto max-w-3xl">
         <header className="mb-5 flex items-end justify-between">
           <div>
-            <div className="text-[11px] uppercase tracking-widest text-white/50">DBS Fashion</div>
+            <div className="text-[11px] uppercase tracking-widest text-white/50">Patrick Confection</div>
             <h1 className="text-2xl font-extrabold tracking-tight">Suivi des chaînes</h1>
           </div>
           <div className="text-right">

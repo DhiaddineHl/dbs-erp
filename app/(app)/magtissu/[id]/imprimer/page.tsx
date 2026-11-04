@@ -57,7 +57,7 @@ export default async function BonReceptionTissuPage({ params }: { params: Promis
 
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div>
-          <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+          <div className="text-xl font-extrabold tracking-tight">PATRICK CONFECTION</div>
           <div className="text-[11px] uppercase tracking-widest text-neutral-500">Magasin tissu</div>
         </div>
         <div className="text-right">
@@ -251,7 +251,7 @@ export default async function BonReceptionTissuPage({ params }: { params: Promis
 
       <div className="mt-6 border-t border-neutral-300 pt-2 text-[10.5px] text-neutral-500">
         {recu
-          ? "Document généré par PilotPro — DBS Fashion. Les réserves sur la qualité du tissu doivent être formulées avant lancement en coupe."
+          ? "Document généré par PilotPro — Patrick Confection. Les réserves sur la qualité du tissu doivent être formulées avant lancement en coupe."
           : "⚠ Aucune date de réception réelle n'est saisie : ce bon est un état d'attente, pas un accusé de réception."}
       </div>
     </div>

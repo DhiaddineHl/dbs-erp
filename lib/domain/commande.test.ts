@@ -85,7 +85,7 @@ describe("apercuCommande — sous-traitance", () => {
   });
 });
 
-describe("apercuCommande — règle DBS", () => {
+describe("apercuCommande — règle atelier interne", () => {
   it("traite un façonnier vide comme de l'interne, marge nulle", () => {
     const a = apercuCommande({ faconnier: "", prixVente: "18,50", prixFacon: "6,20", qte: "1000" });
     assert.equal(a.interne, true);
@@ -96,8 +96,8 @@ describe("apercuCommande — règle DBS", () => {
     assert.equal(a.ca, 18500, "le CA reste celui de la vente");
   });
 
-  it("reconnaît DBS et INTERNE quelle que soit la casse", () => {
-    for (const f of ["DBS", "dbs", "Dbs", "INTERNE", "interne"]) {
+  it("reconnaît le nom de l'entreprise et INTERNE quelle que soit la casse", () => {
+    for (const f of ["PATRICK CONFECTION", "Patrick Confection", "patrick", "PC", " pc ", "INTERNE", "interne"]) {
       assert.equal(apercuCommande({ faconnier: f, prixVente: "10", prixFacon: "4" }).interne, true, f);
     }
   });
@@ -110,8 +110,8 @@ describe("apercuCommande — règle DBS", () => {
     assert.equal(a.margeUnitaire, 0);
   });
 
-  it("ne confond pas un façonnier dont le nom contient DBS", () => {
-    const a = apercuCommande({ faconnier: "DBS CONFECTION", prixVente: "10", prixFacon: "4" });
+  it("ne confond pas un façonnier dont le nom contient celui de l'entreprise", () => {
+    const a = apercuCommande({ faconnier: "PATRICK CONFECTION SUD", prixVente: "10", prixFacon: "4" });
     assert.equal(a.interne, false);
     assert.equal(a.margeUnitaire, 6);
   });

@@ -139,7 +139,7 @@ export function ReceptionFournitures({
                       {g.lignes.map((l) => (
                         <tr key={l.ligneId} className="border-t">
                           <td className="px-3 py-1.5">
-                            {l.designation || "—"} {l.origine === "dbs" && <StatusBadge tone="purple">DBS</StatusBadge>}
+                            {l.designation || "—"} {l.origine === "dbs" && <StatusBadge tone="purple">PC</StatusBadge>}
                           </td>
                           <td className="px-2 py-1.5 text-right tabular-nums">
                             {nb.format(l.qtePrevue)} {l.unite}

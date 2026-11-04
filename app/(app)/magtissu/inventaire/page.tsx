@@ -41,7 +41,7 @@ export default async function InventaireTissuPage() {
 
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div>
-          <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+          <div className="text-xl font-extrabold tracking-tight">PATRICK CONFECTION</div>
           <div className="text-[11px] uppercase tracking-widest text-neutral-500">Magasin tissu</div>
         </div>
         <div className="text-right">
@@ -147,7 +147,7 @@ export default async function InventaireTissuPage() {
       </div>
 
       <div className="mt-6 border-t border-neutral-300 pt-2 text-[10.5px] text-neutral-500">
-        Document généré par PilotPro — DBS Fashion. Inventaire physique : cochez chaque matière comptée et notez tout
+        Document généré par PilotPro — Patrick Confection. Inventaire physique : cochez chaque matière comptée et notez tout
         écart avec le métrage reçu enregistré.
       </div>
     </div>

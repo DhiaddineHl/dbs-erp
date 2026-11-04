@@ -190,7 +190,7 @@ describe("lieu de sortie", () => {
     const { lieuSortie, estSousTraitant } = await import("./rouleau");
     assert.equal(lieuSortie({ destination: "coupe" }), "Coupe interne");
     assert.equal(lieuSortie({ destination: "soustraitant", faconnierNom: "Atelier Sud" }), "chez Atelier Sud");
-    assert.equal(estSousTraitant("DBS"), false);
+    assert.equal(estSousTraitant("Patrick Confection"), false);
     assert.equal(estSousTraitant("interne"), false);
     assert.equal(estSousTraitant("Atelier Sud"), true);
   });

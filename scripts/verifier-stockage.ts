@@ -26,7 +26,7 @@ async function main() {
   console.log(`Style    : ${process.env.AWS_S3_URL_STYLE || "virtual-host"}\n`);
 
   // Un contenu unique par exécution, pour ne jamais tomber sur un reste.
-  const contenu = Buffer.from(`vérification stockage DBS — ${new Date().toISOString()}\n`);
+  const contenu = Buffer.from(`vérification stockage Patrick Confection — ${new Date().toISOString()}\n`);
   const hash = createHash("sha256").update(contenu).digest("hex");
   console.log(`clé : ${cleFichier(hash)}`);
 

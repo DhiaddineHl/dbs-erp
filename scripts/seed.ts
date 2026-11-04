@@ -85,9 +85,9 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema, casing: "snake_case" });
 
 const DEFAULT_USERS = [
-  { email: "admin@dbs.local", password: "admin123", name: "Administrateur", role: "admin" },
-  { email: "resp@dbs.local", password: "resp123", name: "Responsable Prod.", role: "resp" },
-  { email: "dbs@dbs.local", password: "dbs123", name: "Chef DBS", role: "chef" },
+  { email: "admin@patrick.local", password: "admin123", name: "Administrateur", role: "admin" },
+  { email: "resp@patrick.local", password: "resp123", name: "Responsable Prod.", role: "resp" },
+  { email: "chef@patrick.local", password: "chef123", name: "Chef atelier", role: "chef" },
 ] as const;
 
 async function seedPermissions() {
@@ -142,7 +142,7 @@ async function seedUsers() {
       password: await hashPassword(u.password),
     });
   }
-  console.log(`  ✓ ${DEFAULT_USERS.length} default users (admin@dbs.local / admin123, …)`);
+  console.log(`  ✓ ${DEFAULT_USERS.length} default users (admin@patrick.local / admin123, …)`);
 }
 
 async function seedFacturation() {
@@ -424,7 +424,7 @@ async function seedAval() {
         .insert(bl)
         .values({
           numero, date, clientId: c.clientId, clientNom: c.clientId ? (clients.get(c.clientId) ?? "") : "",
-          transporteur: "Transport DBS", adresseLivraison: "", statut: "sent", note: "",
+          transporteur: "Transport Patrick Confection", adresseLivraison: "", statut: "sent", note: "",
         })
         .returning({ id: bl.id });
       await db.insert(blLigne).values({

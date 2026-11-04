@@ -170,7 +170,7 @@ function Etiquette({ c }: { c: Carte }) {
       <div className="qr shrink-0" dangerouslySetInnerHTML={{ __html: c.svg }} />
       <div className="flex min-w-0 flex-1 flex-col leading-[1.1]">
         <div className="flex items-baseline justify-between">
-          <span className="text-[5.5pt] font-bold tracking-[0.12em]">DBS FASHION</span>
+          <span className="text-[5.5pt] font-bold tracking-[0.12em]">PATRICK CONFECTION</span>
           <span className="text-[5.5pt] font-bold">
             {c.rang}/{c.surTotal}
           </span>

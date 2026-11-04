@@ -40,7 +40,7 @@ export default async function FicheMatelassagePage({ params }: { params: Promise
 
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div>
-          <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+          <div className="text-xl font-extrabold tracking-tight">PATRICK CONFECTION</div>
           <div className="text-[11px] uppercase tracking-widest text-neutral-500">Bureau modélisme</div>
         </div>
         <div className="text-right">

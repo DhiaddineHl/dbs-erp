@@ -27,7 +27,7 @@ const GABARIT_ENTETES = [
   "Façonnier", "Qté", "Produit", "P. vente", "P. façon", "Export",
 ];
 const GABARIT_EXEMPLES = [
-  ["", "CHEMISE LIN", "REF-1042", "Blanc", "PE26", "PATRICK CONFECTION", "ATELIER SUD", "1200", "0", "18,50", "6,20", "15/09/2026"],
+  ["", "CHEMISE LIN", "REF-1042", "Blanc", "PE26", "CLIENT EXEMPLE", "ATELIER SUD", "1200", "0", "18,50", "6,20", "15/09/2026"],
   ["OF-2026-118", "PANTALON CHINO", "REF-2210", "Marine", "PE26", "MODA SRL", "", "800", "150", "24,00", "", "30/09/2026"],
 ];
 

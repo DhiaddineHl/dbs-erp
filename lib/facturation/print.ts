@@ -15,9 +15,23 @@ import {
   nb,
   nbI,
 } from "./store";
+import { ENTREPRISE, adresseComplete, telephonesLigne } from "@/lib/entreprise";
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** « MF : … — Tél : … », sans les parties encore inconnues. */
+const identiteLigne = () =>
+  [ENTREPRISE.matriculeFiscal && `MF : ${ENTREPRISE.matriculeFiscal}`, telephonesLigne(), ENTREPRISE.email]
+    .filter(Boolean)
+    .map(esc)
+    .join(" — ");
+
+/** Coordonnées bancaires, ou une ligne à compléter tant qu'elles manquent. */
+const ribHTML = () =>
+  ENTREPRISE.rib
+    ? `RIB : ${esc(ENTREPRISE.rib)}<br>SWIFT : ${esc(ENTREPRISE.swift || "—")} — ${esc(ENTREPRISE.banque || "—")}`
+    : "RIB : —<br>SWIFT : —";
 
 /* ─────────── INVOICE DOCUMENT ─────────── */
 export type FactureForm = {
@@ -65,8 +79,8 @@ export function buildFactureDocHTML(d: FactureForm): string {
 
   return `<div class="facture-doc"><div class="facture-stripe"></div><div class="facture-body">
     <div class="facture-header"><div class="facture-emetteur">
-      <div class="company">STE DBS FASHION</div>
-      <p>Diar Ben Salem - Beni Khiar 8060 - Nabeul, Tunisie<br>MF : 1802841E/A/M/000 — Tél : 20 210 211</p></div>
+      <div class="company">${esc(ENTREPRISE.raisonSociale)}</div>
+      <p>${esc(adresseComplete())}<br>${identiteLigne()}</p></div>
       <div class="facture-badge"><div class="num">${esc(d.typeDoc)} N° ${esc(d.num || "—")}</div><div class="date">Le ${fdate(
     d.date,
   )}</div><div style="font-size:9px;opacity:.6;margin-top:3px">${esc(d.incoterm)}</div></div></div>
@@ -93,7 +107,7 @@ export function buildFactureDocHTML(d: FactureForm): string {
     d.paiement,
   )}</p></div>
       <div class="footer-block"><div class="footer-title">Coordonnées bancaires</div>
-        <p class="rib">RIB : TN59 0805 7021 0251 0024 8106<br>SWIFT : BIATTNTT — BANQUE BIAT</p></div></div>
+        <p class="rib">${ribHTML()}</p></div></div>
     ${d.matieres ? `<div class="footer-matieres">${esc(d.matieres).split("\n").join("<br>")}</div>` : ""}
   </div></div>`;
 }
@@ -102,7 +116,9 @@ export function buildFactureDocHTML(d: FactureForm): string {
 function reportHeader(titre: string, periode: string) {
   return (
     `<div style="display:flex;justify-content:space-between;align-items:flex-start">` +
-    `<div><h1>DBS FASHION</h1><div class="r-sub">Diar Ben Salem - Beni Khiar 8060 - Nabeul — MF : 1802841E/A/M/000</div></div>` +
+    `<div><h1>${esc(ENTREPRISE.nomMaj)}</h1><div class="r-sub">${esc(ENTREPRISE.adresse)} — MF : ${esc(
+      ENTREPRISE.matriculeFiscal,
+    )}</div></div>` +
     `<div style="text-align:right;font-size:10px;color:#6B7589">Édité le ${fdate(
       new Date().toISOString().split("T")[0],
     )}</div></div>` +
@@ -113,7 +129,7 @@ function reportHeader(titre: string, periode: string) {
   );
 }
 const reportFooter = () =>
-  `<div class="r-foot"><span>DBS Fashion — Document interne de gestion</span><span>Facturation export HT en euros</span></div>`;
+  `<div class="r-foot"><span>${esc(ENTREPRISE.nom)} — Document interne de gestion</span><span>Facturation export HT en euros</span></div>`;
 
 export function buildReportHTML(
   type: string,

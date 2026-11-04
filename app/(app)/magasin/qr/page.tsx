@@ -28,7 +28,7 @@ export default async function QrMagasinPage() {
       </div>
 
       <div className="rounded-3xl border-4 border-neutral-900 p-8 text-center">
-        <div className="text-sm font-bold uppercase tracking-[0.25em] text-neutral-500">DBS Fashion · Magasin produits finis</div>
+        <div className="text-sm font-bold uppercase tracking-[0.25em] text-neutral-500">Patrick Confection · Magasin produits finis</div>
         <h1 className="mt-2 text-4xl font-black tracking-tight">Saisir une réception</h1>
         <p className="mt-1 text-base text-neutral-600">Production interne et façonniers — depuis votre téléphone</p>
 

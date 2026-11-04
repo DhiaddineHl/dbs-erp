@@ -77,9 +77,9 @@ export default async function RapportPage({
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/dbs-fashion-logo.png" alt="DBS Fashion" className="h-12 w-auto object-contain" />
+          <img src="/logo.png" alt="Patrick Confection" className="h-12 w-auto object-contain" />
           <div>
-            <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+            <div className="text-xl font-extrabold tracking-tight">PATRICK CONFECTION</div>
             <div className="text-[11px] uppercase tracking-widest text-neutral-500">Confection export</div>
           </div>
         </div>

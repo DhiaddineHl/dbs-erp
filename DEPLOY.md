@@ -86,9 +86,9 @@ Watch the deploy logs for `✓ Migrations up to date.` and the seed summary.
 ## Log in
 Default accounts (created by the seed — **change the password immediately**):
 
-- `admin@dbs.local` / `admin123` (admin)
-- `resp@dbs.local` / `resp123`
-- `dbs@dbs.local` / `dbs123`
+- `admin@patrick.local` / `admin123` (admin)
+- `resp@patrick.local` / `resp123`
+- `chef@patrick.local` / `chef123`
 
 ## Notes
 - **Migrations & seed run on every deploy/restart** and are idempotent (seed only inserts what's

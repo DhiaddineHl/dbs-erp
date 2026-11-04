@@ -105,7 +105,7 @@ export function ManquesClient({
                             {c.manques.map((m, i) => (
                               <span key={i} className="mr-1.5 inline-block rounded border px-1.5 py-0.5">
                                 {m.designation || "—"} : <b>{nb.format(m.manque)}</b> {m.unite}
-                                {m.origine === "dbs" && " (achat DBS)"}
+                                {m.origine === "dbs" && " (achat Patrick Confection)"}
                               </span>
                             ))}
                           </td>
@@ -142,7 +142,7 @@ export function ManquesClient({
         </SectionPanel>
 
         <SectionPanel
-          title={`🛒 Acheté DBS — liste d'achat (${achats.length} fournisseur(s))`}
+          title={`🛒 Acheté Patrick Confection — liste d'achat (${achats.length} fournisseur(s))`}
           actions={
             achats.length > 0 && (
               <Link href="/magfour/achats" target="_blank" className="text-[11px] font-semibold text-brand hover:underline">
@@ -152,7 +152,7 @@ export function ManquesClient({
           }
         >
           {achats.length === 0 ? (
-            <div className="py-4 text-center text-xs text-muted-foreground">Rien à acheter : aucune ligne « acheté DBS » en manque.</div>
+            <div className="py-4 text-center text-xs text-muted-foreground">Rien à acheter : aucune ligne « acheté Patrick Confection » en manque.</div>
           ) : (
             <div className="space-y-2 text-xs">
               {achats.map((f) => (

@@ -44,7 +44,7 @@ export function Sidebar({
       <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-sidebar-border bg-sidebar px-5 py-4">
         <span className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-brand to-purple text-white">
           <Image
-            src="/dbs-fashion-logo.png"
+            src="/logo.png"
             alt="Logo"
             width={50}
             height={60}

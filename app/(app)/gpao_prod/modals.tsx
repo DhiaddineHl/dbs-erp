@@ -256,7 +256,7 @@ export function ModeleModal({
       <h2>{edit ? "✏ Modifier modèle" : "＋ Nouveau modèle"}</h2>
       {!edit && commandesInternes.length > 0 && (
         <div className="fld">
-          <label>Depuis une commande DBS (interne)</label>
+          <label>Depuis une commande Patrick Confection (interne)</label>
           <select defaultValue="" onChange={(e) => choisirCommande(e.target.value)}>
             <option value="">— Choisir un modèle/référence de commande —</option>
             {commandesInternes.map((c, i) => (

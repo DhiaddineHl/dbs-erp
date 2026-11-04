@@ -139,7 +139,7 @@ export function DetailModal({
                     <td className="intern">
                       <select value={c.lieu} onChange={(e) => onLieu(i, e.target.value)}>
                         <option value="">— choisir —</option>
-                        <option value="interne">🏭 Interne DBS</option>
+                        <option value="interne">🏭 Interne Patrick Confection</option>
                         <option value="faconnier">🤝 Façonnier</option>
                       </select>
                     </td>

@@ -52,7 +52,7 @@ export const DESTINATIONS = [
 ] as const;
 export const destinationLabel = (v: string) => DESTINATIONS.find((d) => d.value === v)?.label ?? v;
 
-/** Un façonnier nommé « DBS » ou « interne » n'est pas un sous-traitant
+/** Un façonnier portant le nom de l'entreprise ou « interne » n'est pas un sous-traitant
  * (même règle que les commandes : lib/domain/commande → estSousTraitee). */
 export const estSousTraitant = (nom: string) => estSousTraitee({ faconnier: nom });
 

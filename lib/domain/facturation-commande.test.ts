@@ -82,8 +82,8 @@ test("sous-traitance : le coût est le prix façon", () => {
   assert.deepEqual(b?.cout, { lieu: "faconnier", faconnier: "TWINTEX", cout: 4.2 });
 });
 
-test("DBS est l'atelier : le coût est le prix de vente, pas le prix façon", () => {
-  const b = preparerFacturation(cmd({ faconnier: "DBS" }), { qte: 10, pu: 12.5 });
+test("Patrick Confection est l'atelier : le coût est le prix de vente, pas le prix façon", () => {
+  const b = preparerFacturation(cmd({ faconnier: "Patrick Confection" }), { qte: 10, pu: 12.5 });
   assert.deepEqual(b?.cout, { lieu: "interne", faconnier: "", cout: 12.5 });
 });
 
@@ -147,7 +147,7 @@ test("un écart d'un centime est ignoré — c'est un arrondi", () => {
 test("la production interne n'est jamais comparée", () => {
   const d = comparerPrixFacon(
     [coutLigne({ lieu: "interne", cout: 12.5 })],
-    [faconnable({ faconnier: "DBS", prixFacon: 0 })],
+    [faconnable({ faconnier: "Patrick Confection", prixFacon: 0 })],
   );
   assert.deepEqual(d, []);
 });

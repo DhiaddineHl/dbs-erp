@@ -82,7 +82,7 @@ export function RepartitionProductionChart({ repartition }: { repartition: Repar
         {/* Le chiffre au centre : la part que l'atelier fabrique lui-même. */}
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-2xl font-extrabold leading-none text-brand">{pctInterne}%</span>
-          <span className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">interne DBS</span>
+          <span className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">interne PC</span>
         </div>
       </div>
 

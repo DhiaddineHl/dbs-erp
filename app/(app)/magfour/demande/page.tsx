@@ -16,7 +16,7 @@ export default async function DemandeFournituresPage({ searchParams }: { searchP
       titre="DEMANDE DE COMPLÉMENT FOURNITURES"
       sousTitre={client}
       retour={{ href: "/magfour/manques", label: "Retour aux manques" }}
-      signatures={["DBS Fashion — nom, date, signature"]}
+      signatures={["Patrick Confection — nom, date, signature"]}
       pied="Quantités calculées depuis la nomenclature (qté par pièce × pièces commandées + casse) ou le prévu de la commande, moins ce qui est déjà reçu."
     >
       <div className="grid grid-cols-2 gap-3">

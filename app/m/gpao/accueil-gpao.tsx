@@ -43,7 +43,7 @@ export function AccueilGpao({
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
       <div className="mx-auto max-w-5xl px-4 pb-16 pt-4">
-        <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">DBS Fashion · Saisie production · {utilisateur}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Patrick Confection · Saisie production · {utilisateur}</div>
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <h1 className="text-3xl font-black">Choisissez la chaîne</h1>
           <div className="ml-auto flex items-center gap-2">

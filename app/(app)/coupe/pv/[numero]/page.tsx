@@ -49,9 +49,9 @@ export default async function PvCoupePage({ params, searchParams }: { params: Pr
       <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-3">
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/dbs-fashion-logo.png" alt="DBS Fashion" className="h-12 w-auto object-contain" />
+          <img src="/logo.png" alt="Patrick Confection" className="h-12 w-auto object-contain" />
           <div>
-            <div className="text-xl font-extrabold tracking-tight">DBS FASHION</div>
+            <div className="text-xl font-extrabold tracking-tight">PATRICK CONFECTION</div>
             <div className="text-[11px] uppercase tracking-widest text-neutral-500">Service coupe</div>
           </div>
         </div>
@@ -165,7 +165,7 @@ export default async function PvCoupePage({ params, searchParams }: { params: Pr
       </div>
 
       <div className="mt-10 grid grid-cols-2 gap-10 text-[11.5px]">
-        {["DBS FASHION", "CLIENT"].map((qui) => (
+        {["PATRICK CONFECTION", "CLIENT"].map((qui) => (
           <div key={qui} className="rounded border border-neutral-400 px-4 py-3">
             <div className="mb-2 font-extrabold">{qui}</div>
             <div className="border-b border-dotted border-neutral-400 pb-3">Nom :</div>
@@ -175,7 +175,7 @@ export default async function PvCoupePage({ params, searchParams }: { params: Pr
         ))}
       </div>
       <div className="mt-6 border-t border-neutral-300 pt-2 text-[10.5px] text-neutral-500">
-        Document généré par PilotPro — DBS Fashion · {pv.numero} version {pv.version}, générée le {dateHeure(d.genereLe)} par {d.generePar}. Chiffres issus de la fiche de
+        Document généré par PilotPro — Patrick Confection · {pv.numero} version {pv.version}, générée le {dateHeure(d.genereLe)} par {d.generePar}. Chiffres issus de la fiche de
         coupe {d.numero} (validée par {d.createdBy}) et des mouvements de rouleaux, sans ressaisie.
       </div>
     </div>

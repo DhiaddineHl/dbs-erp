@@ -74,7 +74,7 @@ export function SortieLot({
 
   return (
     <Cadre>
-      <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">DBS Fashion · Magasin tissu · {utilisateur}</div>
+      <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">Patrick Confection · Magasin tissu · {utilisateur}</div>
       <h1 className="font-mono text-4xl font-black">{lot.identifiant}</h1>
       <div className="text-sm text-slate-700">
         {lot.client || "—"} · {[lot.reference, lot.couleur].filter(Boolean).join(" · ")}

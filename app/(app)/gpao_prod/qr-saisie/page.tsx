@@ -22,7 +22,7 @@ export default async function QrSaisiePage() {
         </Link>
       </div>
       <div className="mx-auto flex max-w-[170mm] flex-col items-center py-6 text-center">
-        <div className="text-sm font-bold tracking-[0.3em]">DBS FASHION · GPAO</div>
+        <div className="text-sm font-bold tracking-[0.3em]">PATRICK CONFECTION · GPAO</div>
         <h1 className="mt-2 text-4xl font-black">Saisie de production</h1>
         <p className="mt-1 text-lg">Agent de méthode — tablette</p>
         <div className="my-6 w-[120mm] [&_svg]:h-auto [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: svg }} />

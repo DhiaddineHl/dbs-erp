@@ -17,7 +17,7 @@ export default async function ComplementPage({ searchParams }: { searchParams: P
       titre="DEMANDE DE COMPLÉMENT TISSU"
       sousTitre={client}
       retour={{ href: "/magtissu", label: "Retour au magasin tissu" }}
-      signatures={["DBS Fashion — nom, date, signature"]}
+      signatures={["Patrick Confection — nom, date, signature"]}
       pied="Besoin calculé depuis la consommation et le taux de chute de la nomenclature, pour les quantités commandées."
     >
       <div className="grid grid-cols-2 gap-3">

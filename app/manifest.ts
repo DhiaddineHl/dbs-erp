@@ -11,7 +11,7 @@ import type { MetadataRoute } from "next";
  * appui long sur l'icône les propose. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "PilotPro — DBS Fashion",
+    name: "PilotPro — Patrick Confection",
     short_name: "PilotPro",
     description: "Pilotage de production — de la commande à la facture",
     lang: "fr",

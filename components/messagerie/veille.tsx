@@ -45,7 +45,7 @@ export function VeilleMessagerie() {
                 const n = new Notification(a.groupe ? `${a.auteur} · ${a.conversation}` : a.auteur, {
                   body: a.apercu,
                   tag: `msg-${a.conversationId}`,
-                  icon: "/dbs-fashion-logo.png",
+                  icon: "/logo.png",
                 });
                 n.onclick = () => {
                   window.focus();

@@ -22,7 +22,7 @@ export default async function BilanMatierePage({ params }: { params: Promise<{ i
       numero={c.of}
       sousTitre={c.client}
       retour={{ href: "/magtissu", label: "Retour au magasin tissu" }}
-      signatures={["DBS Fashion — nom, date, signature", "Client — visa"]}
+      signatures={["Patrick Confection — nom, date, signature", "Client — visa"]}
       pied="Consommé = sorties de magasin vers la coupe. Pièces = pièces coupées (ou produites à défaut). Conso client = celle de la nomenclature."
     >
       <div className="grid grid-cols-3 gap-3">

@@ -234,7 +234,6 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
             <option value="vanessa_bruno">Solune SAS / Vanessa Bruno</option>
             <option value="bash">BA&amp;SH</option>
             <option value="antonelle">Nouvelle Uja / Antonelle</option>
-            <option value="patrick">Patrick Confection</option>
             <option value="custom">Autre (saisie manuelle)</option>
           </select>
         </div>
