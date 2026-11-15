@@ -10,6 +10,7 @@ import * as rent from "@/lib/services/rentabilite";
 import * as ident from "@/lib/services/identite-ouvrieres";
 import { completerFiches } from "@/lib/services/identite-ouvrieres";
 import { normaliserParams, type ParamsUsine } from "@/lib/domain/cout-usine";
+import { type Devise, estDevise } from "@/lib/domain/montants";
 import type { journee as journeeTable } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 
@@ -386,11 +387,12 @@ export async function lierModele(modeleId: number, commandeId: number | null) {
   }
 }
 
-/** Fixe/efface le prix de vente manuel d'un modèle (€/pièce). */
-export async function majPrixManuel(modeleId: number, prix: number | null) {
+/** Fixe/efface le prix de vente manuel d'un modèle (par pièce, dans `devise`). */
+export async function majPrixManuel(modeleId: number, prix: number | null, devise: Devise) {
   try {
     await assertUser();
-    await g.majPrixManuelModele(modeleId, prix);
+    if (!estDevise(devise)) throw new Error("Devise inconnue");
+    await g.majPrixManuelModele(modeleId, prix, devise);
     revalidatePath(PATH);
     return { ok: true as const };
   } catch (e) {

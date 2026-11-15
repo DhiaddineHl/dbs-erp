@@ -24,10 +24,19 @@
  *     ex. 44 000 € × 19 ÷ 26 = 32 154 €   (au lieu de 44 000 × 29 j calendaires)
  *
  * Divisées par les heures RÉELLEMENT saisies, elles donnent le coût horaire
- * RÉEL de la période. */
+ * RÉEL de la période.
+ *
+ * Tous les montants de ce module (charges, coût horaire, CA, marge) sont dans
+ * la DEVISE DE L'USINE (`deviseUsine`) : les prix de vente des commandes, eux,
+ * sont convertis dans cette devise au taux du jour de production (voir
+ * ./prix-usine.ts) avant d'entrer dans le calcul. */
+
+import { type Devise, DEVISE_DEFAUT, deviseOu } from "./montants";
 
 export type ParamsUsine = {
-  /** Charges mensuelles totales de l'usine (€) : salaires directs + indirects + structure. */
+  /** Devise dans laquelle l'usine compte ses charges, coûts, CA et marges. */
+  deviseUsine: Devise;
+  /** Charges mensuelles totales de l'usine (devise de l'usine) : salaires directs + indirects + structure. */
   chargesMensuelles: number;
   /** Nombre moyen d'ouvrières directes (en chaîne, suivies en GPAO). */
   effectifDirect: number;
@@ -50,6 +59,7 @@ export const OBJECTIFS_DEFAUT = { rendementCible: 80, margeCible: 15, minutesRet
 export const JOURS_OUVRES_MOIS_DEFAUT = 26;
 
 export const PARAMS_USINE_VIDES: ParamsUsine = {
+  deviseUsine: DEVISE_DEFAUT,
   chargesMensuelles: 0,
   effectifDirect: 0,
   heuresMois: 0,
@@ -173,6 +183,8 @@ export function normaliserParams(v: unknown): ParamsUsine {
     return Number.isFinite(k) ? Math.min(max, Math.max(min, k)) : defaut;
   };
   return {
+    // Les paramètres enregistrés avant l'arrivée de la devise étaient en euros.
+    deviseUsine: deviseOu(o.deviseUsine, DEVISE_DEFAUT),
     chargesMensuelles: n(o.chargesMensuelles),
     effectifDirect: n(o.effectifDirect),
     heuresMois: n(o.heuresMois),

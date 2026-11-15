@@ -67,8 +67,11 @@ export const modele = pgTable("modele", {
    * cumulée dans l'avancement de la commande. Null = modèle non relié. */
   commandeId: integer(),
   /** Prix de vente saisi À LA MAIN, utilisé pour valoriser la simulation quand
-   * le modèle n'a pas de commande liée (ou commande sans prix). €/pièce. */
+   * le modèle n'a pas de commande liée (ou commande sans prix). Par pièce,
+   * dans la devise `prixManuelDevise`. */
   prixManuel: doublePrecision(),
+  /** Devise du prix manuel : EUR | TND. Les prix saisis avant étaient en euros. */
+  prixManuelDevise: text().notNull().default("EUR"),
   /** Modèle terminé, rangé : il disparaît des listes et du choix d'une
    * nouvelle journée, sans que rien ne soit supprimé. Un modèle produit une
    * fois par an sinon encombre l'écran onze mois sur douze. */

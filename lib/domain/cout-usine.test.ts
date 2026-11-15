@@ -9,7 +9,7 @@ import {
   type ParamsUsine,
 } from "./cout-usine";
 
-const DBS: ParamsUsine = { chargesMensuelles: 44_000, effectifDirect: 45, heuresMois: 195, joursOuvresMois: 26, rendementCible: 80, margeCible: 15, minutesRetouche: 0 };
+const DBS: ParamsUsine = { deviseUsine: "EUR", chargesMensuelles: 44_000, effectifDirect: 45, heuresMois: 195, joursOuvresMois: 26, rendementCible: 80, margeCible: 15, minutesRetouche: 0 };
 const proche = (a: number | null, b: number, eps = 0.005) => assert.ok(a != null && Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 
 describe("coût horaire standard", () => {
@@ -95,6 +95,7 @@ describe("charges au prorata des jours RÉELLEMENT travaillés", () => {
 describe("normaliserParams", () => {
   it("accepte la virgule décimale et écarte le reste", () => {
     assert.deepEqual(normaliserParams({ chargesMensuelles: "44000,5", effectifDirect: 45, heuresMois: "abc" }), {
+      deviseUsine: "EUR",
       chargesMensuelles: 44000.5,
       effectifDirect: 45,
       heuresMois: 0,
@@ -104,6 +105,7 @@ describe("normaliserParams", () => {
       minutesRetouche: 0,
     });
     assert.deepEqual(normaliserParams(null), {
+      deviseUsine: "EUR",
       chargesMensuelles: 0,
       effectifDirect: 0,
       heuresMois: 0,
@@ -120,5 +122,10 @@ describe("normaliserParams", () => {
     assert.equal(p.minutesRetouche, 4.5);
     assert.equal(normaliserParams({ joursOuvresMois: 40 }).joursOuvresMois, 31);
     assert.equal(normaliserParams({}).joursOuvresMois, 26);
+  });
+  it("garde la devise de l'usine, euros par défaut (anciens réglages)", () => {
+    assert.equal(normaliserParams({ deviseUsine: "TND" }).deviseUsine, "TND");
+    assert.equal(normaliserParams({ deviseUsine: "USD" }).deviseUsine, "EUR");
+    assert.equal(normaliserParams({ chargesMensuelles: 44000 }).deviseUsine, "EUR");
   });
 });

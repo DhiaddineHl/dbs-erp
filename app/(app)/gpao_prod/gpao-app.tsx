@@ -63,6 +63,7 @@ import { GardeRobeView } from "./garde-robe";
 import { SimulationView } from "./simulation";
 import { RentabiliteView } from "./rentabilite";
 import { coutHoraireStandard, type ParamsUsine } from "@/lib/domain/cout-usine";
+import { DEVISE_DEFAUT, formateursDevise } from "@/lib/domain/montants";
 import { prixPlancher } from "@/lib/domain/rentabilite";
 import { EquilibragePanel } from "./equilibrage-panel";
 import { ArretsRetouchesView } from "./arrets-retouches";
@@ -1717,6 +1718,8 @@ function ModelesView({
   }, []);
   const tauxH = usine ? coutHoraireStandard(usine) : null;
   const eur2 = (x: number) => x.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Coût et prix plancher sont dans la devise de l'usine.
+  const { e2: montant } = formateursDevise(usine?.deviseUsine ?? DEVISE_DEFAUT);
 
   return (
     <div className="page">
@@ -1777,14 +1780,14 @@ function ModelesView({
                   if (!pp) return null;
                   return (
                     <div
-                      title={`${eur2(pp.minutesSam)} min SAM ÷ ${usine.rendementCible} % = ${eur2(pp.minutesPayees)} min payées × ${eur2(tauxH)} €/h, puis ${usine.margeCible} % de marge sur le prix`}
+                      title={`${eur2(pp.minutesSam)} min SAM ÷ ${usine.rendementCible} % = ${eur2(pp.minutesPayees)} min payées × ${montant(tauxH)}/h, puis ${usine.margeCible} % de marge sur le prix`}
                       style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, background: "#f5f7fc", borderRadius: 8, padding: "5px 8px" }}
                     >
                       <span>
-                        Coût <b>{eur2(pp.cout)} €</b>
+                        Coût <b>{montant(pp.cout)}</b>
                       </span>
                       <span>
-                        Prix plancher <b style={{ color: "#1d59ad" }}>{eur2(pp.prix)} €</b>
+                        Prix plancher <b style={{ color: "#1d59ad" }}>{montant(pp.prix)}</b>
                       </span>
                     </div>
                   );

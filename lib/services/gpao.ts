@@ -4,7 +4,12 @@ import { db } from "@/lib/db";
 import { chaine, client, commande, faconnier, journee, modele, ouvriere } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 import * as biz from "@/lib/domain/commande";
+import { normaliserParams, type ParamsUsine } from "@/lib/domain/cout-usine";
+import { type Devise, arrondir, deviseOu } from "@/lib/domain/montants";
+import { type PrixDevise, prixRetenu, prixUsine } from "@/lib/domain/prix-usine";
 import { recalculerProduit } from "@/lib/services/avancement";
+import { getSetting } from "@/lib/services/permissions";
+import { listTauxChange } from "@/lib/services/taux-change";
 
 /* Reads return shapes aligned with app/(app)/gpao_prod/store.ts so the future
  * UI wiring is a near drop-in for the localStorage store. */
@@ -69,9 +74,37 @@ export async function lierModeleCommande(modeleId: number, commandeId: number | 
   if (avant?.commandeId != null && avant.commandeId !== commandeId) await recalculerProduit(db, avant.commandeId);
 }
 
-/** Fixe (ou efface) le prix de vente manuel d'un modèle (€/pièce). */
-export async function majPrixManuelModele(modeleId: number, prix: number | null): Promise<void> {
-  await db.update(modele).set({ prixManuel: prix != null && prix > 0 ? prix : null }).where(eq(modele.id, modeleId));
+/** Fixe (ou efface) le prix de vente manuel d'un modèle, par pièce, dans `devise`. */
+export async function majPrixManuelModele(modeleId: number, prix: number | null, devise: Devise): Promise<void> {
+  const ok = prix != null && Number.isFinite(prix) && prix > 0;
+  await db
+    .update(modele)
+    .set({ prixManuel: ok ? prix : null, prixManuelDevise: devise })
+    .where(eq(modele.id, modeleId));
+}
+
+/* ─────────── paramètres de coût usine ─────────── */
+
+/** Réglage partagé : charges, effectif direct, heures/mois, objectifs, devise. */
+export const CLE_COUT_USINE = "gpao.coutUsine";
+
+export async function lireParamsUsine(): Promise<ParamsUsine> {
+  return normaliserParams(await getSetting<unknown>(CLE_COUT_USINE, null));
+}
+
+/** Prix d'une commande liée, dans la devise de la commande. */
+export type CommandePrix = { prixVente: number | null; prixFacon: number | null; devise: Devise };
+
+/** Prix d'un modèle tel que saisi : celui de la commande liée, sinon le prix
+ * manuel — chacun dans sa propre devise. */
+export function prixSourceModele(
+  m: { prixManuel: number | null; prixManuelDevise: string } | undefined,
+  cmd: CommandePrix | undefined,
+): PrixDevise | null {
+  return prixRetenu(
+    cmd?.prixVente != null ? { montant: cmd.prixVente, devise: cmd.devise } : null,
+    m?.prixManuel != null ? { montant: m.prixManuel, devise: deviseOu(m.prixManuelDevise) } : null,
+  );
 }
 
 export async function getModeles() {
@@ -90,8 +123,10 @@ export async function getJournees() {
  *
  * Pour chaque journée (filtrée sur une période), on lit les pièces sorties de
  * chaîne et, via le lien modèle→commande, le prix de vente de la commande. Le
- * CA produit = pièces × prix de vente. Un modèle non relié à une commande (ou
- * une commande sans prix) compte les pièces mais pas de CA — signalé à part. */
+ * CA produit = pièces × prix de vente, converti dans la devise de l'usine au
+ * taux du jour de production. Un modèle non relié à une commande (ou une
+ * commande sans prix) compte les pièces mais pas de CA — signalé à part ; un
+ * prix qu'aucun taux ne permet de convertir aussi, séparément. */
 export type LigneSimulation = {
   date: string;
   modeleId: number;
@@ -99,7 +134,12 @@ export type LigneSimulation = {
   ref: string;
   client: string;
   pieces: number;
+  /** Prix unitaire dans la devise de l'usine (null : sans prix ou sans taux). */
   prixVente: number | null;
+  /** Prix tel que saisi (commande ou manuel), dans sa propre devise. */
+  prixOrigine: PrixDevise | null;
+  /** Un prix existe mais aucun taux de change ne permet de le convertir. */
+  sansTaux: boolean;
   ca: number;
   lie: boolean;
 };
@@ -109,8 +149,15 @@ export type SimulationData = {
   to: string;
   lignes: LigneSimulation[];
   totalPieces: number;
+  /** Devise de l'usine : celle de tous les montants. */
+  devise: Devise;
   totalCa: number;
+  /** Pièces d'un modèle sans aucun prix (à relier ou valoriser). */
   piecesSansPrix: number;
+  /** Pièces dont le prix n'a pu être converti, faute de taux de change. */
+  piecesSansTaux: number;
+  /** Devises des prix restés sans taux (à saisir dans Paramètres). */
+  devisesSansTaux: Devise[];
   /** Heures réellement travaillées sur la période (cellules horaires saisies,
    * hors RI/ABS), pour le bilan coût. */
   heuresTravaillees: number;
@@ -148,24 +195,33 @@ export const heuresJournee = (j: typeof journee.$inferSelect): number => {
 };
 
 export async function simulationGpao(from: string, to: string): Promise<SimulationData> {
-  const [journees, modeles] = await Promise.all([
+  const [journees, modeles, params, taux] = await Promise.all([
     db.select().from(journee).orderBy(journee.date),
     db.select().from(modele),
+    lireParamsUsine(),
+    listTauxChange(),
   ]);
+  const devise = params.deviseUsine;
   const parModele = new Map(modeles.map((m) => [m.id, m]));
 
-  // Prix de vente des commandes liées, en une requête.
+  // Prix de vente (et leur devise) des commandes liées, en une requête.
   const commandeIds = [...new Set(modeles.map((m) => m.commandeId).filter((x): x is number => x != null))];
-  const prixParCommande = new Map<number, number | null>();
+  const prixParCommande = new Map<number, CommandePrix>();
   const clientParCommande = new Map<number, string>();
   if (commandeIds.length) {
     const cmds = await db
-      .select({ id: commande.id, prixVente: commande.prixVente, clientNom: client.nom })
+      .select({
+        id: commande.id,
+        prixVente: commande.prixVente,
+        prixFacon: commande.prixFacon,
+        devise: commande.devise,
+        clientNom: client.nom,
+      })
       .from(commande)
       .leftJoin(client, eq(commande.clientId, client.id))
       .where(inArray(commande.id, commandeIds));
     for (const c of cmds) {
-      prixParCommande.set(c.id, c.prixVente ?? null);
+      prixParCommande.set(c.id, { prixVente: c.prixVente ?? null, prixFacon: c.prixFacon ?? null, devise: deviseOu(c.devise) });
       clientParCommande.set(c.id, c.clientNom ?? "");
     }
   }
@@ -174,6 +230,8 @@ export async function simulationGpao(from: string, to: string): Promise<Simulati
   let totalPieces = 0;
   let totalCa = 0;
   let piecesSansPrix = 0;
+  let piecesSansTaux = 0;
+  const devisesSansTaux = new Set<Devise>();
   let heuresTravaillees = 0;
   const travailles = new Set<string>();
   const ouverts = new Set<string>();
@@ -188,11 +246,13 @@ export async function simulationGpao(from: string, to: string): Promise<Simulati
     if (pieces > 0 || heures > 0) travailles.add(d);
     if (pieces <= 0) continue;
     const m = parModele.get(j.modeleId);
-    const prixCommande = m?.commandeId != null ? (prixParCommande.get(m.commandeId) ?? null) : null;
-    // Repli sur le prix saisi à la main du modèle si pas de prix de commande.
-    const prix = prixCommande ?? m?.prixManuel ?? null;
+    const cmd = m?.commandeId != null ? prixParCommande.get(m.commandeId) : undefined;
+    // Prix de la commande, repli sur le prix saisi à la main du modèle ; puis
+    // conversion dans la devise de l'usine au taux du jour produit.
+    const origine = prixSourceModele(m, cmd);
+    const { prix, sansTaux } = prixUsine(origine, devise, d, taux);
     const clientNom = m?.commandeId != null ? (clientParCommande.get(m.commandeId) ?? m?.client ?? "") : (m?.client ?? "");
-    const ca = prix != null ? Math.round(pieces * prix * 100) / 100 : 0;
+    const ca = prix != null ? arrondir(pieces * prix, devise) : 0;
     lignes.push({
       date: d,
       modeleId: j.modeleId,
@@ -201,12 +261,17 @@ export async function simulationGpao(from: string, to: string): Promise<Simulati
       client: clientNom,
       pieces,
       prixVente: prix,
+      prixOrigine: origine,
+      sansTaux,
       ca,
       lie: m?.commandeId != null,
     });
     totalPieces += pieces;
     totalCa += ca;
-    if (prix == null) piecesSansPrix += pieces;
+    if (sansTaux && origine) {
+      piecesSansTaux += pieces;
+      devisesSansTaux.add(origine.devise);
+    } else if (prix == null) piecesSansPrix += pieces;
   }
 
   lignes.sort((a, b) => a.date.localeCompare(b.date) || a.modele.localeCompare(b.modele));
@@ -215,8 +280,11 @@ export async function simulationGpao(from: string, to: string): Promise<Simulati
     to,
     lignes,
     totalPieces,
-    totalCa: Math.round(totalCa * 100) / 100,
+    devise,
+    totalCa: arrondir(totalCa, devise),
     piecesSansPrix,
+    piecesSansTaux,
+    devisesSansTaux: [...devisesSansTaux],
     heuresTravaillees: Math.round(heuresTravaillees * 10) / 10,
     joursTravailles: [...travailles].sort(),
     joursOuvertsVides: [...ouverts].filter((d) => !travailles.has(d)).sort(),

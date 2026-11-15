@@ -41,6 +41,16 @@ export function formatMontant(
   return opts.symbole === false ? s : `${s} ${DEVISES[devise].symbole}`;
 }
 
+/** Formateurs d'une devise pour les écrans de gestion : `e0` arrondi à
+ * l'unité (KPI, totaux), `e2` à la plus petite unité (prix, coût horaire). */
+export function formateursDevise(devise: Devise) {
+  return {
+    symbole: DEVISES[devise].symbole,
+    e0: (n: number | null | undefined) => formatMontant(n, devise, { decimales: 0 }),
+    e2: (n: number | null | undefined) => formatMontant(n, devise),
+  };
+}
+
 /* ─────────── TVA ─────────── */
 
 /** Un taux saisi : borné à [0, 100], 0 par défaut. */

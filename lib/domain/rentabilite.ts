@@ -67,8 +67,12 @@ export type ProductionModele = {
   /** Heures saisies (une case horaire = 1 h ouvrière). */
   heures: number;
   pieces: number;
-  /** Prix de vente retenu (commande liée, sinon prix manuel), null si inconnu. */
+  /** Prix de vente retenu (commande liée, sinon prix manuel), dans la devise
+   * de l'usine ; null si inconnu. */
   prixVente: number | null;
+  /** CA de la période déjà converti jour par jour dans la devise de l'usine
+   * (le taux change d'un jour à l'autre). Absent = pièces × prixVente. */
+  ca?: number;
   /** Prix façon connu pour ce modèle (commande liée), null si aucun. */
   prixFacon: number | null;
   /** Libellé de la commande liée (OF · modèle), "" si non reliée. */
@@ -96,6 +100,9 @@ export type AnalyseModele = ProductionModele & {
   ecartFacon: number | null;
 };
 
+/** CA d'un modèle : celui converti par le service, sinon pièces × prix. */
+const caModele = (m: ProductionModele) => m.ca ?? (m.prixVente != null ? m.pieces * m.prixVente : 0);
+
 export function analyserModeles(
   modeles: ProductionModele[],
   opts: { coutHoraireReel: number | null; coutHoraireStandard: number | null; rendementCible: number; margeCible: number },
@@ -103,7 +110,7 @@ export function analyserModeles(
   const tauxH = opts.coutHoraireReel ?? 0;
   return modeles
     .map((m) => {
-      const ca = m.prixVente != null ? m.pieces * m.prixVente : 0;
+      const ca = caModele(m);
       const cout = m.heures * tauxH;
       const marge = ca - cout;
       const coutPiece = m.pieces > 0 && cout > 0 ? cout / m.pieces : null;
@@ -307,7 +314,7 @@ export function rapportRentabilite(input: {
   const p = input.params;
   const heuresSaisies = input.modeles.reduce((s, m) => s + m.heures, 0);
   const pieces = input.modeles.reduce((s, m) => s + m.pieces, 0);
-  const ca = input.modeles.reduce((s, m) => s + (m.prixVente != null ? m.pieces * m.prixVente : 0), 0);
+  const ca = input.modeles.reduce((s, m) => s + caModele(m), 0);
   const heuresStandard = input.modeles.reduce((s, m) => s + (m.pieces * m.samSec) / 3600, 0);
   // Charges au prorata des jours réellement travaillés (au moins une saisie).
   const bilan = bilanCoutUsine(p, { from: input.from, to: input.to, heuresSaisies, ca, pieces, joursTravailles: input.jours.length });

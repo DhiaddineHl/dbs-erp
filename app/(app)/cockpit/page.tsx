@@ -47,13 +47,14 @@ const TONE_TEXT: Record<string, string> = {
   purple: "text-purple",
 };
 
-const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
 
 export default async function CockpitPage({ searchParams }: { searchParams: Promise<{ vue?: string }> }) {
   // Montants séparés par devise, ou convertis dans la devise choisie (?vue=TND).
   const vue = parseVueDevise((await searchParams).vue);
   const [data, finance, pm] = await Promise.all([getCockpitData(vue), getGraphiquesFinance(vue), pointMortMoisCourant()]);
   const k = data.kpis;
+  // Le point mort GPAO est compté dans la devise de l'usine (réglée en Simulation).
+  const eur = (n: number) => formatMontant(n, pm.devise, { decimales: 0 });
   const arrondi = { decimales: 0 };
   const margePct = devisesDe(k.margePct)
     .map((d) => `${k.margePct[d]}%` + (devisesDe(k.margePct).length > 1 ? ` (${DEVISES[d].symbole})` : ""))

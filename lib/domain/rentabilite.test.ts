@@ -14,7 +14,7 @@ import {
 const proche = (a: number | null | undefined, b: number, eps = 0.01) =>
   assert.ok(a != null && Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 
-const DBS: ParamsUsine = { chargesMensuelles: 44_000, effectifDirect: 45, heuresMois: 195, joursOuvresMois: 26, rendementCible: 80, margeCible: 15, minutesRetouche: 0 };
+const DBS: ParamsUsine = { deviseUsine: "EUR", chargesMensuelles: 44_000, effectifDirect: 45, heuresMois: 195, joursOuvresMois: 26, rendementCible: 80, margeCible: 15, minutesRetouche: 0 };
 const H = 44_000 / 8_775; // ≈ 5,014 €/h
 
 const modele = (o: Partial<ProductionModele>): ProductionModele => ({
@@ -79,6 +79,20 @@ describe("marge par modèle", () => {
   it("compare au prix façon connu", () => {
     const [m] = analyserModeles([modele({ heures: 100, pieces: 200, prixFacon: 3.5 })], opts);
     proche(m.ecartFacon, 3 - 3.5); // interne moins cher de 0,50 €/pc
+  });
+  it("un CA déjà converti jour par jour prime sur pièces × prix", () => {
+    // 100 pièces à 33 DT puis 34 DT selon le taux du jour : 1 000 € tout rond.
+    const [m] = analyserModeles([modele({ heures: 100, pieces: 100, prixVente: 10, ca: 1000 })], opts);
+    proche(m.ca, 1000);
+    proche(m.marge, 400);
+    const r = rapportRentabilite({
+      from: "2026-03-01",
+      to: "2026-03-01",
+      params: DBS,
+      modeles: [modele({ pieces: 100, prixVente: 9.9, ca: 1000 })],
+      jours: [{ date: "2026-03-01", ca: 1000, pieces: 100 }],
+    });
+    proche(r.bilan.ca, 1000);
   });
 });
 

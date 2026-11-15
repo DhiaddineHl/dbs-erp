@@ -7,17 +7,17 @@ import { comparerSousTraitance, type AnalyseModele, type RapportRentabilite, typ
 import { enregistrerParamsUsine, lireParamsUsine, rentabilite } from "./actions";
 import type { GpaoState } from "./store";
 import { ENTREPRISE } from "@/lib/entreprise";
+import { type Devise, formateursDevise } from "@/lib/domain/montants";
 
-type Rapport = RapportRentabilite & { configure: boolean };
+type Rapport = RapportRentabilite & { configure: boolean; piecesSansTaux: number; devisesSansTaux: Devise[] };
+
+/** Montants du rapport : dans la devise de l'usine. */
+const fmt = (r: Rapport) => formateursDevise(r.params.deviseUsine);
 
 const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 const nb1 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
-const eur2 = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso);
 const pct = (x: number | null | undefined) => (x == null ? "—" : `${Math.round(x * 100)} %`);
-const e0 = (x: number | null | undefined) => (x == null ? "—" : `${eur.format(x)} €`);
-const e2 = (x: number | null | undefined) => (x == null ? "—" : `${eur2.format(x)} €`);
 
 const VERDICT: Record<VerdictModele, { label: string; cls: string }> = {
   perd: { label: "Perd de l'argent", cls: "r" },
@@ -223,6 +223,7 @@ function Objectifs({
 /* ─────────── rapport ─────────── */
 
 function Rapport({ r, state }: { r: Rapport; state: GpaoState }) {
+  const { e0, e2 } = fmt(r);
   const b = r.bilan;
   const cible = r.params.rendementCible / 100;
   const perdants = r.modeles.filter((m) => m.verdict === "perd");
@@ -252,6 +253,13 @@ function Rapport({ r, state }: { r: Rapport; state: GpaoState }) {
         <Kpi l="1 point de rendement" v={e0(r.valeurPointRendement)} s="gagné ou perdu sur la période" />
         <Kpi l="Modèles perdants" v={String(perdants.length)} s={`sur ${r.modeles.length}`} c={perdants.length ? "r" : "g"} />
       </div>
+      {r.piecesSansTaux > 0 && (
+        <div style={{ fontSize: 12, margin: "8px 0", padding: "8px 10px", borderRadius: 8, background: "#FEF3F2", color: "#b42318" }}>
+          ⚠ {nb.format(r.piecesSansTaux)} pièce(s) ont un prix en {r.devisesSansTaux.join(", ")} sans taux de change vers{" "}
+          {r.params.deviseUsine} : elles sont comptées hors CA et leurs modèles classés « Sans prix ». Saisis le taux dans
+          Paramètres → Taux de change.
+        </div>
+      )}
 
       {/* 1 · marge par modèle */}
       <Bloc
@@ -283,7 +291,7 @@ function Rapport({ r, state }: { r: Rapport; state: GpaoState }) {
             </thead>
             <tbody>
               {r.modeles.map((m) => (
-                <LigneModele key={m.modeleId} m={m} cible={cible} />
+                <LigneModele key={m.modeleId} m={m} cible={cible} devise={r.params.deviseUsine} />
               ))}
             </tbody>
             <tfoot>
@@ -388,7 +396,8 @@ function Rapport({ r, state }: { r: Rapport; state: GpaoState }) {
   );
 }
 
-function LigneModele({ m, cible }: { m: AnalyseModele; cible: number }) {
+function LigneModele({ m, cible, devise }: { m: AnalyseModele; cible: number; devise: Devise }) {
+  const { e0, e2 } = formateursDevise(devise);
   const v = VERDICT[m.verdict];
   const sousPlancher = m.prixVente != null && m.plancher != null && m.prixVente < m.plancher.prix;
   return (
@@ -421,6 +430,7 @@ function LigneModele({ m, cible }: { m: AnalyseModele; cible: number }) {
 /* ─────────── 2 · pertes ─────────── */
 
 function Pertes({ r }: { r: Rapport }) {
+  const { e0, e2 } = fmt(r);
   const p = r.pertes;
   const lignes = [
     {
@@ -474,6 +484,7 @@ function Pertes({ r }: { r: Rapport }) {
 /* ─────────── 4 · interne ou sous-traitance ─────────── */
 
 function SousTraitance({ r, state }: { r: Rapport; state: GpaoState }) {
+  const { e0, e2, symbole } = fmt(r);
   const avecFacon = r.modeles.filter((m) => m.ecartFacon != null);
   const modeles = state.modeles.filter((m) => !m.archive && m.sam > 0);
   const [modeleId, setModeleId] = useState<string>("");
@@ -570,7 +581,7 @@ function SousTraitance({ r, state }: { r: Rapport; state: GpaoState }) {
           <Champ label="Quantité">
             <input value={qte} onChange={(e) => setQte(e.target.value)} inputMode="decimal" style={{ ...inp, width: 90 }} />
           </Champ>
-          <Champ label="Prix façonnier (€/pc)">
+          <Champ label={`Prix façonnier (${symbole}/pc)`}>
             <input value={prixFacon} onChange={(e) => setPrixFacon(e.target.value)} inputMode="decimal" placeholder="ex: 3,20" style={{ ...inp, width: 100 }} />
           </Champ>
           <Champ label="Rendement attendu (%)">
@@ -620,6 +631,7 @@ function SousTraitance({ r, state }: { r: Rapport; state: GpaoState }) {
 /* ─────────── 6 · tableau de bord direction (impression) ─────────── */
 
 function imprimerTableauDeBord(r: Rapport) {
+  const { e0, e2 } = fmt(r);
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const b = r.bilan;
   const p = r.pertes;

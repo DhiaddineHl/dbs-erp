@@ -21,12 +21,11 @@ import {
   simuler,
 } from "./actions";
 import { ENTREPRISE } from "@/lib/entreprise";
+import { type Devise, DEVISES, LISTE_DEVISES, deviseOu, formateursDevise, formatMontant } from "@/lib/domain/montants";
 
 type CmdLien = { id: number; of: string; modele: string; ref: string; client: string; archived?: boolean };
 
 const nb = new Intl.NumberFormat("fr-FR");
-const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
-const eur2 = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const eur4 = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("/") : iso);
 
@@ -95,6 +94,11 @@ export function SimulationView() {
       if (s.ok) setData(s.data);
     });
 
+  /* Tous les montants sont dans la devise de l'usine : les prix des commandes
+     y sont convertis au taux du jour de production. */
+  const devise = data?.devise ?? usine.deviseUsine;
+  const { e0, e2, symbole } = formateursDevise(devise);
+
   // Regroupement par jour ou par modèle/référence.
   const groupes = data ? regrouper(data, groupe) : [];
 
@@ -103,7 +107,8 @@ export function SimulationView() {
     if (!data) return [];
     const m = new Map<number, { modeleId: number; modele: string; ref: string; pieces: number }>();
     for (const l of data.lignes) {
-      if (l.prixVente != null) continue;
+      // Un prix sans taux n'est pas « à valoriser » : il manque un taux, pas un prix.
+      if (l.prixVente != null || l.sansTaux) continue;
       const e = m.get(l.modeleId) ?? { modeleId: l.modeleId, modele: l.modele, ref: l.ref, pieces: 0 };
       e.pieces += l.pieces;
       m.set(l.modeleId, e);
@@ -160,16 +165,20 @@ export function SimulationView() {
         <>
           <div className="cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12, marginTop: 12 }}>
             <Kpi label="Pièces produites" val={nb.format(data.totalPieces)} />
-            <Kpi label="CA produit" val={`${eur.format(data.totalCa)} €`} accent />
+            <Kpi label="CA produit" val={e0(data.totalCa)} accent />
             <Kpi label="Jours travaillés (avec saisie)" val={String(data.joursTravailles.length)} />
             {data.piecesSansPrix > 0 && (
               <Kpi label="Pièces sans prix (hors CA)" val={nb.format(data.piecesSansPrix)} warn />
             )}
+            {data.piecesSansTaux > 0 && (
+              <Kpi label="Pièces sans taux de change (hors CA)" val={nb.format(data.piecesSansTaux)} warn />
+            )}
           </div>
+          {data.piecesSansTaux > 0 && <AlerteSansTaux devises={data.devisesSansTaux} vers={devise} />}
 
           {/* Bilan coût : charges usine réparties sur la période ÷ heures GPAO saisies. */}
           <BilanCoutPanel
-            key={`${usine.chargesMensuelles}|${usine.effectifDirect}|${usine.heuresMois}|${usine.joursOuvresMois}`}
+            key={`${usine.deviseUsine}|${usine.chargesMensuelles}|${usine.effectifDirect}|${usine.heuresMois}|${usine.joursOuvresMois}`}
             data={data}
             params={usine}
             modifiable={usineModifiable}
@@ -179,6 +188,9 @@ export function SimulationView() {
                 if (!r.ok) return void toast.error(r.error);
                 setUsine(r.params);
                 toast.success("Paramètres de coût usine enregistrés");
+                // La devise de l'usine a pu changer : CA et prix sont à reconvertir.
+                const s = await simuler(from, to);
+                if (s.ok) setData(s.data);
               })
             }
           />
@@ -199,8 +211,11 @@ export function SimulationView() {
                   <td style={{ textAlign: "left", fontWeight: 700 }}>{g.libelle}</td>
                   <td style={{ textAlign: "left", color: "var(--muted)", fontSize: 12 }}>{g.detail}</td>
                   <td>{nb.format(g.pieces)}</td>
-                  <td>{g.prix == null ? "—" : `${eur2.format(g.prix)} €`}</td>
-                  <td style={{ fontWeight: 800 }}>{g.ca > 0 ? `${eur.format(g.ca)} €` : "—"}</td>
+                  <td title={g.origine ?? undefined}>
+                    {e2(g.prix)}
+                    {g.origine && <div style={{ fontSize: 10, color: "var(--muted)" }}>{g.origine}</div>}
+                  </td>
+                  <td style={{ fontWeight: 800 }}>{g.ca > 0 ? e0(g.ca) : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -211,7 +226,7 @@ export function SimulationView() {
                 </td>
                 <td>{nb.format(data.totalPieces)}</td>
                 <td>—</td>
-                <td>{eur.format(data.totalCa)} €</td>
+                <td>{e0(data.totalCa)}</td>
               </tr>
             </tfoot>
           </table>
@@ -234,15 +249,15 @@ export function SimulationView() {
                   {/* Prix manuel */}
                   <input
                     type="number"
-                    step="0.01"
-                    placeholder="prix €/pc"
+                    step="any"
+                    placeholder={`prix ${symbole}/pc`}
                     defaultValue=""
                     style={{ width: 100, padding: 6, border: "1px solid var(--border)", borderRadius: 8 }}
                     onKeyDown={(e) => {
                       if (e.key !== "Enter") return;
                       const v = Number((e.target as HTMLInputElement).value.replace(",", ".")) || 0;
                       start(async () => {
-                        const r = await majPrixManuel(m.modeleId, v > 0 ? v : null);
+                        const r = await majPrixManuel(m.modeleId, v > 0 ? v : null, devise);
                         if (!r.ok) return void toast.error(r.error);
                         toast.success("Prix enregistré");
                         rafraichir();
@@ -310,6 +325,16 @@ function calculerBilan(data: SimulationData, p: ParamsUsine): BilanCoutUsine {
 
 type ChampCout = "chargesMensuelles" | "effectifDirect" | "heuresMois" | "joursOuvresMois";
 
+/** Prix en devise étrangère sans aucun taux : à saisir dans Paramètres. */
+function AlerteSansTaux({ devises, vers }: { devises: Devise[]; vers: Devise }) {
+  return (
+    <div style={{ fontSize: 12, marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "#FEF3F2", color: "#b42318" }}>
+      ⚠ Des prix sont en {devises.join(", ")} mais aucun taux de change ne permet de les convertir en {vers} : leurs pièces sont
+      comptées hors CA. Saisis le taux dans Paramètres → Taux de change.
+    </div>
+  );
+}
+
 const pct = (x: number | null) => (x == null ? "—" : `${Math.round(x * 100)} %`);
 
 /* Bilan coût de la période.
@@ -333,6 +358,8 @@ function BilanCoutPanel({
 }) {
   // Champs initialisés depuis les paramètres partagés ; le parent remonte le
   // composant (clé) quand ceux-ci arrivent ou sont réenregistrés.
+  const [deviseEdit, setDeviseEdit] = useState<Devise>(params.deviseUsine);
+  const { e0, e2, symbole } = formateursDevise(deviseEdit);
   const [edit, setEdit] = useState<Record<ChampCout, string>>(() => ({
     chargesMensuelles: params.chargesMensuelles ? String(params.chargesMensuelles) : "",
     effectifDirect: params.effectifDirect ? String(params.effectifDirect) : "",
@@ -347,18 +374,22 @@ function BilanCoutPanel({
   // Le calcul suit la saisie en cours (aperçu avant enregistrement).
   const p: ParamsUsine = {
     ...params, // objectifs (rendement/marge cibles…) conservés : réglés dans Rentabilité
+    deviseUsine: deviseEdit,
     chargesMensuelles: num(edit.chargesMensuelles),
     effectifDirect: num(edit.effectifDirect),
     heuresMois: num(edit.heuresMois),
     joursOuvresMois: Math.min(31, num(edit.joursOuvresMois)) || 26,
   };
   const modifie =
+    p.deviseUsine !== params.deviseUsine ||
     p.chargesMensuelles !== params.chargesMensuelles ||
     p.effectifDirect !== params.effectifDirect ||
     p.heuresMois !== params.heuresMois ||
     p.joursOuvresMois !== params.joursOuvresMois;
   const complet = paramsComplets(p);
-  const b = complet ? calculerBilan(data, p) : null;
+  // Le CA de `data` est dans la devise ENREGISTRÉE : tant qu'un changement de
+  // devise n'est pas enregistré, l'aperçu du bilan mélangerait deux devises.
+  const b = complet && p.deviseUsine === data.devise ? calculerBilan(data, p) : null;
   const { from, to } = periodeEffective(data);
 
   const champ = (k: ChampCout, label: string, placeholder: string, w = 100) => (
@@ -380,7 +411,22 @@ function BilanCoutPanel({
     <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "#fff", marginTop: 12 }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
         <b style={{ fontSize: 14 }}>💶 Bilan coût de la période</b>
-        {champ("chargesMensuelles", "Charges usine / mois (€)", "ex: 44000", 110)}
+        <label style={{ fontSize: 12, color: "var(--muted)" }} title="Devise des charges, coûts, CA et marges de la GPAO. Les prix des commandes y sont convertis au taux du jour de production.">
+          Devise usine{" "}
+          <select
+            value={deviseEdit}
+            disabled={!modifiable}
+            onChange={(e) => setDeviseEdit(deviseOu(e.target.value))}
+            style={{ padding: 6, border: "1px solid var(--border)", borderRadius: 8 }}
+          >
+            {LISTE_DEVISES.map((d) => (
+              <option key={d} value={d}>
+                {d} ({DEVISES[d].symbole})
+              </option>
+            ))}
+          </select>
+        </label>
+        {champ("chargesMensuelles", `Charges usine / mois (${symbole})`, "ex: 44000", 110)}
         {champ("effectifDirect", "Ouvrières directes", "ex: 45", 70)}
         {champ("heuresMois", "Heures / mois / ouvrière", "ex: 195", 70)}
         {champ("joursOuvresMois", "Jours travaillés / mois", "26", 50)}
@@ -393,15 +439,22 @@ function BilanCoutPanel({
         )}
       </div>
 
-      {complet && (
-        <div style={{ fontSize: 12, marginTop: 8, color: "var(--txt)" }}>
-          Coût standard d&apos;une heure : {eur.format(p.chargesMensuelles)} € ÷ ({nb.format(p.effectifDirect)} ×{" "}
-          {nb.format(p.heuresMois)} h = {nb.format(heuresMensuellesUsine(p))} h) ={" "}
-          <b>{eur2.format(b?.coutHoraireStandard ?? 0)} €/h</b> · soit {eur4.format((b?.coutHoraireStandard ?? 0) / 60)} €/min
+      {deviseEdit !== params.deviseUsine && (
+        <div style={{ fontSize: 12, marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "#FFFAEB", color: "#93370D" }}>
+          ⚠ Les charges mensuelles ne sont pas converties : saisis-les en {deviseEdit}, puis enregistre pour recalculer le CA et la
+          marge dans cette devise.
         </div>
       )}
 
-      {!b ? (
+      {b && (
+        <div style={{ fontSize: 12, marginTop: 8, color: "var(--txt)" }}>
+          Coût standard d&apos;une heure : {e0(p.chargesMensuelles)} ÷ ({nb.format(p.effectifDirect)} ×{" "}
+          {nb.format(p.heuresMois)} h = {nb.format(heuresMensuellesUsine(p))} h) ={" "}
+          <b>{e2(b?.coutHoraireStandard ?? 0)}/h</b> · soit {eur4.format((b?.coutHoraireStandard ?? 0) / 60)} {symbole}/min
+        </div>
+      )}
+
+      {!b && complet ? null : !b ? (
         <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
           Renseigne les charges mensuelles de l&apos;usine, le nombre d&apos;ouvrières directes et les heures par mois pour
           obtenir le coût horaire, les charges de la période et la marge.
@@ -409,22 +462,22 @@ function BilanCoutPanel({
       ) : (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 10 }}>
-            <Kpi label="CA produit" val={`${eur.format(b.ca)} €`} accent />
+            <Kpi label="CA produit" val={e0(b.ca)} accent />
             <Kpi
               label={`Charges période (${b.joursTravailles} j travaillés ÷ ${nb.format(p.joursOuvresMois)})`}
-              val={`${eur.format(b.chargesPeriode)} €`}
+              val={e0(b.chargesPeriode)}
               warn
             />
-            <Kpi label="Marge (CA − charges)" val={`${eur.format(b.marge)} €`} accent={b.marge >= 0} warn={b.marge < 0} />
+            <Kpi label="Marge (CA − charges)" val={e0(b.marge)} accent={b.marge >= 0} warn={b.marge < 0} />
             <Kpi label="Taux de marge" val={pct(b.tauxMarge)} accent={(b.tauxMarge ?? 0) >= 0} warn={(b.tauxMarge ?? 0) < 0} />
-            <Kpi label="Coût / pièce" val={b.coutPiece == null ? "—" : `${eur2.format(b.coutPiece)} €`} />
+            <Kpi label="Coût / pièce" val={b.coutPiece == null ? "—" : e2(b.coutPiece)} />
             <Kpi label="Heures saisies GPAO" val={`${nb.format(b.heuresSaisies)} h`} />
             <Kpi label={`Heures payées (${b.joursTravailles} j travaillés)`} val={`${nb.format(Math.round(b.heuresTheoriques))} h`} />
             <Kpi label="Taux de saisie GPAO" val={pct(b.tauxSaisie)} warn={(b.tauxSaisie ?? 1) < 0.9} />
-            <Kpi label="Coût horaire standard" val={b.coutHoraireStandard == null ? "—" : `${eur2.format(b.coutHoraireStandard)} €`} />
+            <Kpi label="Coût horaire standard" val={b.coutHoraireStandard == null ? "—" : e2(b.coutHoraireStandard)} />
             <Kpi
               label="Coût horaire réel période"
-              val={b.coutHoraireReel == null ? "—" : `${eur2.format(b.coutHoraireReel)} €`}
+              val={b.coutHoraireReel == null ? "—" : e2(b.coutHoraireReel)}
               warn={(b.coutHoraireReel ?? 0) > (b.coutHoraireStandard ?? Infinity) * 1.05}
             />
           </div>
@@ -432,8 +485,8 @@ function BilanCoutPanel({
             <div style={{ fontSize: 12, marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "#FEF3F2", color: "#b42318" }}>
               ⚠ La GPAO ne couvre que {pct(b.tauxSaisie)} des heures payées sur la période (
               {nb.format(Math.round(b.heuresTheoriques - b.heuresSaisies))} h non saisies : absences, arrêts, RI ou saisies
-              manquantes). Les charges restent dues : chaque heure saisie coûte donc {eur2.format(b.coutHoraireReel ?? 0)} € au
-              lieu de {eur2.format(b.coutHoraireStandard ?? 0)} €.
+              manquantes). Les charges restent dues : chaque heure saisie coûte donc {e2(b.coutHoraireReel ?? 0)} au
+              lieu de {e2(b.coutHoraireStandard ?? 0)}.
             </div>
           )}
           {b.tauxSaisie != null && b.tauxSaisie > 1.1 && (
@@ -446,8 +499,8 @@ function BilanCoutPanel({
       )}
       {complet && b && (
         <div style={{ fontSize: 12, marginTop: 8, color: "var(--txt)" }}>
-          Charges de la période : {eur.format(p.chargesMensuelles)} € × {b.joursTravailles} jours travaillés ÷ {nb.format(p.joursOuvresMois)} jours
-          travaillés par mois = <b>{eur.format(b.chargesPeriode)} €</b> (soit {eur.format(p.chargesMensuelles / p.joursOuvresMois)} € par jour
+          Charges de la période : {e0(p.chargesMensuelles)} × {b.joursTravailles} jours travaillés ÷ {nb.format(p.joursOuvresMois)} jours
+          travaillés par mois = <b>{e0(b.chargesPeriode)}</b> (soit {e0(p.chargesMensuelles / p.joursOuvresMois)} par jour
           travaillé). Heures payées : {nb.format(p.effectifDirect)} ouvrières × {nb.format(Math.round((p.heuresMois / p.joursOuvresMois) * 100) / 100)} h/jour ×{" "}
           {b.joursTravailles} jours.
         </div>
@@ -477,10 +530,19 @@ function Kpi({ label, val, accent, warn }: { label: string; val: string; accent?
   );
 }
 
-type GroupeLigne = { cle: string; libelle: string; detail: string; pieces: number; prix: number | null; ca: number };
+type GroupeLigne = {
+  cle: string;
+  libelle: string;
+  detail: string;
+  pieces: number;
+  prix: number | null;
+  ca: number;
+  /** Prix tel que saisi, quand il est dans une autre devise que l'usine. */
+  origine: string | null;
+};
 
 function regrouper(data: SimulationData, mode: "jour" | "modele"): GroupeLigne[] {
-  const map = new Map<string, GroupeLigne & { prixSet: Set<number> }>();
+  const map = new Map<string, GroupeLigne & { prixSet: Set<number>; origineSet: Set<string> }>();
   for (const l of data.lignes) {
     const cle = mode === "jour" ? l.date : `${l.modele}|${l.ref}`;
     const e =
@@ -492,11 +554,15 @@ function regrouper(data: SimulationData, mode: "jour" | "modele"): GroupeLigne[]
         pieces: 0,
         prix: null,
         ca: 0,
+        origine: null,
         prixSet: new Set<number>(),
-      } as GroupeLigne & { prixSet: Set<number> });
+        origineSet: new Set<string>(),
+      } as GroupeLigne & { prixSet: Set<number>; origineSet: Set<string> });
     e.pieces += l.pieces;
     e.ca += l.ca;
     if (l.prixVente != null) e.prixSet.add(l.prixVente);
+    if (l.prixOrigine && l.prixOrigine.devise !== data.devise)
+      e.origineSet.add(formatMontant(l.prixOrigine.montant, l.prixOrigine.devise));
     // détail : liste des modèles/réfs du jour, ou client + réf pour un modèle.
     if (mode === "jour") {
       const tag = `${l.modele}${l.ref ? ` (${l.ref})` : ""}`;
@@ -507,11 +573,16 @@ function regrouper(data: SimulationData, mode: "jour" | "modele"): GroupeLigne[]
     map.set(cle, e);
   }
   return [...map.values()]
-    .map((e) => ({ ...e, prix: e.prixSet.size === 1 ? [...e.prixSet][0] : null }))
+    .map((e) => ({
+      ...e,
+      prix: e.prixSet.size === 1 ? [...e.prixSet][0] : null,
+      origine: e.origineSet.size === 1 ? `saisi ${[...e.origineSet][0]}` : null,
+    }))
     .sort((a, b) => (a.cle < b.cle ? -1 : 1));
 }
 
 function printSimulation(data: SimulationData, mode: "jour" | "modele", usine: ParamsUsine) {
+  const { e0, e2 } = formateursDevise(data.devise);
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const groupes = regrouper(data, mode);
   const rows = groupes
@@ -519,16 +590,14 @@ function printSimulation(data: SimulationData, mode: "jour" | "modele", usine: P
       (g) =>
         `<tr><td style="text-align:left">${esc(g.libelle)}</td><td style="text-align:left">${esc(
           g.detail,
-        )}</td><td>${g.pieces}</td><td>${g.prix == null ? "—" : eur2.format(g.prix) + " €"}</td><td><b>${
-          g.ca > 0 ? eur.format(g.ca) + " €" : "—"
-        }</b></td></tr>`,
+        )}</td><td>${g.pieces}</td><td>${e2(g.prix)}</td><td><b>${g.ca > 0 ? e0(g.ca) : "—"}</b></td></tr>`,
     )
     .join("");
   const h = `<h1>SIMULATION — PIÈCES &amp; CA PRODUITS</h1>
     <div class="psub">Du ${dateFr(data.from)} au ${dateFr(data.to)} · groupé par ${mode === "jour" ? "jour" : "modèle"} · source : journées GPAO</div>
     <table><thead><tr><th style="text-align:left">${mode === "jour" ? "Jour" : "Modèle/réf."}</th><th style="text-align:left">${mode === "jour" ? "Modèles" : "Client"}</th><th>Pièces</th><th>Prix vente</th><th>CA</th></tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr><td style="text-align:left" colspan="2"><b>TOTAL</b></td><td><b>${data.totalPieces}</b></td><td>—</td><td><b>${eur.format(data.totalCa)} €</b></td></tr></tfoot></table>
+    <tfoot><tr><td style="text-align:left" colspan="2"><b>TOTAL</b></td><td><b>${data.totalPieces}</b></td><td>—</td><td><b>${e0(data.totalCa)}</b></td></tr></tfoot></table>
     ${blocBilanImpression(data, usine)}
     <div style="text-align:right;font-size:9px;color:#666;margin-top:8px">Imprimé le ${new Date().toLocaleString("fr-FR")} — GPAO ${ENTREPRISE.nom}</div>`;
   const w = window.open("", "_blank", "width=1000,height=800");
@@ -547,19 +616,19 @@ function printSimulation(data: SimulationData, mode: "jour" | "modele", usine: P
 
 /** Bloc « bilan coût » de l'impression — seulement si les paramètres usine sont renseignés. */
 function blocBilanImpression(data: SimulationData, usine: ParamsUsine): string {
-  if (!paramsComplets(usine)) return "";
+  if (!paramsComplets(usine) || usine.deviseUsine !== data.devise) return "";
   const b = calculerBilan(data, usine);
-  const e = (x: number | null) => (x == null ? "—" : `${eur2.format(x)} €`);
+  const { e0, e2: e } = formateursDevise(data.devise);
   const l = (k: string, v: string) => `<tr><td>${k}</td><td><b>${v}</b></td></tr>`;
   return `<div class="bilan"><h2>BILAN COÛT DE LA PÉRIODE</h2><table><tbody>
-    ${l("Charges usine mensuelles", `${eur.format(usine.chargesMensuelles)} €`)}
+    ${l("Charges usine mensuelles", e0(usine.chargesMensuelles))}
     ${l("Ouvrières directes × heures/mois", `${nb.format(usine.effectifDirect)} × ${nb.format(usine.heuresMois)} h = ${nb.format(heuresMensuellesUsine(usine))} h`)}
     ${l("Coût horaire standard", `${e(b.coutHoraireStandard)} / h`)}
-    ${l(`Charges de la période (${b.joursTravailles} j travaillés ÷ ${nb.format(usine.joursOuvresMois)} j/mois)`, `${eur.format(b.chargesPeriode)} €`)}
+    ${l(`Charges de la période (${b.joursTravailles} j travaillés ÷ ${nb.format(usine.joursOuvresMois)} j/mois)`, e0(b.chargesPeriode))}
     ${l("Heures saisies GPAO / heures payées", `${nb.format(b.heuresSaisies)} h / ${nb.format(Math.round(b.heuresTheoriques))} h (${pct(b.tauxSaisie)})`)}
     ${l("Coût horaire réel de la période", `${e(b.coutHoraireReel)} / h`)}
-    ${l("CA produit", `${eur.format(b.ca)} €`)}
-    ${l("Marge (CA − charges)", `${eur.format(b.marge)} € (${pct(b.tauxMarge)})`)}
+    ${l("CA produit", e0(b.ca))}
+    ${l("Marge (CA − charges)", `${e0(b.marge)} (${pct(b.tauxMarge)})`)}
     ${l("Coût / pièce", e(b.coutPiece))}
   </tbody></table>
   <div class="note">Charges au prorata des jours réellement travaillés (${b.joursTravailles} jours avec saisie GPAO sur ${b.jours} jours calendaires) : dimanches, fériés et jours sans saisie exclus. Heures GPAO = cellules horaires réellement saisies (hors RI/ABS).</div></div>`;
