@@ -5,6 +5,7 @@ import {
   client,
   commande,
   faconnier,
+  client as clientFiche,
   tissuAffectation,
   tissuEmplacement,
   tissuInventaire,
@@ -101,12 +102,14 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
       r: tissuRouleau,
       lot: tissuLot,
       rec: tissuReception,
+      clientNom: clientFiche.nom,
       emplacement: tissuEmplacement.code,
       zone: tissuEmplacement.zone,
     })
     .from(tissuRouleau)
     .innerJoin(tissuLot, eq(tissuRouleau.lotId, tissuLot.id))
     .innerJoin(tissuReception, eq(tissuLot.receptionId, tissuReception.id))
+    .leftJoin(clientFiche, eq(tissuReception.clientId, clientFiche.id))
     .leftJoin(tissuEmplacement, eq(tissuRouleau.emplacementId, tissuEmplacement.id))
     .$dynamic();
   if (filtre.ids) q = q.where(inArray(tissuRouleau.id, filtre.ids.length ? filtre.ids : [-1]));
@@ -143,7 +146,7 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
   const parRouleau = new Map<number, typeof mvts>();
   for (const m of mvts) parRouleau.set(m.rouleauId!, [...(parRouleau.get(m.rouleauId!) ?? []), m]);
 
-  return rows.map(({ r, lot, rec, emplacement, zone }) => {
+  return rows.map(({ r, lot, rec, clientNom, emplacement, zone }) => {
     const ms = parRouleau.get(r.id) ?? [];
     const eff = rl.mouvementsEffectifs(ms);
     const bilan = rl.bilanRouleau(r.metrageInitial, ms);
@@ -172,7 +175,7 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
         archive: lot.archive,
       },
       reception: {
-        id: rec.id, numero: rec.numero, date: rec.date, fournisseur: rec.fournisseur, client: rec.client, blClient: rec.blClient,
+        id: rec.id, numero: rec.numero, date: rec.date, fournisseur: rec.fournisseur, client: clientNom ?? rec.client, blClient: rec.blClient,
         commandeFournisseur: rec.commandeFournisseur,
       },
       commandes: [...commandes.entries()].map(([id, label]) => ({ id, label })),

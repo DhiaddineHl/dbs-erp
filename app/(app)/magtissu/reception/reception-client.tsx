@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ecartsReception, prochainIdentifiant } from "@/lib/domain/tissu";
 import type { ReceptionRow } from "@/lib/services/tissu";
-import { creerReception, supprimerReception, type SaisieLot, type SaisieRouleau } from "@/lib/actions/tissu";
+import { creerReception, nouveauClientTissu, supprimerReception, type SaisieLot, type SaisieRouleau } from "@/lib/actions/tissu";
 
 const UNITES = ["m", "kg", "pcs", "rouleau"];
 const q2 = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
@@ -33,14 +33,21 @@ export function ReceptionTissu({
 }: {
   receptions: ReceptionRow[];
   identifiantsExistants: string[];
-  clients: string[];
+  clients: { id: number; nom: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [fournisseur, setFournisseur] = useState("");
-  const [client, setClient] = useState("");
+  /** Fiche client choisie dans la liste (obligatoire). */
+  const [clientId, setClientId] = useState<number | null>(null);
+  /** Fiches créées ici, ajoutées à la liste sans recharger la page. */
+  const [ajoutes, setAjoutes] = useState<{ id: number; nom: string }[]>([]);
+  const listeClients = useMemo(
+    () => [...clients, ...ajoutes.filter((a) => !clients.some((c) => c.id === a.id))].sort((a, b) => a.nom.localeCompare(b.nom, "fr")),
+    [clients, ajoutes],
+  );
   const [blClient, setBlClient] = useState("");
   const [observations, setObservations] = useState("");
   const [commandeFournisseur, setCommandeFournisseur] = useState("");
@@ -90,7 +97,7 @@ export function ReceptionTissu({
 
   const enregistrer = () =>
     start(async () => {
-      const r = await creerReception({ date, fournisseur, client, blClient, observations, commandeFournisseur, lots });
+      const r = await creerReception({ date, fournisseur, clientId, blClient, observations, commandeFournisseur, lots });
       if (!r.ok) {
         toast.error(r.error);
         return;
@@ -109,7 +116,7 @@ export function ReceptionTissu({
         window.open(`/magtissu/reclamation/${r.receptionId}`, "_blank");
       } else toast.success("Bon de réception créé");
       setFournisseur("");
-      setClient("");
+      setClientId(null);
       setBlClient("");
       setObservations("");
       setCommandeFournisseur("");
@@ -136,20 +143,43 @@ export function ReceptionTissu({
           <Champ label="Fournisseur">
             <Input value={fournisseur} onChange={(e) => setFournisseur(e.target.value)} placeholder="Fournisseur tissu" className="bg-card" />
           </Champ>
-          <Champ label="Client / donneur d'ordre">
-            {/* Liste des clients créés + saisie libre en repli (point 3). */}
-            <input
-              list="clients-reception"
-              value={client}
-              onChange={(e) => setClient(e.target.value)}
-              placeholder="Choisir un client…"
-              className="h-9 w-full rounded-md border border-input bg-card px-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/40"
-            />
-            <datalist id="clients-reception">
-              {clients.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
+          <Champ label="Client / donneur d'ordre *">
+            {/* Choisi dans la liste Clients (obligatoire) : c'est la fiche qui
+                relie ce tissu aux commandes et au portail du client. */}
+            <div className="flex gap-1">
+              <select
+                value={clientId ?? ""}
+                onChange={(e) => setClientId(Number(e.target.value) || null)}
+                className={`h-9 w-full rounded-md border bg-card px-2 text-sm ${clientId ? "border-input" : "border-[var(--danger)]"}`}
+              >
+                <option value="">— Choisir le client —</option>
+                {listeClients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nom}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 shrink-0 px-2 text-xs"
+                title="Créer le client dans la liste Clients"
+                disabled={pending}
+                onClick={() => {
+                  const nom = prompt("Nom du nouveau client (il sera ajouté à la liste Clients) :");
+                  if (!nom?.trim()) return;
+                  start(async () => {
+                    const r = await nouveauClientTissu(nom);
+                    if (!r.ok) return void toast.error(r.error);
+                    setAjoutes((a) => [...a, { id: r.id, nom: r.nom }]);
+                    setClientId(r.id);
+                    toast.success(r.existait ? `« ${r.nom} » existe déjà : sélectionné.` : `Client « ${r.nom} » créé et sélectionné.`);
+                  });
+                }}
+              >
+                + Nouveau
+              </Button>
+            </div>
           </Champ>
           <Champ label="N° BL du client">
             <Input value={blClient} onChange={(e) => setBlClient(e.target.value)} placeholder="Bon de livraison" className="bg-card" />
@@ -294,7 +324,8 @@ export function ReceptionTissu({
               Le métrage MESURÉ entre en stock ; l&apos;écart avec le BL du client est à réclamer avant la coupe. Chaque rouleau reçoit
               son ID et son étiquette QR — métrage saisi ici, ou au scan pour les étiquettes « à mesurer ».
             </span>
-            <Button disabled={pending} onClick={enregistrer}>
+            {!clientId && <span className="text-[11px] font-semibold text-[var(--danger-d)]">Choisissez le client</span>}
+            <Button disabled={pending || !clientId} onClick={enregistrer}>
               {pending ? "Enregistrement…" : "Enregistrer la réception"}
             </Button>
           </div>

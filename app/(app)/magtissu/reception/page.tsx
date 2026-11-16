@@ -17,7 +17,7 @@ export default async function ReceptionPage() {
       <ReceptionTissu
         receptions={receptions}
         identifiantsExistants={ids.map((r) => r.id)}
-        clients={clients.map((c) => c.nom).filter(Boolean)}
+        clients={clients.filter((c) => c.nom).map((c) => ({ id: c.id, nom: c.nom }))}
       />
     </div>
   );

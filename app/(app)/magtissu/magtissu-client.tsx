@@ -9,7 +9,7 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { dashboardTissu, refusSuppressionLot, totauxRouleaux, type GroupeReliquats, type RouleauControle } from "@/lib/domain/tissu";
+import { dashboardTissu, grouperLotsParClient, proposerRattachement, refusSuppressionLot, totauxRouleaux, type GroupeReliquats, type RouleauControle } from "@/lib/domain/tissu";
 import type { LotRow } from "@/lib/services/tissu";
 import type { MatiereCommandeRow } from "@/lib/services/matiere-tissu";
 import * as A from "@/lib/actions/tissu";
@@ -74,7 +74,10 @@ export function MagasinTissu({
   indicateursRouleaux,
   bonsSortie = [],
   recaps = [],
+  clients = [],
 }: {
+  /** Fiches Clients (pour rattacher les anciennes réceptions). */
+  clients?: { id: number; nom: string }[];
   bonsSortie?: BonSortieResume[];
   recaps?: RecapResume[];
   rouleaux: RouleauRow[];
@@ -175,7 +178,7 @@ export function MagasinTissu({
       ) : onglet === "reliquats" ? (
         <OngletReliquats groupes={reliquats} bons={bonsRetour} q={q} peutSaisir={peutSaisir} />
       ) : (
-        <OngletLots lots={lots} q={q} commandes={commandes} peutSaisir={peutSaisir} />
+        <OngletLots lots={lots} q={q} commandes={commandes} peutSaisir={peutSaisir} clients={clients} />
       )}
     </div>
   );
@@ -331,21 +334,33 @@ function OngletCommandes({ rows, q, peutSaisir }: { rows: MatiereCommandeRow[]; 
 
 /* ═══════════ lots ═══════════ */
 
-function OngletLots({ lots, q, commandes, peutSaisir }: { lots: LotRow[]; q: string; commandes: Choix[]; peutSaisir: boolean }) {
+function OngletLots({ lots, q, commandes, peutSaisir, clients }: { lots: LotRow[]; q: string; commandes: Choix[]; peutSaisir: boolean; clients: { id: number; nom: string }[] }) {
   const [filtre, setFiltre] = useState<"stock" | "reclamer" | "controle" | "tous" | "archives">("stock");
+  /** "" = tous · "id:N" = une fiche client · "rattacher" = sans fiche client. */
+  const [clientVu, setClientVu] = useState("");
+  const [parClient, setParClient] = useState(true);
   const n = q.trim().toLowerCase();
   /* Lots rangés (archivés à la main, ou épuisés d'office) : hors des listes de
      travail, consultables dans « Archivés ». */
   const ranges = lots.filter((l) => l.rangement);
   const vus = (filtre === "archives" ? ranges : lots.filter((l) => !l.rangement)).filter((l) => {
     if (n && !`${l.identifiant} ${l.couleur} ${l.reference} ${l.saison} ${l.client} ${l.blClient}`.toLowerCase().includes(n)) return false;
+    if (clientVu === "rattacher" && l.clientId != null) return false;
+    if (clientVu.startsWith("id:") && `id:${l.clientId}` !== clientVu) return false;
     // Un lot dont les rouleaux attendent leur mesure est bien en magasin.
     if (filtre === "stock") return l.bilan.disponible > 0.001 || l.aMesurer > 0;
     if (filtre === "reclamer") return l.ecarts.aReclamer;
     if (filtre === "controle") return !l.controle && l.bilan.disponible > 0.001;
     return true;
   });
+  // Clients qui ont du tissu (fiches liées), pour le filtre.
+  const clientsDesLots = [...new Map(lots.filter((l) => l.clientId != null).map((l) => [l.clientId!, l.client])).entries()].sort((a, b) => a[1].localeCompare(b[1], "fr"));
+  const nbARattacher = new Set(lots.filter((l) => l.clientId == null).map((l) => l.receptionId)).size;
+  const groupes = parClient ? grouperLotsParClient(vus) : [];
+  const ligne = (l: LotRow) => <LigneLot key={l.id} lot={l} commandes={commandes} peutSaisir={peutSaisir} />;
   return (
+    <>
+    {nbARattacher > 0 && <ARattacher lots={lots} clients={clients} peutSaisir={peutSaisir} />}
     <SectionPanel
       title={`Lots (${vus.length})`}
       flush
@@ -364,6 +379,18 @@ function OngletLots({ lots, q, commandes, peutSaisir }: { lots: LotRow[]; q: str
               {l}
             </button>
           ))}
+          <select value={clientVu} onChange={(e) => setClientVu(e.target.value)} className="h-7 rounded-full border bg-card px-2 font-semibold" title="Filtrer par client">
+            <option value="">Tous les clients</option>
+            {clientsDesLots.map(([id, nom]) => (
+              <option key={id} value={`id:${id}`}>
+                {nom}
+              </option>
+            ))}
+            {nbARattacher > 0 && <option value="rattacher">⚠ Sans fiche client</option>}
+          </select>
+          <label className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 font-semibold">
+            <input type="checkbox" checked={parClient} onChange={(e) => setParClient(e.target.checked)} /> par client
+          </label>
         </div>
       }
     >
@@ -377,14 +404,93 @@ function OngletLots({ lots, q, commandes, peutSaisir }: { lots: LotRow[]; q: str
         <div className="py-10 text-center text-xs text-muted-foreground">
           {filtre === "archives" ? "Aucun lot archivé." : "Aucun lot. Créez une réception tissu pour commencer."}
         </div>
-      ) : (
-        <div className="divide-y">
-          {vus.map((l) => (
-            <LigneLot key={l.id} lot={l} commandes={commandes} peutSaisir={peutSaisir} />
+      ) : parClient ? (
+        <div>
+          {groupes.map((g) => (
+            <div key={g.cle} className="border-b-2">
+              <div className={`flex flex-wrap items-center gap-2 px-3 py-2 ${g.aRattacher ? "bg-[var(--warning-l,#fef3c7)]" : "bg-muted/50"}`}>
+                <span className="text-sm font-black">{g.client}</span>
+                {g.aRattacher && <StatusBadge tone="warning">sans fiche client</StatusBadge>}
+                <span className="text-xs text-muted-foreground">
+                  {g.couleurs.reduce((s, c) => s + c.lots.length, 0)} lot(s) · disponible <b className="text-foreground">{q2.format(g.disponible)}</b> {g.unite}
+                </span>
+              </div>
+              {g.couleurs.map((c) => (
+                <div key={c.couleur}>
+                  <div className="flex items-center gap-2 border-t bg-card px-5 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                    {c.couleur} <span className="font-normal normal-case">· {q2.format(c.disponible)} {g.unite} disponibles</span>
+                  </div>
+                  <div className="divide-y pl-3">{c.lots.map(ligne)}</div>
+                </div>
+              ))}
+            </div>
           ))}
         </div>
+      ) : (
+        <div className="divide-y">{vus.map(ligne)}</div>
       )}
     </SectionPanel>
+    </>
+  );
+}
+
+/* Anciennes réceptions dont le client avait été tapé à la main et ne
+ * correspond à aucune fiche : on les rattache en un clic (une proposition est
+ * pré-choisie quand elle est la seule possible). Rien n'est rattaché seul. */
+function ARattacher({ lots, clients, peutSaisir }: { lots: LotRow[]; clients: { id: number; nom: string }[]; peutSaisir: boolean }) {
+  const receptions = [...new Map(lots.filter((l) => l.clientId == null).map((l) => [l.receptionId, l])).values()];
+  return (
+    <SectionPanel title={`⚠ Réceptions à rattacher à une fiche client (${receptions.length})`}>
+      <p className="mb-2 text-[11px] text-muted-foreground">
+        Le client de ces réceptions avait été tapé à la main et ne correspond à aucune fiche de la liste Clients : leurs lots ne sont pas proposés aux
+        commandes du client ni visibles sur son portail. Choisissez la bonne fiche — le nom saisi à l&apos;époque reste écrit sur la réception.
+      </p>
+      <div className="divide-y text-xs">
+        {receptions.map((l) => (
+          <LigneRattacher key={l.receptionId} lot={l} nbLots={lots.filter((x) => x.receptionId === l.receptionId).length} clients={clients} peutSaisir={peutSaisir} />
+        ))}
+      </div>
+    </SectionPanel>
+  );
+}
+
+function LigneRattacher({ lot: l, nbLots, clients, peutSaisir }: { lot: LotRow; nbLots: number; clients: { id: number; nom: string }[]; peutSaisir: boolean }) {
+  const run = useRunner();
+  const proposition = proposerRattachement(l.clientSaisi, clients);
+  const [choix, setChoix] = useState<number | null>(proposition?.id ?? null);
+  const [envoi, setEnvoi] = useState(false);
+  return (
+    <div className="flex flex-wrap items-center gap-2 py-1.5">
+      <span className="font-mono font-bold">{l.receptionNumero}</span>
+      <span className="text-muted-foreground">{l.receptionDate.split("-").reverse().join("/")}</span>
+      <span>
+        saisi : <b>{l.clientSaisi ? `« ${l.clientSaisi} »` : "aucun client"}</b> · {nbLots} lot(s)
+      </span>
+      {proposition && <StatusBadge tone={proposition.sur === "exact" ? "success" : "info"}>{proposition.sur === "exact" ? "même nom" : "nom proche"}</StatusBadge>}
+      {peutSaisir && (
+        <span className="ml-auto flex gap-1">
+          <select value={choix ?? ""} onChange={(e) => setChoix(Number(e.target.value) || null)} className="h-7 rounded-md border bg-card px-2">
+            <option value="">— Choisir la fiche client —</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nom}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            className="h-7"
+            disabled={!choix || envoi}
+            onClick={() => {
+              setEnvoi(true);
+              void run(() => A.rattacherClient(l.receptionId, choix!), `${l.receptionNumero} rattachée`).finally(() => setEnvoi(false));
+            }}
+          >
+            Rattacher
+          </Button>
+        </span>
+      )}
+    </div>
   );
 }
 

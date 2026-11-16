@@ -237,11 +237,13 @@ export async function vueClient(acces: { clientId: number | null; nom: string; c
     });
   }
 
-  /* Son tissu : les lots reçus pour lui (même nom de client au bon de
-   * réception), encore en rayon ou arrivés depuis moins de 120 jours. */
+  /* Son tissu : les lots reçus pour lui (réception rattachée à SA fiche
+   * client ; une ancienne réception pas encore rattachée compte si le nom
+   * saisi est le même), encore en rayon ou arrivés depuis moins de 120 jours. */
   const cleClient = normaliserNom(c.nom);
   const ilYa120 = new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10);
-  const siens = lots.filter((l) => normaliserNom(l.client) === cleClient && (l.bilan.disponible > 0.001 || l.receptionDate >= ilYa120));
+  const aLui = (l: { clientId: number | null; client: string }) => (l.clientId != null ? l.clientId === acces.clientId : normaliserNom(l.client) === cleClient);
+  const siens = lots.filter((l) => aLui(l) && (l.bilan.disponible > 0.001 || l.receptionDate >= ilYa120));
   const lotsClient: LotClient[] = siens.map((l) => ({
     identifiant: l.identifiant,
     reference: l.reference,

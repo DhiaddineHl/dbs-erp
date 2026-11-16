@@ -351,6 +351,13 @@
       "when": 1794779132572,
       "tag": "0049_portail_soustraitant",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794811247094,
+      "tag": "0050_tissu_client",
+      "breakpoints": true
     }
   ]
 }

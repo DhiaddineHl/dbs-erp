@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { commande, tissuAffectation, tissuLot, tissuMouvement, tissuReception, tissuRouleau } from "@/lib/db/schema";
+import { client, commande, tissuAffectation, tissuLot, tissuMouvement, tissuReception, tissuRouleau } from "@/lib/db/schema";
+import { resolveClientId } from "@/lib/services/commandes";
 import { tissuLibereParLignes } from "@/lib/domain/feux";
 import { auteurTissu } from "@/lib/auth/tissu";
 import * as tx from "@/lib/domain/tissu";
@@ -152,7 +153,8 @@ const nombreOuNull = (s: string | undefined): number | null => {
 export async function creerReception(input: {
   date?: string;
   fournisseur?: string;
-  client?: string;
+  /** Fiche Clients (obligatoire) : le tissu est la matière de ce client. */
+  clientId?: number | null;
   blClient?: string;
   observations?: string;
   commandeFournisseur?: string;
@@ -160,6 +162,8 @@ export async function creerReception(input: {
 }): Promise<Result<{ receptionId: number; rouleauIds: number[] }>> {
   try {
     const a = await auteur();
+    const [cli] = input.clientId ? await db.select({ id: client.id, nom: client.nom }).from(client).where(eq(client.id, input.clientId)) : [];
+    if (!cli) return { ok: false, error: "Choisissez le client dans la liste (ou créez-le avec « + Nouveau client »)." };
     const lotsValides = (input.lots ?? []).filter(
       (l) => nombre(l.quantiteRecue) > 0 || (l.couleur ?? "").trim() || rouleauxSaisis(l).length > 0 || nbAMesurer(l) > 0,
     );
@@ -179,7 +183,8 @@ export async function creerReception(input: {
           numero,
           date: dateRecep,
           fournisseur: input.fournisseur ?? "",
-          client: input.client ?? "",
+          clientId: cli.id,
+          client: cli.nom,
           blClient: (input.blClient ?? "").trim(),
           observations: input.observations ?? "",
           commandeFournisseur: (input.commandeFournisseur ?? "").trim(),
@@ -696,6 +701,49 @@ export async function rendreAuClient(input: { lots: { lotId: number; quantite?: 
     });
     revalider();
     return { ok: true, numero };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── client de la réception (fiche Clients) ─────────── */
+
+/** « + Nouveau client » depuis la réception tissu : crée la fiche dans la
+ * liste Clients — ou reprend celle qui existe déjà sous ce nom (casse,
+ * accents, espaces ignorés), pour ne pas créer de doublon. */
+export async function nouveauClientTissu(nom: string): Promise<Result<{ id: number; nom: string; existait: boolean }>> {
+  try {
+    await auteur();
+    const n = (nom ?? "").trim().replace(/\s+/g, " ");
+    if (n.length < 2) return { ok: false, error: "Écrivez le nom du client." };
+    const avant = await db.select({ id: client.id }).from(client);
+    const id = await resolveClientId(n);
+    if (!id) return { ok: false, error: "Client non créé." };
+    const [c] = await db.select({ id: client.id, nom: client.nom }).from(client).where(eq(client.id, id));
+    const existait = avant.some((x) => x.id === id);
+    if (!existait) await journaliser("creation", "Clients", `${c.nom} (depuis la réception tissu)`);
+    revalidatePath("/clients");
+    return { ok: true, id: c.id, nom: c.nom, existait };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Rattache une ancienne réception (nom tapé à la main) à sa fiche client.
+ * Le nom saisi à l'époque reste écrit sur la réception ; le changement est
+ * tracé au journal d'activité. */
+export async function rattacherClient(receptionId: number, clientId: number): Promise<Result> {
+  try {
+    await auteur();
+    const [rec] = await db.select().from(tissuReception).where(eq(tissuReception.id, receptionId));
+    if (!rec) return { ok: false, error: "Réception introuvable." };
+    if (rec.clientId != null) return { ok: false, error: "Cette réception est déjà rattachée à un client." };
+    const [cli] = await db.select({ id: client.id, nom: client.nom }).from(client).where(eq(client.id, clientId));
+    if (!cli) return { ok: false, error: "Client introuvable." };
+    await db.update(tissuReception).set({ clientId: cli.id }).where(and(eq(tissuReception.id, receptionId), isNull(tissuReception.clientId)));
+    await journaliser("modification", "Magasin tissu", `${rec.numero} : client « ${rec.client || "aucun"} » rattaché à la fiche ${cli.nom}`);
+    revalidatePath("/magtissu");
+    return { ok: true };
   } catch (e) {
     return fail(e);
   }

@@ -2,7 +2,7 @@ import { relations } from "drizzle-orm";
 import { type AnyPgColumn, boolean, date, doublePrecision, index, integer, jsonb, pgTable, primaryKey, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { commande } from "./commande";
 import { coupeFiche } from "./aval";
-import { faconnier } from "./referentiel";
+import { client as clientRef, faconnier } from "./referentiel";
 
 /* ═══════════════════════════════════════════════════════════════════════
  * MAGASIN TISSU — modèle physique par lots
@@ -31,7 +31,11 @@ export const tissuReception = pgTable(
     numero: text().notNull().default(""),
     date: date().notNull(),
     fournisseur: text().notNull().default(""),
-    /** Client / donneur d'ordre concerné, quand le tissu est fourni par lui. */
+    /** Client / donneur d'ordre : la FICHE client (liste Clients). C'est elle
+     * qui fait foi — renommer le client ne casse plus le lien avec son tissu. */
+    clientId: integer().references(() => clientRef.id, { onDelete: "set null" }),
+    /** Nom tel qu'il a été saisi / choisi à la réception (historique, jamais
+     * réécrit). Les écrans affichent le nom ACTUEL de la fiche quand elle est liée. */
     client: text().notNull().default(""),
     /** N° du bon de livraison du client : la réception se contrôle contre lui. */
     blClient: text().notNull().default(""),
@@ -43,7 +47,7 @@ export const tissuReception = pgTable(
     createdBy: text().notNull().default(""),
     createdAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [index("tissu_reception_date_idx").on(t.date)],
+  (t) => [index("tissu_reception_date_idx").on(t.date), index("tissu_reception_client_idx").on(t.clientId)],
 );
 
 /** Un rouleau contrôlé : métrage annoncé (étiquette), mesuré, laize réelle, défauts. */

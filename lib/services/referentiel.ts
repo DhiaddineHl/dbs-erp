@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { bl, client, commande, facture } from "@/lib/db/schema";
+import { bl, client, commande, facture, tissuReception } from "@/lib/db/schema";
 import * as ref from "@/lib/domain/referentiel";
 import { listClients } from "./commandes";
 
@@ -138,8 +138,8 @@ export type BilanFusion = { commandes: number; bls: number; factures: number; fi
 /** Rapatrie tout ce qui pend aux fiches absorbées sur la fiche gardée, puis
  * supprime les absorbées.
  *
- * Trois liens à reprendre, et pas deux : les commandes et les BL pointent la
- * fiche par son identifiant, les factures par sa clé métier. En oublier un
+ * Quatre liens à reprendre : les commandes, les BL et les réceptions de tissu
+ * pointent la fiche par son identifiant, les factures par sa clé métier. En oublier un
  * laisserait des lignes orphelines — la contrainte les mettrait à NULL au
  * moment du DELETE, c'est-à-dire un CA qui disparaît sans bruit. */
 export async function fusionnerClients(gardeId: number, absorbesIds: number[]): Promise<BilanFusion> {
@@ -165,6 +165,9 @@ export async function fusionnerClients(gardeId: number, absorbesIds: number[]): 
       .set({ clientId: gardeId })
       .where(inArray(bl.clientId, ids))
       .returning({ id: bl.id });
+
+    // Le tissu reçu suit son client (sinon il redeviendrait « à rattacher »).
+    await tx.update(tissuReception).set({ clientId: gardeId }).where(inArray(tissuReception.clientId, ids));
 
     const facs = await tx
       .update(facture)

@@ -1,7 +1,7 @@
 import "server-only";
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { commande, tissuAffectation, tissuEmplacement, tissuLot, tissuMouvement, tissuReception, tissuRouleau } from "@/lib/db/schema";
+import { client as clientFiche, commande, tissuAffectation, tissuEmplacement, tissuLot, tissuMouvement, tissuReception, tissuRouleau } from "@/lib/db/schema";
 import * as tx from "@/lib/domain/tissu";
 import * as rl from "@/lib/domain/rouleau";
 import type { LigneTissu } from "@/lib/domain/feux";
@@ -69,8 +69,13 @@ export type LotRow = {
   nbRouleaux: number | null;
   controle: string;
   note: string;
-  /** Client (donneur d'ordre) et BL du bon de réception. */
+  /** Client (donneur d'ordre) : nom ACTUEL de la fiche quand la réception y
+   * est rattachée, sinon le nom saisi à l'époque. */
   client: string;
+  /** Fiche Clients de la réception (null = à rattacher). */
+  clientId: number | null;
+  /** Nom tel que saisi à la réception (historique). */
+  clientSaisi: string;
   blClient: string;
   quantiteAnnoncee: number | null;
   laizeAnnoncee: number | null;
@@ -105,7 +110,10 @@ export type ReceptionRow = {
   numero: string;
   date: string;
   fournisseur: string;
+  /** Nom actuel de la fiche client (ou le nom saisi, si non rattachée). */
   client: string;
+  clientId: number | null;
+  clientSaisi: string;
   blClient: string;
   observations: string;
   piecesJointes: string[];
@@ -152,6 +160,8 @@ export async function listLots(): Promise<LotRow[]> {
       receptionDate: tissuReception.date,
       fournisseur: tissuReception.fournisseur,
       client: tissuReception.client,
+      clientId: tissuReception.clientId,
+      clientNom: clientFiche.nom,
       blClient: tissuReception.blClient,
       commandeFournisseur: tissuReception.commandeFournisseur,
       lotFournisseur: tissuLot.lotFournisseur,
@@ -162,6 +172,7 @@ export async function listLots(): Promise<LotRow[]> {
     })
     .from(tissuLot)
     .leftJoin(tissuReception, eq(tissuLot.receptionId, tissuReception.id))
+    .leftJoin(clientFiche, eq(tissuReception.clientId, clientFiche.id))
     .orderBy(asc(tissuLot.identifiant));
 
   if (lots.length === 0) return [];
@@ -219,7 +230,9 @@ export async function listLots(): Promise<LotRow[]> {
       nbRouleaux: l.nbRouleaux,
       controle: l.controle,
       note: l.note,
-      client: l.client ?? "",
+      client: l.clientNom ?? l.client ?? "",
+      clientId: l.clientId ?? null,
+      clientSaisi: l.client ?? "",
       blClient: l.blClient ?? "",
       commandeFournisseur: l.commandeFournisseur ?? "",
       lotFournisseur: l.lotFournisseur,
@@ -278,16 +291,22 @@ export async function listLots(): Promise<LotRow[]> {
 /** Réceptions (bons) avec leurs lots — pour l'écran de réception et l'historique. */
 export async function listReceptions(): Promise<ReceptionRow[]> {
   const [receptions, lots] = await Promise.all([
-    db.select().from(tissuReception).orderBy(desc(tissuReception.date), desc(tissuReception.id)),
+    db
+      .select({ r: tissuReception, clientNom: clientFiche.nom })
+      .from(tissuReception)
+      .leftJoin(clientFiche, eq(tissuReception.clientId, clientFiche.id))
+      .orderBy(desc(tissuReception.date), desc(tissuReception.id)),
     listLots(),
   ]);
   const parReception = groupBy(lots, (l) => l.receptionId);
-  return receptions.map((r) => ({
+  return receptions.map(({ r, clientNom }) => ({
     id: r.id,
     numero: r.numero,
     date: dISO(r.date),
     fournisseur: r.fournisseur,
-    client: r.client,
+    client: clientNom ?? r.client,
+    clientId: r.clientId,
+    clientSaisi: r.client,
     blClient: r.blClient,
     observations: r.observations,
     piecesJointes: r.piecesJointes ? r.piecesJointes.split(",").filter(Boolean) : [],

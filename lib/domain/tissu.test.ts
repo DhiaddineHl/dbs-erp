@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import {
   bilanLot,
   statutLot,
@@ -233,4 +233,39 @@ describe("rouleaux à mesurer", () => {
     assert.equal(tx.ecartsReception({ ...base, aMesurer: 3 }).aReclamer, false);
     assert.equal(tx.ecartsReception(base).aReclamer, true);
   });
+});
+
+test("rattachement client : proposé seulement s'il est unique", () => {
+  const clients = [
+    { id: 1, nom: "Lacoste France" },
+    { id: 2, nom: "BONPOINT" },
+    { id: 3, nom: "Gérard Darel" },
+    { id: 4, nom: "Darel Kids" },
+  ];
+  assert.deepEqual(tx.proposerRattachement("lacoste  FRANCE", clients), { id: 1, nom: "Lacoste France", sur: "exact" });
+  assert.deepEqual(tx.proposerRattachement("Gerard-Darel", clients), { id: 3, nom: "Gérard Darel", sur: "exact" });
+  assert.deepEqual(tx.proposerRattachement("Lacoste", clients), { id: 1, nom: "Lacoste France", sur: "proche" });
+  assert.equal(tx.proposerRattachement("Darel", clients), null); // deux fiches possibles : on ne devine pas
+  assert.equal(tx.proposerRattachement("Zara", clients), null);
+  assert.equal(tx.proposerRattachement("", clients), null);
+});
+
+test("lots classés par client puis couleur, sans client à part", () => {
+  const lot = (clientId: number | null, client: string, couleur: string, dispo: number) => ({ clientId, client, couleur, unite: "m", bilan: { disponible: dispo } });
+  const g = tx.grouperLotsParClient([lot(2, "BONPOINT", "Marine", 10), lot(1, "Lacoste", "Blanc", 5), lot(1, "Lacoste", "blanc", 2.5), lot(null, "Lacost", "Noir", 3), lot(1, "Lacoste", "Marine", 1)]);
+  assert.deepEqual(
+    g.map((x) => [x.client, x.disponible, x.aRattacher]),
+    [
+      ["BONPOINT", 10, false],
+      ["Lacoste", 8.5, false],
+      ["Lacost", 3, true],
+    ],
+  );
+  assert.deepEqual(
+    g[1].couleurs.map((c) => [c.couleur, c.disponible, c.lots.length]),
+    [
+      ["Blanc", 7.5, 2],
+      ["Marine", 1, 1],
+    ],
+  );
 });

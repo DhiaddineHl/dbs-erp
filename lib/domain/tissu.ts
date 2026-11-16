@@ -498,3 +498,70 @@ export function rangementLot(l: { archive: boolean; bilan: BilanLot; enCoupe: nu
   if (l.bilan.recu > 0 && l.bilan.disponible <= 0.001 && l.enCoupe <= 0.001) return "epuise";
   return "";
 }
+
+/* ═══════════ client de la réception (fiche Clients) ═══════════ */
+
+/** Clé de comparaison souple : casse, accents, espaces et ponctuation ignorés. */
+const cleNomClient = (s: string) =>
+  String(s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+
+/** Fiche client proposée pour un nom saisi autrefois à la main. Proposée
+ * seulement si elle est la SEULE possible :
+ *  · « exact » : même nom, à la casse / aux accents / à la ponctuation près ;
+ *  · « proche » : l'un contient l'autre (« Lacoste » ↔ « Lacoste France »).
+ * Rien n'est rattaché sans un clic : ce n'est qu'une proposition. */
+export function proposerRattachement(saisi: string, clients: { id: number; nom: string }[]): { id: number; nom: string; sur: "exact" | "proche" } | null {
+  const k = cleNomClient(saisi);
+  if (k.length < 2) return null;
+  const exacts = clients.filter((c) => cleNomClient(c.nom) === k);
+  if (exacts.length === 1) return { ...exacts[0], sur: "exact" };
+  if (exacts.length > 1) return null;
+  const proches = clients.filter((c) => {
+    const kc = cleNomClient(c.nom);
+    return kc.length >= 3 && k.length >= 3 && (kc.includes(k) || k.includes(kc));
+  });
+  return proches.length === 1 ? { ...proches[0], sur: "proche" } : null;
+}
+
+export type GroupeClientLots<L> = {
+  cle: string;
+  client: string;
+  clientId: number | null;
+  /** Lot dont la réception n'est rattachée à aucune fiche client. */
+  aRattacher: boolean;
+  disponible: number;
+  unite: string;
+  couleurs: { couleur: string; disponible: number; lots: L[] }[];
+};
+
+/** Lots classés client → couleur, avec le disponible de chacun. Les lots sans
+ * fiche client viennent en dernier, à part (« à rattacher »). */
+export function grouperLotsParClient<L extends { clientId: number | null; client: string; couleur: string; unite: string; bilan: { disponible: number } }>(lots: L[]): GroupeClientLots<L>[] {
+  const groupes = new Map<string, GroupeClientLots<L>>();
+  for (const l of lots) {
+    const cle = l.clientId != null ? `id:${l.clientId}` : `nom:${cleNomClient(l.client)}`;
+    let g = groupes.get(cle);
+    if (!g) {
+      g = { cle, client: l.client || "Sans client", clientId: l.clientId, aRattacher: l.clientId == null, disponible: 0, unite: l.unite, couleurs: [] };
+      groupes.set(cle, g);
+    }
+    g.disponible += l.bilan.disponible;
+    if (g.unite !== l.unite) g.unite = "";
+    const nomCouleur = l.couleur || "—";
+    let c = g.couleurs.find((x) => x.couleur.toLowerCase() === nomCouleur.toLowerCase());
+    if (!c) {
+      c = { couleur: nomCouleur, disponible: 0, lots: [] };
+      g.couleurs.push(c);
+    }
+    c.disponible += l.bilan.disponible;
+    c.lots.push(l);
+  }
+  const r2 = (n: number) => Math.round(n * 100) / 100 + 0;
+  return [...groupes.values()]
+    .map((g) => ({ ...g, disponible: r2(g.disponible), couleurs: g.couleurs.map((c) => ({ ...c, disponible: r2(c.disponible) })).sort((a, b) => a.couleur.localeCompare(b.couleur, "fr")) }))
+    .sort((a, b) => Number(a.aRattacher) - Number(b.aRattacher) || a.client.localeCompare(b.client, "fr"));
+}
