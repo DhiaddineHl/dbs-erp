@@ -3,10 +3,10 @@ import { requireUser } from "@/lib/auth/server";
 import { qrSvg } from "@/lib/atelier/qr";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { basePortail } from "@/lib/services/portail";
-import { LIASSE_UNIQUE } from "@/lib/domain/paquet";
+import { LIASSE_UNIQUE, qteEffective } from "@/lib/domain/paquet";
 import { paquetsDeCommande } from "@/lib/services/paquets";
 
-/* ÉTIQUETTES QR DES PAQUETS — une par LIASSE.
+/* ÉTIQUETTES QR DES PAQUETS — une par MORCEAU (liasse).
  *
  * Le paquet n° 12 existe en plusieurs liasses — col, devant, manches, dos —
  * qui partent chacune à un poste et se retrouvent à l'assemblage. Elles
@@ -50,7 +50,7 @@ type Carte = {
 export default async function EtiquettesPaquetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ of?: string; du?: string; au?: string; format?: string }>;
+  searchParams: Promise<{ of?: string; du?: string; au?: string; format?: string; morceau?: string }>;
 }) {
   await requireUser();
   const sp = await searchParams;
@@ -65,9 +65,15 @@ export default async function EtiquettesPaquetsPage({
 
   const racine = (await basePortail()).replace(/\/+$/, "");
   const cartes: Carte[] = [];
+  // ?morceau=Poignet : seulement les étiquettes d'un morceau (ajouté après coup).
+  const seul = (sp.morceau ?? "").trim().toLowerCase();
   for (const p of paquets) {
     const liasses = p.liasses.length ? p.liasses : [LIASSE_UNIQUE];
+    const annules = new Set(p.morceauxAnnules.map((x) => x.toLowerCase()));
     for (let i = 0; i < liasses.length; i++) {
+      // Le rang du QR reste celui de la liste imprimée ; un morceau annulé ne s'imprime plus.
+      if (annules.has(liasses[i].toLowerCase())) continue;
+      if (seul && liasses[i].toLowerCase() !== seul) continue;
       cartes.push({
         cle: `${p.id}-${i}`,
         numero: p.numero,
@@ -79,7 +85,7 @@ export default async function EtiquettesPaquetsPage({
         modele: p.modele,
         couleur: p.couleur,
         taille: p.taille,
-        qte: p.qte,
+        qte: qteEffective(p),
         pieceDebut: p.pieceDebut,
         pieceFin: p.pieceFin,
         svg: await qrSvg(`${racine}/p/${p.code}/${i + 1}`, 220),
@@ -92,6 +98,7 @@ export default async function EtiquettesPaquetsPage({
     if (sp.of) q.set("of", sp.of);
     if (sp.du) q.set("du", sp.du);
     if (sp.au) q.set("au", sp.au);
+    if (sp.morceau) q.set("morceau", sp.morceau);
     q.set("format", f);
     return `?${q.toString()}`;
   };
@@ -135,7 +142,8 @@ export default async function EtiquettesPaquetsPage({
           ← Suivi paquets
         </Link>
         <span className="w-full text-xs text-neutral-500">
-          Une étiquette par LIASSE : le paquet 12 en a {cartes.length && paquets.length ? Math.round(cartes.length / paquets.length) : "n"}, toutes au même numéro.
+          Une étiquette par MORCEAU : « Paquet 12 – Manche », « Paquet 12 – Col »… toutes au même numéro.
+          {seul && ` Seulement le morceau « ${sp.morceau} ».`}
           Réglez l&apos;impression sur « Marges : aucune » et « Échelle : 100 % ».
           {actifs.length > paquets.length && ` Filtre : paquets ${du || 1} à ${au || actifs.length} (sur ${actifs.length}).`}
         </span>

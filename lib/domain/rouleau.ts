@@ -362,3 +362,119 @@ export function controleMesure(metrage: number, annonceParRouleau: number | null
   }
   return { refus: null, alerte: null };
 }
+
+/* ═══════════ contrôle à la SORTIE : est-ce le bon tissu ? ═══════════
+ *
+ * Au scan d'un rouleau pour un OF, l'application dit tout de suite :
+ *   vert   → c'est le tissu de cet OF (réservé pour lui, ou tissu de ce
+ *            client, de cette couleur, encore libre) ;
+ *   orange → réservé à un AUTRE OF, ou autre référence, ou autre bain que
+ *            les rouleaux déjà scannés pour cette sortie ;
+ *   rouge  → tissu d'un AUTRE CLIENT, ou d'une autre couleur : la sortie
+ *            demande une confirmation.
+ * Rien n'est interdit : le magasinier peut avoir une bonne raison. */
+
+export type FeuTissu = { ton: "vert" | "orange" | "rouge"; message: string };
+
+const normT = (s: string) => sansAccents(s ?? "").replace(/\s+/g, " ").trim();
+
+export function feuSortie(v: {
+  lot: { client: string; reference: string; couleur: string; reservePour: { id: number; label: string }[] };
+  /** null = sortie sans commande (« autre ») : rien à comparer. */
+  cible: { ofs: number[]; client: string; reference: string; couleur: string } | null;
+}): FeuTissu {
+  const { lot, cible } = v;
+  if (!cible) return { ton: "vert", message: "" };
+  if (normT(lot.client) && normT(cible.client) && normT(lot.client) !== normT(cible.client)) {
+    return { ton: "rouge", message: `Tissu du client ${lot.client}, pas de ${cible.client}.` };
+  }
+  if (lot.reservePour.some((r) => cible.ofs.includes(r.id))) return { ton: "vert", message: "Réservé à cet OF." };
+  if (normT(lot.couleur) && normT(cible.couleur) && normT(lot.couleur) !== normT(cible.couleur)) {
+    return { ton: "rouge", message: `Couleur ${lot.couleur}, l'OF est en ${cible.couleur}.` };
+  }
+  if (lot.reservePour.length) return { ton: "orange", message: `Réservé à ${lot.reservePour.map((r) => r.label).join(", ")}.` };
+  if (normT(lot.reference) && normT(cible.reference) && normT(lot.reference) !== normT(cible.reference)) {
+    return { ton: "orange", message: `Référence ${lot.reference}, l'OF attend ${cible.reference}.` };
+  }
+  return { ton: "vert", message: "Tissu du client, encore libre (pas réservé)." };
+}
+
+/** Bains (lot fournisseur) d'une même couleur mélangés dans une sortie :
+ * deux bains dans le même matelas donnent deux nuances sur le vêtement. */
+export function bainsMelanges(rouleaux: { couleur: string; bain: string }[]): { couleur: string; bains: { bain: string; n: number }[] }[] {
+  const parCouleur = new Map<string, { couleur: string; bains: Map<string, number> }>();
+  for (const r of rouleaux) {
+    if (!(r.bain ?? "").trim()) continue;
+    const k = normT(r.couleur);
+    const e = parCouleur.get(k) ?? { couleur: r.couleur, bains: new Map<string, number>() };
+    e.bains.set(r.bain.trim(), (e.bains.get(r.bain.trim()) ?? 0) + 1);
+    parCouleur.set(k, e);
+  }
+  return [...parCouleur.values()]
+    .filter((e) => e.bains.size > 1)
+    .map((e) => ({ couleur: e.couleur, bains: [...e.bains.entries()].map(([bain, n]) => ({ bain, n })).sort((a, b) => b.n - a.n) }));
+}
+
+/** Ce rouleau ajoute-t-il un AUTRE bain que ceux déjà scannés (même couleur) ? */
+export function autreBain(r: { couleur: string; bain: string }, deja: { couleur: string; bain: string }[]): string | null {
+  const b = (r.bain ?? "").trim();
+  if (!b) return null;
+  const memes = deja.filter((d) => normT(d.couleur) === normT(r.couleur) && (d.bain ?? "").trim());
+  const autres = [...new Set(memes.map((d) => d.bain.trim()).filter((x) => x !== b))];
+  if (!autres.length || memes.some((d) => d.bain.trim() === b)) return null;
+  return `Autre bain (${b}) que les rouleaux déjà scannés (${autres.join(", ")}) : ne pas les mettre dans le même matelas.`;
+}
+
+/* ═══════════ liste de prélèvement d'un OF ═══════════
+ *
+ * Les rouleaux à aller chercher : ceux des lots de l'OF encore en rayon.
+ * Ordre de passage : un BAIN à la fois, les rouleaux ENTAMÉS d'abord (on
+ * finit ce qui est ouvert), puis dans l'ordre des emplacements (on suit les
+ * rayons). Les rouleaux sans emplacement passent à la fin. */
+export type APrelever = { code: string; bain: string; couleur: string; emplacement: string; disponible: number; initial: number };
+
+export function ordrePrelevement<T extends APrelever>(rouleaux: T[]): T[] {
+  const entame = (r: T) => r.disponible + EPS < r.initial;
+  const tailleBain = new Map<string, number>();
+  for (const r of rouleaux) tailleBain.set(r.bain, (tailleBain.get(r.bain) ?? 0) + r.disponible);
+  return [...rouleaux]
+    .filter((r) => r.disponible > EPS)
+    .sort(
+      (a, b) =>
+        // le bain le plus fourni d'abord : de quoi couper sans changer de nuance
+        (tailleBain.get(b.bain) ?? 0) - (tailleBain.get(a.bain) ?? 0) ||
+        a.bain.localeCompare(b.bain) ||
+        Number(entame(b)) - Number(entame(a)) ||
+        Number(!a.emplacement) - Number(!b.emplacement) ||
+        a.emplacement.localeCompare(b.emplacement, "fr", { numeric: true }) ||
+        a.code.localeCompare(b.code),
+    );
+}
+
+/* ═══════════ tissu dehors ═══════════ */
+
+/** Jours écoulés depuis une date (AAAA-MM-JJ…), au jour près. */
+export function joursDepuis(dateIso: string, aujourdhui = new Date()): number | null {
+  const d = Date.parse((dateIso ?? "").slice(0, 10) + "T00:00:00");
+  if (!Number.isFinite(d)) return null;
+  const base = new Date(aujourdhui.getFullYear(), aujourdhui.getMonth(), aujourdhui.getDate()).getTime();
+  return Math.max(0, Math.round((base - d) / 86_400_000));
+}
+
+export type LigneDehors = { code: string; lieu: string; enCoupe: number; sortieLe: string; commande: string; unite: string };
+
+/** Le tissu sorti et pas encore soldé, par lieu, le plus ancien en haut. */
+export function tissuDehors<T extends LigneDehors>(rouleaux: T[], aujourdhui = new Date()) {
+  const parLieu = new Map<string, { lieu: string; rouleaux: (T & { jours: number | null })[]; metrage: number; plusVieux: number }>();
+  for (const r of rouleaux) {
+    if (!(r.enCoupe > EPS)) continue;
+    const jours = joursDepuis(r.sortieLe, aujourdhui);
+    const e = parLieu.get(r.lieu) ?? { lieu: r.lieu, rouleaux: [], metrage: 0, plusVieux: 0 };
+    e.rouleaux.push({ ...r, jours });
+    e.metrage = Math.round((e.metrage + r.enCoupe) * 100) / 100;
+    e.plusVieux = Math.max(e.plusVieux, jours ?? 0);
+    parLieu.set(r.lieu, e);
+  }
+  for (const e of parLieu.values()) e.rouleaux.sort((a, b) => (b.jours ?? 0) - (a.jours ?? 0));
+  return [...parLieu.values()].sort((a, b) => b.plusVieux - a.plusVieux);
+}

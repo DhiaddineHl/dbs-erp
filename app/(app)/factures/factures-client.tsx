@@ -30,6 +30,8 @@ import { DetailModal } from "./detail-modal";
 import { Generateur } from "./generateur";
 import { BoutonVentiler } from "./ventilation";
 import { buildReportHTML, printDocument } from "@/lib/facturation/print";
+import { SelecteurPeriode, usePeriode } from "@/components/shared/selecteur-periode";
+import { anneesDisponibles, dansPeriode, memePeriodeAnPasse, moisDeLaPeriode, type Periode, variation } from "@/lib/domain/periode";
 
 type Tab = "dashboard" | "registre" | "generateur" | "encaissements" | "relances" | "marges" | "stats" | "rapports";
 
@@ -57,6 +59,18 @@ type Props = {
 export default function FacturesClient({ factures, couts, deleted, encaissements, comptes }: Props) {
   const store = useFactStore({ factures, couts, deleted });
   const [tab, setTab] = useState<Tab>("dashboard");
+  /* UNE période pour tout l'écran : tableau de bord, registre, marges,
+   * statistiques et rapports calculent tous sur elle. Le générateur garde
+   * toutes les factures (la numérotation ne dépend pas du filtre), et les
+   * relances montrent tout ce qui reste dû, quelle que soit l'année. */
+  const [periode, setPeriode] = usePeriode("factures");
+  const annees = anneesDisponibles(factures.map((f) => f.date));
+  const vue: FactStore = { ...store, all: () => store.all().filter((f) => dansPeriode(f.date, periode)) };
+  const anPasse = memePeriodeAnPasse(periode);
+  // Pas de comparaison quand l'an passé n'a aucune facture : « — vs 0 € » n'apprend rien.
+  const listeAnPasse = anPasse ? store.all().filter((f) => dansPeriode(f.date, anPasse)) : [];
+  const toutesAnPasse = listeAnPasse.length ? listeAnPasse : null;
+  const avecPeriode = tab !== "generateur" && tab !== "relances";
   const [detail, setDetail] = useState<Facture | null>(null);
   const [seed, setSeed] = useState<{ facture: Facture | null; key: number }>({ facture: null, key: 0 });
 
@@ -103,14 +117,32 @@ export default function FacturesClient({ factures, couts, deleted, encaissements
         ))}
       </div>
 
-      {tab === "dashboard" && <Dashboard store={store} onSeeAll={() => setTab("registre")} />}
-      {tab === "registre" && <Registre store={store} onView={viewFacture} onMarges={setDetail} toast={toast} />}
+      {avecPeriode && (
+        <div className="periode-bar" style={{ padding: "12px 28px 0" }}>
+          <SelecteurPeriode periode={periode} onChange={setPeriode} annees={annees} />
+          {tab === "encaissements" && (
+            <div style={{ fontSize: 11, color: "var(--slate)", marginTop: 4 }}>
+              Factures de la période, plus toutes celles qui restent dues quelle que soit leur année.
+            </div>
+          )}
+        </div>
+      )}
+      {tab === "relances" && (
+        <div style={{ padding: "12px 28px 0", fontSize: 11, color: "var(--slate)" }}>
+          Les relances montrent tout ce qui reste dû, quelle que soit l&apos;année de la facture.
+        </div>
+      )}
+
+      {tab === "dashboard" && (
+        <Dashboard store={vue} periode={periode} anPasse={toutesAnPasse} libelleAnPasse={anPasse?.label ?? ""} onSeeAll={() => setTab("registre")} />
+      )}
+      {tab === "registre" && <Registre store={vue} onView={viewFacture} onMarges={setDetail} toast={toast} />}
       {tab === "generateur" && <Generateur key={seed.key} store={store} seed={seed.facture} toast={toast} />}
-      {tab === "marges" && <Marges store={store} onOpen={setDetail} />}
-      {tab === "encaissements" && <Encaissements lignes={encaissements} comptes={comptes} toast={toast} />}
+      {tab === "marges" && <Marges store={vue} onOpen={setDetail} />}
+      {tab === "encaissements" && <Encaissements lignes={encaissements} comptes={comptes} toast={toast} periode={periode} />}
       {tab === "relances" && <Relances lignes={encaissements} comptes={comptes} toast={toast} />}
-      {tab === "stats" && <Stats store={store} />}
-      {tab === "rapports" && <Rapports store={store} />}
+      {tab === "stats" && <Stats store={vue} />}
+      {tab === "rapports" && <Rapports store={vue} periode={periode} />}
 
       {detail && (
         <DetailModal
@@ -128,8 +160,23 @@ export default function FacturesClient({ factures, couts, deleted, encaissements
 }
 
 /* ═══════════════════ DASHBOARD ═══════════════════ */
-function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void }) {
+function Dashboard({
+  store,
+  periode,
+  anPasse,
+  libelleAnPasse,
+  onSeeAll,
+}: {
+  store: FactStore;
+  periode: Periode;
+  /** Factures de la même période un an plus tôt (null = rien à comparer). */
+  anPasse: Facture[] | null;
+  libelleAnPasse: string;
+  onSeeAll: () => void;
+}) {
   const all = store.all();
+  const netDe = (l: Facture[]) => l.reduce((s, f) => s + (f.type === "facture" ? f.total : f.type === "avoir" ? -f.total : 0), 0);
+  const pcsDe = (l: Facture[]) => l.filter((f) => f.type === "facture").reduce((s, f) => s + f.pieces, 0);
   const fs = all.filter((f) => f.type === "facture");
   const avsArr = all.filter((f) => f.type === "avoir");
   const ca = fs.reduce((s, f) => s + f.total, 0);
@@ -156,15 +203,21 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
   const sorted = Object.entries(byClient).sort((a, b) => b[1] - a[1]);
   const maxCA = sorted[0]?.[1] || 1;
 
+  /* Mois par mois, clé AAAA-MM : sur une période à cheval sur deux années,
+   * janvier 2026 et janvier 2027 restent deux barres distinctes. */
   const mois: Record<string, number> = {};
+  for (const k of moisDeLaPeriode(periode, all.map((f) => f.date))) mois[k] = 0;
   fs.forEach((f) => {
     const k = f.date.substring(0, 7);
     mois[k] = (mois[k] || 0) + f.total;
   });
   avsArr.forEach((f) => {
     const k = f.date.substring(0, 7);
-    if (mois[k]) mois[k] -= f.total;
+    mois[k] = (mois[k] || 0) - f.total;
   });
+  const varNet = anPasse ? variation(net, netDe(anPasse)) : null;
+  const varPcs = anPasse ? variation(pcs, pcsDe(anPasse)) : null;
+  const plusieursAnnees = new Set(Object.keys(mois).map((k) => k.slice(0, 4))).size > 1;
   const maxM = Math.max(...Object.values(mois), 1);
   const MOIS_FR_S = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
 
@@ -175,23 +228,25 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
     <div className="page">
       <div className="kpi-grid">
         <div className="kpi-card">
-          <div className="kpi-label">CA export net 2026</div>
+          <div className="kpi-label">CA export net — {periode.court}</div>
           <div className="kpi-value">{nb(net)} €</div>
           <div className="kpi-sub">
             {fs.length} factures − {avsArr.length} avoirs ({nb(av)} €)
           </div>
+          {anPasse && <ComparaisonAnPasse v={varNet} base={`${nb(netDe(anPasse))} €`} libelle={libelleAnPasse} />}
         </div>
         <div className="kpi-card">
           <div className="kpi-label">Pièces livrées</div>
           <div className="kpi-value gold">{nbI(pcs)}</div>
-          <div className="kpi-sub">PMP global {nb(net / pcs)} €/pièce</div>
+          <div className="kpi-sub">PMP global {pcs ? nb(net / pcs) : "—"} €/pièce</div>
+          {anPasse && <ComparaisonAnPasse v={varPcs} base={`${nbI(pcsDe(anPasse))} pcs`} libelle={libelleAnPasse} />}
         </div>
         <div className="kpi-card">
           <div className="kpi-label">Fournitures facturées</div>
           <div className="kpi-value" style={{ color: "var(--slate)" }}>
             {nb(fourn)} €
           </div>
-          <div className="kpi-sub">{((fourn / net) * 100).toFixed(1)}% du CA net</div>
+          <div className="kpi-sub">{net ? ((fourn / net) * 100).toFixed(1) : "0.0"}% du CA net</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-label">Saisie des marges</div>
@@ -219,16 +274,17 @@ function Dashboard({ store, onSeeAll }: { store: FactStore; onSeeAll: () => void
           ))}
         </div>
         <div className="chart-card">
-          <div className="chart-title">CA net par mois 2026</div>
+          <div className="chart-title">CA net par mois — {periode.court}</div>
           {Object.entries(mois)
             .sort()
             .map(([k, v]) => (
               <div className="bar-row" key={k}>
                 <div className="bar-label" style={{ width: 70 }}>
                   {MOIS_FR_S[+k.substring(5) - 1] || k}
+                  {plusieursAnnees ? ` ${k.substring(2, 4)}` : ""}
                 </div>
                 <div className="bar-track">
-                  <div className="bar-fill" style={{ width: `${((v / maxM) * 100).toFixed(1)}%`, background: "var(--navy)" }} />
+                  <div className="bar-fill" style={{ width: `${(Math.max(0, v / maxM) * 100).toFixed(1)}%`, background: "var(--navy)" }} />
                 </div>
                 <div className="bar-value">{nb(v)} €</div>
               </div>
@@ -911,18 +967,14 @@ function Stats({ store }: { store: FactStore }) {
 }
 
 /* ═══════════════════ RAPPORTS ═══════════════════ */
-function Rapports({ store }: { store: FactStore }) {
+function Rapports({ store, periode }: { store: FactStore; periode: Periode }) {
   const all = store.all();
   const clients = [...new Set(all.map((f) => f.client))];
   const [type, setType] = useState("synthese");
   const [client, setClient] = useState(clients[0] || "");
-  const [mois, setMois] = useState("");
   const [html, setHtml] = useState("");
 
-  const generate = () => setHtml(buildReportHTML(type, mois, all, store.couts, client));
-
-  const moisOpts = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
-  const moisNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+  const generate = () => setHtml(buildReportHTML(type, periode, all, store.couts, client));
 
   return (
     <div className="page">
@@ -952,14 +1004,7 @@ function Rapports({ store }: { store: FactStore }) {
           )}
           <div className="form-group" style={{ minWidth: 160 }}>
             <label>Période</label>
-            <select value={mois} onChange={(e) => setMois(e.target.value)}>
-              <option value="">Année 2026 complète</option>
-              {moisOpts.map((m, i) => (
-                <option key={m} value={m}>
-                  {moisNames[i]}
-                </option>
-              ))}
-            </select>
+            <div style={{ fontWeight: 700, padding: "8px 0" }}>{periode.label}</div>
           </div>
           <button className="btn btn-primary" onClick={generate}>
             Générer le rapport
@@ -976,8 +1021,18 @@ function Rapports({ store }: { store: FactStore }) {
       {html ? (
         <div className="report-doc" dangerouslySetInnerHTML={{ __html: html }} />
       ) : (
-        <div className="info-box">Choisissez un type de rapport et une période, puis cliquez sur « Générer le rapport ».</div>
+        <div className="info-box">Choisissez la période en haut de l&apos;écran et un type de rapport, puis cliquez sur « Générer le rapport ».</div>
       )}
+    </div>
+  );
+}
+
+/** « +12,5 % vs Exercice 2026 (380 000 €) » sous un indicateur. */
+function ComparaisonAnPasse({ v, base, libelle }: { v: number | null; base: string; libelle: string }) {
+  const couleur = v == null ? "var(--slate)" : v >= 0 ? "var(--green)" : "var(--red)";
+  return (
+    <div className="kpi-sub" style={{ color: couleur, fontWeight: 600 }} title={`Même période un an plus tôt : ${libelle}`}>
+      {v == null ? "—" : `${v >= 0 ? "▲ +" : "▼ "}${v.toLocaleString("fr-FR")} %`} vs {libelle} ({base})
     </div>
   );
 }

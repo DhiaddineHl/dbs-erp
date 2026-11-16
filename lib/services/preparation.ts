@@ -78,6 +78,8 @@ export type PreparationRow = {
 
   /* tds + modélisme */
   tds: fx.Tds[];
+  /** Pièces envoyées pour l'OK LIVRAISON (hors OK production). */
+  echantillons: fx.Tds[];
   okPro: boolean;
   refOkPro: string;
   etapes: fx.Etape[];
@@ -196,7 +198,10 @@ export async function listPreparation(): Promise<PreparationRow[]> {
     }
     return m;
   };
-  const parTds = groupBy(tdsRows);
+  // Les têtes de série décident l'OK production ; les pièces pour l'OK
+  // livraison suivent le même circuit (envoi, retour, verdict) à part.
+  const parTds = groupBy(tdsRows.filter((t) => t.nature !== "ok"));
+  const parEchantillon = groupBy(tdsRows.filter((t) => t.nature === "ok"));
   const parEtape = groupBy(etapeRows);
   const parFourn = groupBy(fournRows);
   const parLanc = new Map(lancRows.map((l) => [l.commandeId, l]));
@@ -216,10 +221,13 @@ export async function listPreparation(): Promise<PreparationRow[]> {
   }
 
   return rows.map(({ c, clientNom, faconnierNom, chaineNom }) => {
-    const tds: fx.Tds[] = (parTds.get(c.id) ?? []).map((t) => ({
+    const versTds = (t: (typeof tdsRows)[number]): fx.Tds => ({
       id: t.id, n: t.n, envoi: t.envoi, retour: t.retour,
       verdict: t.verdict, commentaire: t.commentaire, par: t.par,
-    }));
+      transporteur: t.transporteur, suivi: t.suivi,
+    });
+    const tds: fx.Tds[] = (parTds.get(c.id) ?? []).map(versTds);
+    const echantillons: fx.Tds[] = (parEchantillon.get(c.id) ?? []).map(versTds);
     const etapes: fx.Etape[] = (parEtape.get(c.id) ?? []).map((e) => ({
       etape: e.etape, fait: e.fait, date: e.date, par: e.par,
     }));
@@ -327,6 +335,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
       tissuLignes: tissuLignesEff,
 
       tds,
+      echantillons,
       okPro: fx.estOkPro(tds),
       refOkPro: fx.referenceOkPro(tds),
       etapes,
@@ -389,21 +398,25 @@ const CONTROLE_LABEL: Record<string, string> = {
 
 /* ── têtes de série ── */
 
-export async function ajouterTds(commandeId: number, auteur: Auteur) {
+export async function ajouterTds(commandeId: number, auteur: Auteur, nature: "tds" | "ok" = "tds") {
   return db.transaction(async (tx) => {
-    const existantes = await tx.select().from(commandeTds).where(eq(commandeTds.commandeId, commandeId));
+    const existantes = await tx
+      .select()
+      .from(commandeTds)
+      .where(and(eq(commandeTds.commandeId, commandeId), eq(commandeTds.nature, nature)));
     const n = existantes.reduce((max, t) => Math.max(max, t.n), 0) + 1;
     await tx
       .insert(commandeTds)
-      .values({ commandeId, n, envoi: biz.todayISO(), verdict: "attente", par: auteur.name });
-    await log(tx, commandeId, auteur, "tds", `TDS${n} lancée`, { apres: `envoyée le ${biz.todayISO()}` });
+      .values({ commandeId, n, nature, envoi: biz.todayISO(), verdict: "attente", par: auteur.name });
+    const quoi = nature === "ok" ? `Pièces pour OK livraison (envoi ${n})` : `TDS${n}`;
+    await log(tx, commandeId, auteur, "tds", `${quoi} lancée`, { apres: `envoyée le ${biz.todayISO()}` });
     return n;
   });
 }
 
 export async function majTds(
   tdsId: number,
-  champ: "envoi" | "retour" | "verdict" | "commentaire",
+  champ: "envoi" | "retour" | "verdict" | "commentaire" | "transporteur" | "suivi",
   valeur: string,
   auteur: Auteur,
 ) {
@@ -418,7 +431,7 @@ export async function majTds(
     if (champ === "verdict" && (valeur === "ok" || valeur === "refus") && !t.retour) {
       patch.retour = biz.todayISO();
     }
-    if (champ === "commentaire") patch[champ] = valeur;
+    if (champ === "commentaire" || champ === "transporteur" || champ === "suivi") patch[champ] = valeur.trim();
     await tx.update(commandeTds).set(patch).where(eq(commandeTds.id, tdsId));
 
     if (champ === "verdict") {
@@ -427,7 +440,7 @@ export async function majTds(
         apres: VERDICT_LABEL[valeur] ?? valeur,
       });
     } else {
-      const lbl = { envoi: "date d'envoi", retour: "date de retour", commentaire: "commentaire client" }[champ];
+      const lbl = { envoi: "date d'envoi", retour: "date de retour", commentaire: "commentaire client", transporteur: "transporteur", suivi: "n° de suivi" }[champ];
       await log(tx, t.commandeId, auteur, "tds", `TDS${t.n} — ${lbl} modifiée`, { avant, apres: valeur });
     }
   });
@@ -442,7 +455,7 @@ export async function supprimerTds(tdsId: number, auteur: Auteur) {
     const reste = await tx
       .select()
       .from(commandeTds)
-      .where(eq(commandeTds.commandeId, t.commandeId))
+      .where(and(eq(commandeTds.commandeId, t.commandeId), eq(commandeTds.nature, t.nature)))
       .orderBy(asc(commandeTds.n));
     // Décalage en deux temps : la contrainte d'unicité (commande, n) interdit
     // de réutiliser un rang encore occupé.

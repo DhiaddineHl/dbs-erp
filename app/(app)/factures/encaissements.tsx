@@ -6,6 +6,7 @@ import { CLIENT_NAMES, fdate, nb } from "@/lib/facturation/store";
 import { MODES_PAIEMENT, STATUT_PAIEMENT, balanceAgee } from "@/lib/domain/finance";
 import type { EncaissementRow } from "@/lib/services/finance";
 import * as A from "@/lib/actions/finance";
+import { dansPeriode, type Periode } from "@/lib/domain/periode";
 
 type Compte = { id: number; libelle: string };
 
@@ -24,10 +25,15 @@ export function Encaissements({
   lignes,
   comptes,
   toast,
+  periode,
 }: {
   lignes: EncaissementRow[];
   comptes: Compte[];
   toast: (m: string) => void;
+  /** Période choisie en haut de l'écran. Une facture d'une autre période
+   * reste affichée tant qu'il en reste à encaisser : un impayé de décembre ne
+   * disparaît pas le 1er janvier. */
+  periode?: Pick<Periode, "du" | "au">;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -38,21 +44,27 @@ export function Encaissements({
   const filtrees = useMemo(() => {
     const n = q.trim().toLowerCase();
     return lignes.filter((l) => {
+      if (periode && !dansPeriode(l.date, periode) && !(l.reste > 0.005)) return false;
       if (statut && l.statut !== statut) return false;
       if (!n) return true;
       return `${l.num} ${l.marque} ${CLIENT_NAMES[l.clientKey] ?? l.clientKey}`.toLowerCase().includes(n);
     });
-  }, [lignes, q, statut]);
+  }, [lignes, q, statut, periode]);
 
   const totaux = useMemo(() => {
-    const t = { ht: 0, encaisse: 0, reste: 0 };
+    // Facturé et encaissé : les factures DE LA PÉRIODE. Reste à encaisser :
+    // tout ce qui est encore dû, y compris les années précédentes.
+    const t = { ht: 0, encaisse: 0, reste: 0, anciens: 0 };
     for (const l of filtrees) {
-      t.ht += l.total;
-      t.encaisse += l.regle;
+      const dedans = !periode || dansPeriode(l.date, periode);
+      if (dedans) {
+        t.ht += l.total;
+        t.encaisse += l.regle;
+      } else t.anciens += Math.max(0, l.reste);
       t.reste += Math.max(0, l.reste);
     }
     return t;
-  }, [filtrees]);
+  }, [filtrees, periode]);
 
   const ligneOuverte = ouverte === null ? null : (lignes.find((l) => l.factureId === ouverte) ?? null);
 
@@ -72,7 +84,12 @@ export function Encaissements({
       <div className="kpi-grid">
         <Kpi label="Total HT facturé" valeur={`${nb(totaux.ht)} €`} />
         <Kpi label="Encaissé" valeur={`${nb(totaux.encaisse)} €`} classe="green" />
-        <Kpi label="Reste à encaisser" valeur={`${nb(totaux.reste)} €`} classe="gold" />
+        <Kpi
+          label="Reste à encaisser"
+          valeur={`${nb(totaux.reste)} €`}
+          classe="gold"
+          sub={totaux.anciens > 0.005 ? `dont ${nb(totaux.anciens)} € de factures d'avant la période` : undefined}
+        />
         <Kpi
           label="Dont échu"
           valeur={`${nb(ba.total - ba.nonEchu)} €`}

@@ -186,3 +186,63 @@ export function libelleMois(cle: string): string {
   const [a, m] = cle.split("-");
   return `${MOIS_FR[Number(m) - 1] ?? m} ${a}`;
 }
+
+/* ─────────── grand livre sur une période ───────────
+ *
+ * Masquer simplement les lignes hors période rendrait les soldes faux. Un
+ * compte se lit donc en trois temps :
+ *   solde d'ouverture  = tout ce qui précède le début (le « report à nouveau ») ;
+ *   mouvements         = crédits et débits de la période, solde progressif
+ *                        partant de l'ouverture ;
+ *   solde de fin       = ouverture + crédits − débits de la période.
+ * Ainsi le solde d'ouverture de janvier 2027 est exactement le solde de fin
+ * de décembre 2026. Crédit = ce que le fournisseur nous facture, débit = ce
+ * que nous réglons (même convention que soldeCompte). */
+
+export type LigneGrandLivre = { id: number; date: string; libelle: string; debit: number; credit: number };
+export type GrandLivrePeriode<T extends LigneGrandLivre> = {
+  ouverture: number;
+  credit: number;
+  debit: number;
+  fin: number;
+  /** Mouvements de la période, avec leur solde progressif. */
+  lignes: (T & { soldeCumule: number })[];
+  /** Mouvements après la fin de la période (échéances futures d'une période passée). */
+  apres: number;
+};
+
+export function grandLivrePeriode<T extends LigneGrandLivre>(transactions: T[], du: string, au: string): GrandLivrePeriode<T> {
+  const millieme = (n: number) => Math.round(n * 1000) / 1000 + 0;
+  const tri = [...transactions].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  let ouverture = 0;
+  let credit = 0;
+  let debit = 0;
+  let apres = 0;
+  const lignes: (T & { soldeCumule: number })[] = [];
+  let cumul = 0;
+  for (const t of tri) {
+    const d = (t.date ?? "").slice(0, 10);
+    const net = (t.credit || 0) - (t.debit || 0);
+    if (du && d < du) {
+      ouverture += net;
+      continue;
+    }
+    if (au && d > au) {
+      apres += 1;
+      continue;
+    }
+    if (lignes.length === 0) cumul = ouverture;
+    credit += t.credit || 0;
+    debit += t.debit || 0;
+    cumul += net;
+    lignes.push({ ...t, soldeCumule: millieme(cumul) });
+  }
+  return {
+    ouverture: millieme(ouverture),
+    credit: millieme(credit),
+    debit: millieme(debit),
+    fin: millieme(ouverture + credit - debit),
+    lignes,
+    apres,
+  };
+}

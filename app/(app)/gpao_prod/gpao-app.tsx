@@ -6,7 +6,10 @@ import "./gpao.css";
 import * as gpao from "./actions";
 import { relireJournee, saisirProduction } from "@/lib/actions/saisie-gpao";
 import type { Saisie } from "@/lib/domain/saisie-gpao";
-import * as pq from "@/lib/domain/paquets";
+import * as pq from "@/lib/domain/paquets-heure";
+import { annulerPassage, finirAuPoste, passagesJournee } from "@/lib/actions/paquets";
+import type { BesoinChoix, PassageVue } from "@/lib/services/paquets";
+import { RecapFinis } from "@/components/gpao/paquets-poste";
 import {
   type Chaine,
   type GpaoState,
@@ -284,24 +287,6 @@ export default function GpaoApp({
     }
     if ((j.ops[ouvId]?.[col] ?? null) === valeur) return;
     saisir(j.id, [{ type: "op", ouvId, col, valeur }], { ops });
-  };
-  /* Numéros de paquets travaillés dans l'heure — relevé FACULTATIF, à côté
-     des pièces. Il ne touche jamais la production : `sortie` reste la seule
-     source de l'avancement (voir lib/domain/paquets.ts). */
-  const setPaquets = (ouvId: number, col: string, val: string) => {
-    const j = currentDayId != null ? findJ(state, currentDayId) : null;
-    if (!j || j.cloture) return;
-    const lu = pq.lirePaquets(val);
-    if (!lu.ok) return toast("⚠ " + lu.error);
-    const avant = j.paquets?.[ouvId]?.[col] ?? [];
-    if (avant.length === lu.numeros.length && avant.every((n, i) => n === lu.numeros[i])) return;
-    const paquets = { ...(j.paquets || {}), [ouvId]: { ...(j.paquets?.[ouvId] || {}) } };
-    if (lu.numeros.length) paquets[ouvId][col] = lu.numeros;
-    else {
-      delete paquets[ouvId][col];
-      if (!Object.keys(paquets[ouvId]).length) delete paquets[ouvId];
-    }
-    saisir(j.id, [{ type: "paquets", ouvId, col, numeros: lu.numeros }], { paquets });
   };
   const setRet = (ouvId: number, val: string) => {
     const j = currentDayId != null ? findJ(state, currentDayId) : null;
@@ -781,8 +766,8 @@ export default function GpaoApp({
           onBack={() => setView("jours")}
           onSortie={setSortie}
           onOp={setOp}
-          onPaquets={setPaquets}
           onSuiviPaquets={majSuiviPaquets}
+          toast={toast}
           onTaillePaquet={majTaillePaquet}
           onRet={setRet}
           onObjManuel={setObjManuel}
@@ -1089,6 +1074,13 @@ function JoursView({
   );
 }
 
+/** Carnet des vrais paquets de l'OF produit par ce modèle. `null` quand la
+ * coupe de cet OF n'est pas suivie : la saisie retombe alors sur le calcul
+ * théorique, et rien ne se bloque. */
+function carnetDe(state: GpaoState, modeleId: number): pq.Carnet {
+  return pq.carnet(state.carnets?.[modeleId] ?? []);
+}
+
 /* ═══════════════════ DÉTAIL JOURNÉE (saisie) ═══════════════════ */
 function JourDetail({
   state,
@@ -1096,8 +1088,8 @@ function JourDetail({
   onBack,
   onSortie,
   onOp,
-  onPaquets,
   onSuiviPaquets,
+  toast,
   onTaillePaquet,
   onRet,
   onObjManuel,
@@ -1118,8 +1110,8 @@ function JourDetail({
   onBack: () => void;
   onSortie: (col: string, val: string) => void;
   onOp: (ouvId: number, col: string, val: string) => void;
-  onPaquets: (ouvId: number, col: string, val: string) => void;
   onSuiviPaquets: (v: boolean) => void;
+  toast: (m: string) => void;
   onTaillePaquet: (v: number) => void;
   onRet: (ouvId: number, val: string) => void;
   onObjManuel: (val: string) => void;
@@ -1149,6 +1141,51 @@ function JourDetail({
   const dis = j.cloture;
   const disStyle = dis ? { opacity: 0.55, pointerEvents: "none" as const } : undefined;
 
+  /* Paquets FINIS AU POSTE dans cette journée (scannés sur la tablette ou
+     tapés ici) : relus à l'ouverture et toutes les 20 s. */
+  const [passages, setPassages] = useState<PassageVue[]>([]);
+  const [versionPassages, setVersionPassages] = useState(0);
+  useEffect(() => {
+    if (!state.reglages.suiviPaquets) return;
+    let actif = true;
+    const lire = () =>
+      void passagesJournee(j.id)
+        .then((r) => actif && r.ok && setPassages(r.passages))
+        .catch(() => {});
+    lire();
+    const t = setInterval(lire, 20000);
+    return () => {
+      actif = false;
+      clearInterval(t);
+    };
+  }, [j.id, state.reglages.suiviPaquets, versionPassages]);
+
+  /** Au bureau : on tape le n° (ou on scanne à la douchette) d'un paquet fini. */
+  const ajouterFini = async (ouvId: number, col: string, scan: string) => {
+    let demande: { scan: string; code?: string; morceau?: string; poste?: string } = { scan };
+    for (let essai = 0; essai < 3; essai++) {
+      const r = await finirAuPoste({ journeeId: j.id, ouvId, col, ...demande });
+      if (!r.ok) return void toast("⚠ " + r.error);
+      if (r.passage) {
+        toast(`🏷 Paquet ${r.passage.numero}${r.passage.morceau ? ` · ${r.passage.morceau}` : ""} fini (${r.passage.qte} pcs)`);
+        setVersionPassages((v) => v + 1);
+        return;
+      }
+      const b = r.besoin as BesoinChoix;
+      const options = b.besoin === "of" ? b.choix.map((c) => `${c.of}${c.couleur ? ` · ${c.couleur}` : ""} · T. ${c.taille}`) : b.besoin === "morceau" ? b.morceaux : b.postes;
+      const rep = prompt(
+        `${b.besoin === "of" ? `Paquet ${b.numero} : lequel ?` : b.besoin === "morceau" ? `Paquet ${b.numero} : quel morceau ?` : `Paquet ${b.numero} : quel poste ?`}\n` +
+          options.map((o, i) => `${i + 1}. ${o}`).join("\n") +
+          "\n\nTapez le numéro de la ligne :",
+      );
+      const i = Number(rep) - 1;
+      if (!rep || !Number.isInteger(i) || i < 0 || i >= options.length) return;
+      if (b.besoin === "of") demande = { ...demande, code: b.choix[i].code };
+      else if (b.besoin === "morceau") demande = { ...demande, code: b.code, morceau: b.morceaux[i] };
+      else demande = { ...demande, code: b.code, poste: b.postes[i] };
+    }
+  };
+
   const alertes = alertesRendement(state, j, state.reglages.seuilAlerte);
   const retouches = alertesRetouche(state, j);
   const sam = bilanSam(state, j);
@@ -1159,6 +1196,10 @@ function JourDetail({
      ceci n'est calculé ni affiché. */
   const suiviPaquets = state.reglages.suiviPaquets;
   const taillePq = pq.taillePaquet(m?.taillePaquet, state.reglages.taillePaquet);
+  /* Les paquets réellement créés à la coupe pour l'OF de ce modèle. Avec eux,
+     le scan d'une étiquette donne le numéro, le recoupement porte sur la
+     vraie quantité du paquet, et un numéro inexistant est refusé. */
+  const carnetPq = carnetDe(state, j.modeleId);
   const ctrlPaquets = suiviPaquets
     ? pq.controleJournee({
         lignes: roster.flatMap((o) =>
@@ -1173,43 +1214,53 @@ function JourDetail({
         ),
         qteOf: m?.qte,
         taille: taillePq,
+        carnet: carnetPq,
       })
     : null;
-  const nbPaquetsOf = pq.nbPaquetsOf(m?.qte, taillePq);
-  /** Petite case « paquets » sous la quantité de l'heure. */
+  const nbPaquetsOf = carnetPq ? carnetPq.parNumero.size : pq.nbPaquetsOf(m?.qte, taillePq);
+  /** Petite case « paquets finis » sous la quantité de l'heure : les morceaux
+   * finis à ce poste dans l'heure, et une case pour en ajouter (n° tapé ou
+   * douchette). Les anciens numéros « travaillé dessus » restent au survol. */
   const CasePaquets = ({ ouvId, col }: { ouvId: number; col: string }) => {
     if (!suiviPaquets) return null;
-    const nums = j.paquets?.[ouvId]?.[col] ?? [];
-    const texte = pq.formatPaquets(nums);
-    const souci = pq.controleHeure({
-      pieces: j.ops[ouvId]?.[col],
-      numeros: nums,
-      qteOf: m?.qte,
-      taille: taillePq,
-      nbPaquets: nbPaquetsOf,
-    });
+    const siens = passages.filter((p) => p.ouvId === ouvId && p.heure === col);
+    const anciens = j.paquets?.[ouvId]?.[col] ?? [];
+    const texte = siens.map((p) => `${p.numero}${p.morceau && p.morceau !== "Complet" ? `·${p.morceau.slice(0, 4)}` : ""}`).join(" ");
     return (
-      <input
-        key={`pq-${ouvId}-${col}-${texte}`}
-        className="hcell"
-        defaultValue={texte}
-        placeholder="🏷"
-        disabled={dis}
-        title={souci ? souci.message : "Numéros de paquets travaillés dans l'heure (facultatif) — ex. 12, 13 ou 12-15"}
-        style={{
-          display: "block",
-          margin: "2px auto 0",
-          width: 52,
-          fontSize: 10,
-          padding: "2px 2px",
-          fontWeight: 500,
-          color: souci ? (souci.niveau === "erreur" ? "#b91c1c" : "#b45309") : "var(--muted)",
-          background: souci ? (souci.niveau === "erreur" ? "#fee2e2" : "#fef3c7") : undefined,
-          ...(disStyle ?? {}),
-        }}
-        onBlur={(e) => onPaquets(ouvId, col, e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-      />
+      <div style={{ margin: "2px auto 0", width: 64 }}>
+        {siens.length > 0 && (
+          <div
+            title={siens.map((p) => `Paquet ${p.numero} · ${p.morceau} · ${p.of} T. ${p.taille} · ${p.qte} pcs — ${p.poste} (clic droit : annuler)`).join("\n")}
+            style={{ fontSize: 9.5, fontWeight: 700, color: "#047857", lineHeight: 1.15, cursor: dis ? undefined : "context-menu" }}
+            onContextMenu={(e) => {
+              if (dis) return;
+              e.preventDefault();
+              const p = siens[siens.length - 1];
+              if (!confirm(`Annuler « paquet ${p.numero} · ${p.morceau} fini au poste ${p.poste} » ? Il reste dans l'historique, barré.`)) return;
+              void annulerPassage(p.id, "Annulé au bureau").then((r) => (r.ok ? setVersionPassages((v) => v + 1) : toast("⚠ " + r.error)));
+            }}
+          >
+            🏷 {texte}
+          </div>
+        )}
+        <input
+          className="hcell"
+          placeholder="🏷 fini"
+          disabled={dis}
+          title={
+            "Paquet FINI à ce poste dans l'heure : tapez son numéro ou scannez l'étiquette (douchette)." +
+            (anciens.length ? `\nAncien relevé « travaillé dessus » : ${pq.formatPaquets(anciens)}` : "")
+          }
+          style={{ display: "block", width: 64, fontSize: 10, padding: "2px 2px", fontWeight: 500, color: "var(--muted)", ...(disStyle ?? {}) }}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            const el = e.target as HTMLInputElement;
+            const v = el.value.trim();
+            el.value = "";
+            if (v) void ajouterFini(ouvId, col, v);
+          }}
+        />
+      </div>
     );
   };
 
@@ -1663,7 +1714,12 @@ function JourDetail({
         </div>
       </div>
 
-      {suiviPaquets && ctrlPaquets && (
+      {suiviPaquets && passages.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <RecapFinis passages={passages} roster={roster} m={{ ops: j.ops, opsDetail: j.opsDetail ?? {} }} cols={j.cols} taille={taillePq} />
+        </div>
+      )}
+      {suiviPaquets && ctrlPaquets && ctrlPaquets.utilise && (
         <div
           style={{
             marginTop: 10,
@@ -1674,10 +1730,18 @@ function JourDetail({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
-            <b style={{ fontSize: 13 }}>🏷 Recoupement par paquets</b>
+            <b style={{ fontSize: 13 }}>🏷 Ancien relevé des paquets (numéros « travaillé dessus »)</b>
             <span style={{ fontSize: 11, color: "var(--muted)" }}>
-              paquets de <b>{taillePq}</b> pièces
-              {nbPaquetsOf > 0 && (
+              {carnetPq ? (
+                <>
+                  <b>{carnetPq.parNumero.size}</b> paquets créés à la coupe
+                </>
+              ) : (
+                <>
+                  paquets de <b>{taillePq}</b> pièces
+                </>
+              )}
+              {!carnetPq && nbPaquetsOf > 0 && (
                 <>
                   {" · "}OF de {m?.qte} pièces = <b>{nbPaquetsOf}</b> paquets
                 </>
@@ -1693,9 +1757,10 @@ function JourDetail({
 
           {!ctrlPaquets.utilise ? (
             <div style={{ fontSize: 11, color: "var(--muted)" }}>
-              Aucun numéro noté pour l&apos;instant. Dans la petite case <b>🏷</b> sous chaque heure, tapez les paquets
-              travaillés : <b>12, 13</b> ou <b>12-15</b>. C&apos;est facultatif, et cela ne change rien au comptage de
-              la production.
+              Aucun numéro noté pour l&apos;instant. Dans la petite case <b>🏷</b> sous chaque heure, scannez
+              l&apos;étiquette du paquet — une douchette suffit, elle tape le code toute seule — ou tapez le numéro :{" "}
+              <b>12, 13</b> ou <b>12-15</b>. C&apos;est facultatif, et cela ne change rien au comptage de la
+              production.
             </div>
           ) : (
             <>
@@ -1751,6 +1816,9 @@ function JourDetail({
               <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--muted)" }}>
                 Un écart négatif est normal : un paquet entamé en fin d&apos;heure se finit à l&apos;heure suivante. Ce
                 qui est impossible, c&apos;est de produire plus de pièces que les paquets notés n&apos;en contiennent.
+                {carnetPq
+                  ? " Les quantités sont celles des vrais paquets créés à la coupe, pas une moyenne."
+                  : " Faute de paquets créés à la coupe, le calcul utilise la taille de paquet réglée."}{" "}
                 Ce tableau ne compte pas la production : elle reste celle de la sortie de chaîne.
               </div>
             </>
@@ -1799,7 +1867,9 @@ function JourDetail({
           />
           Relever les numéros de paquets
         </label>{" "}
-        — une petite case sous chaque heure, pour recouper les pièces déclarées avec les paquets travaillés. Paquets de{" "}
+        — une petite case sous chaque heure. L&apos;agent y <b>scanne l&apos;étiquette du paquet</b> (douchette au
+        bureau, caméra sur la tablette) ou tape le numéro ; un scan veut dire « on a travaillé dessus cette heure-ci »,
+        pas « c&apos;est fini ». Le passage remonte tout seul dans l&apos;écran Suivi paquets. Paquets de{" "}
         <input
           type="number"
           min={1}

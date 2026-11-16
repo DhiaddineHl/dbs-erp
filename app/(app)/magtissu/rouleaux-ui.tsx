@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import * as R from "@/lib/actions/rouleaux";
-import { STATUTS_ROULEAU, filtrerRouleaux, statutLabel, type IndicateursRouleaux } from "@/lib/domain/rouleau";
+import { STATUTS_ROULEAU, filtrerRouleaux, statutLabel, tissuDehors, type IndicateursRouleaux } from "@/lib/domain/rouleau";
 import type { RouleauRow } from "@/lib/services/rouleaux";
 import type { LotRow } from "@/lib/services/tissu";
 
@@ -154,6 +154,7 @@ export function OngletRouleaux({
           setSansEmplacement(!!f.sansEmplacement);
         }}
       />
+      <TissuDehors rouleaux={rouleaux} />
       <SectionPanel
         title={`Rouleaux (${vus.length}${vus.length > affiches.length ? `, ${affiches.length} affichés` : ""})`}
         flush
@@ -604,5 +605,72 @@ function DecouperEnRouleaux({ lot: l }: { lot: LotRow }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+/* ─────────── tissu dehors : sorti, pas encore soldé, depuis combien de temps ─────────── */
+
+/** Par lieu (coupe interne, chaque sous-traitant), le plus ancien en haut :
+ * on voit tout de suite quel reste n'est pas revenu et quelle consommation
+ * n'a pas été déclarée. */
+function TissuDehors({ rouleaux }: { rouleaux: RouleauRow[] }) {
+  const [ouvert, setOuvert] = useState<string | null>(null);
+  const groupes = useMemo(
+    () =>
+      tissuDehors(
+        rouleaux
+          .filter((r) => r.bilan.enCoupe > 0.001)
+          .map((r) => ({ code: r.code, lieu: r.chez || "Lieu inconnu", enCoupe: r.bilan.enCoupe, sortieLe: r.sortieLe, commande: r.derniereCommande, unite: r.lot.unite })),
+      ),
+    [rouleaux],
+  );
+  if (!groupes.length) return null;
+  const ton = (j: number) => (j > 30 ? "text-[var(--danger-d)]" : j > 14 ? "text-warning-foreground" : "text-muted-foreground");
+  return (
+    <SectionPanel title={`Tissu dehors — sorti, pas encore soldé (${groupes.reduce((a, g) => a + g.rouleaux.length, 0)} rouleau(x))`} flush>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b bg-muted/40 text-[10.5px] uppercase text-muted-foreground">
+            <th className="px-3 py-2 text-left">Où</th>
+            <th className="px-3 py-2 text-right">Rouleaux</th>
+            <th className="px-3 py-2 text-right">Métrage dehors</th>
+            <th className="px-3 py-2 text-right">Le plus ancien</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groupes.map((g) => (
+            <Fragment key={g.lieu}>
+              <tr className="cursor-pointer border-b hover:bg-accent/40" onClick={() => setOuvert(ouvert === g.lieu ? null : g.lieu)}>
+                <td className="px-3 py-2 font-semibold">
+                  {ouvert === g.lieu ? "▾" : "▸"} {g.lieu}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{g.rouleaux.length}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{g.metrage.toLocaleString("fr-FR")} m</td>
+                <td className={`px-3 py-2 text-right font-bold tabular-nums ${ton(g.plusVieux)}`}>{g.plusVieux} j</td>
+              </tr>
+              {ouvert === g.lieu &&
+                g.rouleaux.map((r) => (
+                  <tr key={`${g.lieu}-${r.code}`} className="border-b bg-muted/20">
+                    <td className="px-6 py-1.5">
+                      <Link href={`/magtissu/rouleaux/${encodeURIComponent(r.code)}`} className="font-mono font-semibold text-brand underline">
+                        {r.code}
+                      </Link>
+                      {r.commande && <span className="ml-2 text-muted-foreground">{r.commande}</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-muted-foreground">sorti le {r.sortieLe ? r.sortieLe.slice(0, 10).split("-").reverse().join("/") : "?"}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {r.enCoupe.toLocaleString("fr-FR")} {r.unite}
+                    </td>
+                    <td className={`px-3 py-1.5 text-right font-semibold tabular-nums ${ton(r.jours ?? 0)}`}>{r.jours ?? "?"} j</td>
+                  </tr>
+                ))}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+      <div className="border-t px-3 py-2 text-[11px] text-muted-foreground">
+        Sorti du magasin, ni revenu ni déclaré consommé. Orange au-delà de 14 jours, rouge au-delà de 30. Cliquez un lieu pour voir ses rouleaux.
+      </div>
+    </SectionPanel>
   );
 }

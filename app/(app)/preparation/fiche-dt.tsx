@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { RESPONSABLE_DOMAINE } from "@/lib/domain/feux";
+import { urlSuivi } from "@/lib/domain/portail";
 import type { PreparationRow } from "@/lib/services/preparation";
 import {
   ajouterTds,
@@ -37,6 +38,114 @@ const VERDICT_BADGE: Record<string, { tone: "success" | "danger" | "warning"; la
   refus: { tone: "danger", label: "✕ Refusée" },
   attente: { tone: "warning", label: "⏳ Attente client" },
 };
+const VERDICTS_OK = [
+  { value: "attente", label: "En attente client" },
+  { value: "ok", label: "OK livraison" },
+  { value: "refus", label: "Refusé" },
+];
+const BADGE_OK: Record<string, { tone: "success" | "danger" | "warning"; label: string }> = {
+  ok: { tone: "success", label: "✓ OK livraison" },
+  refus: { tone: "danger", label: "✕ Refusé" },
+  attente: { tone: "warning", label: "⏳ Attente client" },
+};
+
+/** Lien de suivi du transporteur (DHL…) — le même que voit le client. */
+function LienSuivi({ transporteur, suivi }: { transporteur?: string; suivi?: string }) {
+  const url = urlSuivi(transporteur ?? "", suivi ?? "");
+  if (!suivi) return null;
+  return url ? (
+    <a href={url} target="_blank" rel="noreferrer" className="text-[10.5px] font-semibold text-brand underline">
+      Suivre le colis ↗
+    </a>
+  ) : null;
+}
+
+/** Tableau d'envois au client (têtes de série, pièces pour l'OK livraison). */
+function TableEnvois({
+  lignes,
+  prefixe,
+  verdicts,
+  badges,
+  droits,
+}: {
+  lignes: PreparationRow["tds"];
+  prefixe: string;
+  verdicts: { value: string; label: string }[];
+  badges: Record<string, { tone: "success" | "danger" | "warning"; label: string }>;
+  droits: Droits;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-lg border">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b bg-muted/40 text-[10.5px] uppercase text-muted-foreground">
+            <th className="px-2 py-1.5 text-left">{prefixe.trim()}</th>
+            <th className="px-2 py-1.5 text-left">Envoyée le</th>
+            <th className="px-2 py-1.5 text-left">Transporteur · n° de suivi</th>
+            <th className="px-2 py-1.5 text-left">Retour client</th>
+            <th className="px-2 py-1.5 text-left">Verdict</th>
+            <th className="px-2 py-1.5 text-left">Commentaires client</th>
+            <th className="w-8" />
+          </tr>
+        </thead>
+        <tbody>
+          {lignes.map((t) => {
+            const v = badges[t.verdict] ?? { tone: "warning" as const, label: t.verdict };
+            return (
+              <tr key={t.id} className="border-b last:border-0">
+                <td className="px-2 py-1.5">
+                  <b>
+                    {prefixe}
+                    {t.n}
+                  </b>
+                  {t.par && <div className="text-[10px] text-muted-foreground">{t.par}</div>}
+                </td>
+                <td className="px-2 py-1.5">
+                  <ChampServeur valeur={t.envoi ?? ""} type="date" autorise={droits.tds} onSave={(val) => majTds(t.id, "envoi", val)} />
+                </td>
+                <td className="min-w-[170px] px-2 py-1.5">
+                  <ChampServeur valeur={t.transporteur ?? ""} placeholder="DHL" autorise={droits.tds} onSave={(val) => majTds(t.id, "transporteur", val)} />
+                  <ChampServeur valeur={t.suivi ?? ""} placeholder="N° de suivi" autorise={droits.tds} onSave={(val) => majTds(t.id, "suivi", val)} />
+                  <LienSuivi transporteur={t.transporteur} suivi={t.suivi} />
+                </td>
+                <td className="px-2 py-1.5">
+                  <ChampServeur valeur={t.retour ?? ""} type="date" autorise={droits.tds} onSave={(val) => majTds(t.id, "retour", val)} />
+                </td>
+                <td className="px-2 py-1.5">
+                  <ChampServeur valeur={t.verdict} type="select" options={verdicts} autorise={droits.tds} onSave={(val) => majTds(t.id, "verdict", val)} />
+                  <div className="mt-1">
+                    <StatusBadge tone={v.tone}>{v.label}</StatusBadge>
+                  </div>
+                </td>
+                <td className="min-w-[190px] px-2 py-1.5">
+                  <ChampServeur
+                    valeur={t.commentaire}
+                    type="textarea"
+                    placeholder="Remarques du client…"
+                    autorise={droits.tds}
+                    onSave={(val) => majTds(t.id, "commentaire", val)}
+                  />
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  {droits.tds && (
+                    <BoutonAction
+                      variant="ghost"
+                      onRun={() => supprimerTds(t.id)}
+                      confirmer={`Supprimer ${prefixe}${t.n} et son historique ?`}
+                      succes="Envoi supprimé"
+                    >
+                      ×
+                    </BoutonAction>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function FicheDt({
   row,
@@ -65,82 +174,7 @@ export function FicheDt({
         {row.tds.length === 0 ? (
           <div className="mb-2 text-xs text-muted-foreground">Aucune tête de série lancée pour ce modèle.</div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b bg-muted/40 text-[10.5px] uppercase text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left">TDS</th>
-                  <th className="px-2 py-1.5 text-left">Envoyée le</th>
-                  <th className="px-2 py-1.5 text-left">Retour client</th>
-                  <th className="px-2 py-1.5 text-left">Verdict</th>
-                  <th className="px-2 py-1.5 text-left">Commentaires client</th>
-                  <th className="w-8" />
-                </tr>
-              </thead>
-              <tbody>
-                {row.tds.map((t) => {
-                  const v = VERDICT_BADGE[t.verdict] ?? { tone: "warning" as const, label: t.verdict };
-                  return (
-                    <tr key={t.id} className="border-b last:border-0">
-                      <td className="px-2 py-1.5">
-                        <b>TDS{t.n}</b>
-                        {t.par && <div className="text-[10px] text-muted-foreground">{t.par}</div>}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={t.envoi ?? ""}
-                          type="date"
-                          autorise={droits.tds}
-                          onSave={(val) => majTds(t.id, "envoi", val)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={t.retour ?? ""}
-                          type="date"
-                          autorise={droits.tds}
-                          onSave={(val) => majTds(t.id, "retour", val)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ChampServeur
-                          valeur={t.verdict}
-                          type="select"
-                          options={VERDICTS}
-                          autorise={droits.tds}
-                          onSave={(val) => majTds(t.id, "verdict", val)}
-                        />
-                        <div className="mt-1">
-                          <StatusBadge tone={v.tone}>{v.label}</StatusBadge>
-                        </div>
-                      </td>
-                      <td className="min-w-[190px] px-2 py-1.5">
-                        <ChampServeur
-                          valeur={t.commentaire}
-                          type="textarea"
-                          placeholder="Remarques du client…"
-                          autorise={droits.tds}
-                          onSave={(val) => majTds(t.id, "commentaire", val)}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5 text-center">
-                        {droits.tds && (
-                          <BoutonAction
-                            variant="ghost"
-                            onRun={() => supprimerTds(t.id)}
-                            confirmer={`Supprimer la TDS${t.n} et son historique ?`}
-                            succes="Tête de série supprimée"
-                          >
-                            ×
-                          </BoutonAction>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <TableEnvois lignes={row.tds} prefixe="TDS" verdicts={VERDICTS} badges={VERDICT_BADGE} droits={droits} />
         )}
 
         {droits.tds && (
@@ -165,6 +199,26 @@ export function FicheDt({
             )}
           </div>
         )}
+      </div>
+
+      {/* ── pièces envoyées pour l'OK livraison (hors OK production) ── */}
+      <div>
+        <div className="mb-2 text-sm font-bold">📦 Pièces pour l&apos;OK livraison</div>
+        {row.echantillons.length === 0 ? (
+          <div className="mb-2 text-xs text-muted-foreground">Aucun envoi pour l&apos;OK livraison.</div>
+        ) : (
+          <TableEnvois lignes={row.echantillons} prefixe="Envoi " verdicts={VERDICTS_OK} badges={BADGE_OK} droits={droits} />
+        )}
+        {droits.tds && (
+          <div className="mt-2">
+            <BoutonAction variant="outline" onRun={() => ajouterTds(row.id, "ok")} succes="Envoi pour OK livraison enregistré">
+              + Envoyer des pièces pour l&apos;OK livraison
+            </BoutonAction>
+          </div>
+        )}
+        <div className="mt-1 text-[11px] text-muted-foreground">
+          Le client voit ces envois (et le lien de suivi DHL) sur son portail, et peut répondre OK ou refuser en ligne.
+        </div>
       </div>
 
       <BlocLancement row={row} droits={droits} faconniers={faconniers} />

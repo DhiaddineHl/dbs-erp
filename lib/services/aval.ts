@@ -380,6 +380,8 @@ export type BlRow = {
   date: string;
   clientNom: string;
   transporteur: string;
+  /** N° de suivi du transporteur : le client le voit sur son portail. */
+  suivi: string;
   adresseLivraison: string;
   statut: string;
   note: string;
@@ -407,7 +409,7 @@ export async function listBl(): Promise<BlRow[]> {
     }));
     return {
       id: b.id, numero: b.numero, date: b.date, clientNom: b.clientNom,
-      transporteur: b.transporteur, adresseLivraison: b.adresseLivraison,
+      transporteur: b.transporteur, suivi: b.suivi, adresseLivraison: b.adresseLivraison,
       statut: b.statut, note: b.note, lignes: ls,
       totalQte: ls.reduce((s, l) => s + l.qteLivree, 0),
       totalHt: Math.round(ls.reduce((s, l) => s + l.montant, 0) * 100) / 100,
@@ -622,6 +624,7 @@ export async function creerBl(v: {
   clientId: number | null;
   clientNom: string;
   transporteur: string;
+  suivi?: string;
   adresseLivraison: string;
   note: string;
   lignes: { commandeId: number; qteLivree: number }[];
@@ -632,7 +635,7 @@ export async function creerBl(v: {
       .insert(bl)
       .values({
         numero, date: v.date, clientId: v.clientId, clientNom: v.clientNom,
-        transporteur: v.transporteur, adresseLivraison: v.adresseLivraison, note: v.note, statut: "draft",
+        transporteur: v.transporteur, suivi: (v.suivi ?? "").trim(), adresseLivraison: v.adresseLivraison, note: v.note, statut: "draft",
       })
       .returning({ id: bl.id });
 
@@ -942,4 +945,10 @@ export async function getBrImpression(id: number) {
     rang: jusque.length,
     total: tous.length,
   };
+}
+
+/** Transporteur et n° de suivi d'un BL, saisis souvent APRÈS l'émission (le
+ * numéro arrive quand le colis part). */
+export async function majSuiviBl(id: number, transporteur: string, suivi: string) {
+  await db.update(bl).set({ transporteur: transporteur.trim().slice(0, 120), suivi: suivi.trim().slice(0, 80) }).where(eq(bl.id, id));
 }

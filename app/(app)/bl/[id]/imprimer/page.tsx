@@ -54,6 +54,7 @@ export default async function BlImprimerPage({ params }: { params: Promise<{ id:
         <div className="rounded border border-neutral-300 px-3 py-2">
           <div className="text-[9.5px] font-bold uppercase text-neutral-500">Transport</div>
           <div className="text-[14px] font-bold">{b.transporteur || "—"}</div>
+          {b.suivi && <div className="font-mono text-[12px]">Suivi : {b.suivi}</div>}
           <div className="mt-0.5 text-[12px] text-neutral-500">
             {b.lignes.length} ligne(s) · {nb.format(b.totalQte)} pièces
           </div>

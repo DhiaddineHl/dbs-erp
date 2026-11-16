@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { enregistrerReglagesPaquets } from "@/lib/services/paquets";
 import { assertUser, userRole } from "@/lib/auth/server";
 import * as g from "@/lib/services/gpao";
 import * as at from "@/lib/services/atelier";
@@ -10,7 +11,7 @@ import * as rent from "@/lib/services/rentabilite";
 import * as ident from "@/lib/services/identite-ouvrieres";
 import { completerFiches } from "@/lib/services/identite-ouvrieres";
 import { normaliserParams, type ParamsUsine } from "@/lib/domain/cout-usine";
-import { PAQUET_MAX, TAILLE_PAQUET_DEFAUT } from "@/lib/domain/paquets";
+import { PAQUET_MAX, TAILLE_PAQUET_DEFAUT } from "@/lib/domain/paquets-heure";
 import type { journee as journeeTable } from "@/lib/db/schema";
 import type { JourneeOuvriere } from "@/lib/db/schema/gpao";
 
@@ -305,7 +306,8 @@ export async function enregistrerReglages(r: {
 }) {
   try {
     await assertUser();
-    if (r.suiviPaquets !== undefined) await setSetting("gpao.suiviPaquets", !!r.suiviPaquets);
+    // Un seul interrupteur pour tout le suivi par paquets (GPAO et coupe).
+    if (r.suiviPaquets !== undefined) await enregistrerReglagesPaquets({ actif: !!r.suiviPaquets });
     if (r.taillePaquet !== undefined) {
       await setSetting("gpao.taillePaquet", Math.max(1, Math.min(PAQUET_MAX, Math.round(r.taillePaquet) || TAILLE_PAQUET_DEFAUT)));
     }

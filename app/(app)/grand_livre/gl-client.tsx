@@ -13,14 +13,41 @@ import {
   CATEGORIES_FOURNISSEUR,
   STATUT_SOLDE,
   echeancesAVenir,
+  grandLivrePeriode,
   libelleMois,
   moisDe,
+  statutSolde,
   toTND,
   urgenceEcheance,
 } from "@/lib/domain/finance";
 import type { CompteFournisseurRow } from "@/lib/services/finance";
 import * as A from "@/lib/actions/finance";
 import { cn } from "@/lib/utils";
+import { SelecteurPeriode, usePeriode } from "@/components/shared/selecteur-periode";
+import { anneesDisponibles, type Periode } from "@/lib/domain/periode";
+
+/** Un compte lu SUR UNE PÉRIODE : mêmes champs que le compte complet (les
+ * totaux, le solde et les mouvements sont ceux de la période), plus le solde
+ * d'ouverture — le report à nouveau — et le nombre de mouvements postérieurs. */
+type ComptePeriode = CompteFournisseurRow & { ouverture: number; ouvertureTND: number; apres: number };
+
+function surPeriode(c: CompteFournisseurRow, p: Periode, taux: number): ComptePeriode {
+  const g = grandLivrePeriode(c.transactions, p.du, p.au);
+  const soldeTND = Math.round(toTND(g.fin, c.devise, taux) * 1000) / 1000;
+  return {
+    ...c,
+    totalCredit: g.credit,
+    totalDebit: g.debit,
+    solde: g.fin,
+    soldeTND,
+    statut: statutSolde(soldeTND),
+    nbTransactions: g.lignes.length,
+    transactions: g.lignes,
+    ouverture: g.ouverture,
+    ouvertureTND: Math.round(toTND(g.ouverture, c.devise, taux) * 1000) / 1000,
+    apres: g.apres,
+  };
+}
 
 /** Les montants en dinar se lisent au millième. */
 const mt = (n: number, devise: string) =>
@@ -43,34 +70,46 @@ export function GrandLivreClient({
   const [categorie, setCategorie] = useState("");
   const [statut, setStatut] = useState("");
 
-  const courant = selection !== null ? comptes.find((c) => c.id === selection) : null;
+  /* La période s'applique aux comptes et à la fiche ; l'échéancier, lui,
+   * montre toujours tout ce qui reste à payer. */
+  const [periode, setPeriode] = usePeriode("grand-livre");
+  const annees = useMemo(() => anneesDisponibles(comptes.flatMap((c) => c.transactions.map((t) => t.date))), [comptes]);
+  const comptesP = useMemo(() => comptes.map((c) => surPeriode(c, periode, taux)), [comptes, periode, taux]);
+  const courant = selection !== null ? comptesP.find((c) => c.id === selection) : null;
 
   const filtres = useMemo(() => {
     const n = q.trim().toLowerCase();
-    return comptes.filter(
+    return comptesP.filter(
       (c) =>
         (!n || c.nom.toLowerCase().includes(n)) &&
         (!categorie || c.categorie === categorie) &&
         (!statut || c.statut === statut),
     );
-  }, [comptes, q, categorie, statut]);
+  }, [comptesP, q, categorie, statut]);
 
   const totaux = useMemo(() => {
     let du = 0;
     let avoir = 0;
     let soldes = 0;
+    let ouverture = 0;
+    let apres = 0;
     for (const c of filtres) {
       if (c.statut === "du") du += c.soldeTND;
       else if (c.statut === "avoir") avoir += Math.abs(c.soldeTND);
       else soldes++;
+      ouverture += c.ouvertureTND;
+      apres += c.apres;
     }
-    return { du, avoir, soldes, nb: filtres.length };
+    return { du, avoir, soldes, nb: filtres.length, ouverture, apres };
   }, [filtres]);
 
   if (courant) {
     return (
       <FicheCompte
         compte={courant}
+        periode={periode}
+        onPeriode={setPeriode}
+        annees={annees}
         taux={taux}
         peutSaisir={peutSaisir}
         onRetour={() => setSelection(null)}
@@ -87,9 +126,20 @@ export function GrandLivreClient({
         actions={<TauxEur taux={taux} peutSaisir={peutSaisir} />}
       />
 
+      <SelecteurPeriode periode={periode} onChange={setPeriode} annees={annees} className="mb-3" />
       <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-3">
         <Kpi label="Comptes suivis" valeur={String(totaux.nb)} />
-        <Kpi label="Total dû" valeur={mt(totaux.du, "TND")} tone="danger" sub={`taux EUR/TND : ${taux}`} />
+        <Kpi
+          label={`Report à nouveau${periode.du ? ` au ${dateFr(periode.du)}` : ""}`}
+          valeur={mt(totaux.ouverture, "TND")}
+          sub="solde net de tout ce qui précède la période"
+        />
+        <Kpi
+          label={`Total dû${periode.au ? ` au ${dateFr(periode.au)}` : ""}`}
+          valeur={mt(totaux.du, "TND")}
+          tone="danger"
+          sub={totaux.apres ? `taux EUR/TND : ${taux} · ${totaux.apres} mouvement(s) daté(s) après la période non comptés` : `taux EUR/TND : ${taux}`}
+        />
         <Kpi label="Avoirs en notre faveur" valeur={mt(totaux.avoir, "TND")} tone="info" />
         <Kpi label="Comptes soldés" valeur={String(totaux.soldes)} tone="success" />
       </div>
@@ -145,7 +195,7 @@ export function GrandLivreClient({
                 <option value="avoir">Avoir</option>
                 <option value="zero">Soldé</option>
               </select>
-              <BoutonCsv comptes={filtres} />
+              <BoutonCsv comptes={filtres} periode={periode} />
             </div>
           }
           flush
@@ -158,9 +208,10 @@ export function GrandLivreClient({
                   <th className="px-3 py-2 text-left">Catégorie</th>
                   <th className="px-3 py-2 text-center">Devise</th>
                   <th className="px-3 py-2 text-center">Mouv.</th>
+                  <th className="px-3 py-2 text-right" title="Solde de tout ce qui précède la période">Report à nouveau</th>
                   <th className="px-3 py-2 text-right">Crédit (facturé)</th>
                   <th className="px-3 py-2 text-right">Débit (réglé)</th>
-                  <th className="px-3 py-2 text-right">Solde</th>
+                  <th className="px-3 py-2 text-right">Solde fin</th>
                   <th className="px-3 py-2 text-right">Solde TND</th>
                   <th className="px-3 py-2 text-left">Statut</th>
                 </tr>
@@ -168,7 +219,7 @@ export function GrandLivreClient({
               <tbody>
                 {filtres.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-10 text-center text-muted-foreground">
+                    <td colSpan={10} className="py-10 text-center text-muted-foreground">
                       Aucun compte fournisseur.
                     </td>
                   </tr>
@@ -185,6 +236,7 @@ export function GrandLivreClient({
                         <td className="px-3 py-2 text-muted-foreground">{c.categorie}</td>
                         <td className="px-3 py-2 text-center">{c.devise}</td>
                         <td className="px-3 py-2 text-center tabular-nums">{c.nbTransactions}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{mt(c.ouverture, c.devise)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{mt(c.totalCredit, c.devise)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{mt(c.totalDebit, c.devise)}</td>
                         <td
@@ -219,11 +271,17 @@ export function GrandLivreClient({
 
 function FicheCompte({
   compte,
+  periode,
+  onPeriode,
+  annees,
   taux,
   peutSaisir,
   onRetour,
 }: {
-  compte: CompteFournisseurRow;
+  compte: ComptePeriode;
+  periode: Periode;
+  onPeriode: (cle: string) => void;
+  annees: number[];
   taux: number;
   peutSaisir: boolean;
   onRetour: () => void;
@@ -268,11 +326,17 @@ function FicheCompte({
         }
       />
 
+      <SelecteurPeriode periode={periode} onChange={onPeriode} annees={annees} className="mb-3" />
       <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-3">
-        <Kpi label="Total facturé (crédit)" valeur={mt(compte.totalCredit, compte.devise)} />
-        <Kpi label="Total réglé (débit)" valeur={mt(compte.totalDebit, compte.devise)} tone="success" />
         <Kpi
-          label="Solde"
+          label={`Report à nouveau${periode.du ? ` au ${dateFr(periode.du)}` : ""}`}
+          valeur={mt(compte.ouverture, compte.devise)}
+          sub="solde de tout ce qui précède la période"
+        />
+        <Kpi label="Facturé sur la période (crédit)" valeur={mt(compte.totalCredit, compte.devise)} />
+        <Kpi label="Réglé sur la période (débit)" valeur={mt(compte.totalDebit, compte.devise)} tone="success" />
+        <Kpi
+          label={`Solde${periode.au ? ` au ${dateFr(periode.au)}` : ""}`}
           valeur={mt(compte.solde, compte.devise)}
           tone={compte.statut === "du" ? "danger" : compte.statut === "avoir" ? "info" : "success"}
           sub={compte.devise === "EUR" ? `≈ ${mt(compte.soldeTND, "TND")}` : undefined}
@@ -326,7 +390,10 @@ function FicheCompte({
         </SectionPanel>
       )}
 
-      <SectionPanel title={`Mouvements (${compte.transactions.length})`} flush>
+      <SectionPanel
+        title={`Mouvements — ${periode.label} (${compte.transactions.length})${compte.apres ? ` · ${compte.apres} après la période` : ""}`}
+        flush
+      >
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -340,10 +407,20 @@ function FicheCompte({
               </tr>
             </thead>
             <tbody>
+              {periode.du && (
+                <tr className="border-b bg-muted/20 italic">
+                  <td className="px-3 py-1.5 whitespace-nowrap">{dateFr(periode.du)}</td>
+                  <td className="px-3 py-1.5 font-semibold">Report à nouveau (solde au {dateFr(periode.du)})</td>
+                  <td className="px-3 py-1.5" />
+                  <td className="px-3 py-1.5" />
+                  <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{mt(compte.ouverture, compte.devise)}</td>
+                  <td />
+                </tr>
+              )}
               {compte.transactions.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-10 text-center text-muted-foreground">
-                    Aucun mouvement.
+                    Aucun mouvement sur la période.
                   </td>
                 </tr>
               ) : (
@@ -382,11 +459,11 @@ function FicheCompte({
                 ))
               )}
             </tbody>
-            {compte.transactions.length > 0 && (
+            {(compte.transactions.length > 0 || compte.ouverture !== 0) && (
               <tfoot>
                 <tr className="border-t-2 bg-muted/40 font-bold">
                   <td className="px-3 py-2" colSpan={2}>
-                    TOTAUX
+                    TOTAUX DE LA PÉRIODE · SOLDE FIN
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{mt(compte.totalDebit, compte.devise)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{mt(compte.totalCredit, compte.devise)}</td>
@@ -611,26 +688,27 @@ function NouveauFournisseur() {
   );
 }
 
-function BoutonCsv({ comptes }: { comptes: CompteFournisseurRow[] }) {
+function BoutonCsv({ comptes, periode }: { comptes: ComptePeriode[]; periode: Periode }) {
   return (
     <Button
       variant="outline"
       size="sm"
       onClick={() => {
-        const entete = ["Fournisseur", "Catégorie", "Devise", "Crédit", "Débit", "Solde", "Solde TND", "Statut"];
+        const entete = ["Fournisseur", "Catégorie", "Devise", "Report à nouveau", "Crédit", "Débit", "Solde fin", "Solde fin TND", "Statut"];
         const lignes = comptes.map((c) =>
-          [c.nom, c.categorie, c.devise, c.totalCredit, c.totalDebit, c.solde, c.soldeTND, STATUT_SOLDE[c.statut].label]
+          [c.nom, c.categorie, c.devise, c.ouverture, c.totalCredit, c.totalDebit, c.solde, c.soldeTND, STATUT_SOLDE[c.statut].label]
             .map((v) => `"${String(v).replace(/"/g, '""')}"`)
             .join(";"),
         );
         // BOM pour qu'Excel en français reconnaisse l'UTF-8.
-        const blob = new Blob(["﻿" + [entete.join(";"), ...lignes].join("\r\n")], {
+        const titre = `"Grand livre fournisseurs — ${periode.label}"`;
+        const blob = new Blob(["﻿" + [titre, entete.join(";"), ...lignes].join("\r\n")], {
           type: "text/csv;charset=utf-8",
         });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `grand-livre-fournisseurs-${auj()}.csv`;
+        a.download = `grand-livre-fournisseurs-${periode.court.replace(/[^\w-]+/g, "-")}-${auj()}.csv`;
         a.click();
         URL.revokeObjectURL(url);
       }}

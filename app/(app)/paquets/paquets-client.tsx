@@ -22,8 +22,12 @@ import type { OfAvecPaquets } from "@/lib/services/paquets";
 type Gabarit = { id: number; nom: string; liasses: string[] };
 type CommandeChoix = { id: number; of: string; modele: string };
 
+/** 2026-10-12 → « 12/10 » : la grille a trop de colonnes pour une date longue. */
+const dateCourte = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : iso || "·");
+
 const CASE: Record<pq.EtatCase, { texte: string; classe: string; titre: string }> = {
-  fait: { texte: "✓", classe: "bg-success/15 text-success-foreground", titre: "Liasse finie" },
+  fait: { texte: "✓", classe: "bg-success/15 text-success-foreground", titre: "Morceau déclaré fini (tournée)" },
+  en_cours: { texte: "▸", classe: "bg-info/15 text-info", titre: "Fini à un poste (scan de la saisie horaire)" },
   probleme: { texte: "⚠", classe: "bg-warning/20 text-warning-foreground", titre: "Problème signalé" },
   vide: { texte: "·", classe: "text-muted-foreground/50", titre: "Sans nouvelle — personne n'est passé" },
 };
@@ -39,7 +43,10 @@ export function PaquetsClient({
   ongletInitial,
   peutRelever,
   peutRegler,
+  fichesSansPaquets = [],
 }: {
+  /** Fiches validées avant l'activation : leurs paquets se créent après coup. */
+  fichesSansPaquets?: { id: number; numero: string; date: string }[];
   actif: boolean;
   roles: string[];
   ofs: OfAvecPaquets[];
@@ -73,7 +80,7 @@ export function PaquetsClient({
               onClick={() => setOnglet(onglet === "grille" ? "reglages" : "grille")}
               className="rounded-md border px-3 py-1.5 text-xs font-semibold"
             >
-              {onglet === "grille" ? "⚙ Réglages & listes de liasses" : "← La grille"}
+              {onglet === "grille" ? "⚙ Réglages & listes de morceaux" : "← La grille"}
             </button>
           </>
         }
@@ -85,6 +92,10 @@ export function PaquetsClient({
           quand une fiche de coupe est validée, et rien ne change nulle part. Activez-le dans les réglages, puis validez
           une nouvelle fiche de coupe : ses paquets apparaîtront ici.
         </div>
+      )}
+
+      {actif && fichesSansPaquets.length > 0 && onglet === "grille" && (
+        <FichesSansPaquets fiches={fichesSansPaquets} peutRegler={peutRegler} />
       )}
 
       {onglet === "reglages" ? (
@@ -119,6 +130,7 @@ export function PaquetsClient({
               </Link>
             )}
           </div>
+          <QuiAFait />
           {of && <Grille of={of} paquets={paquets} peutRelever={peutRelever} />}
         </>
       )}
@@ -130,8 +142,54 @@ export function PaquetsClient({
 
 function Grille({ of, paquets, peutRelever }: { of: OfAvecPaquets; paquets: PaquetLigne[]; peutRelever: boolean }) {
   const b = of.bilan;
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const ancienReleve = paquets.some((p) => p.chaine);
+  const lancer = (pr: Promise<A.Result>, succes: string) =>
+    start(async () => {
+      const r = await pr;
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(succes);
+      router.refresh();
+    });
   return (
     <div className="space-y-4">
+      {peutRelever && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-semibold text-muted-foreground">Morceaux de {of.of} :</span>
+          {of.liasses.map((l) => (
+            <span key={l} className="rounded-full bg-muted px-2.5 py-1 font-semibold">
+              {l}
+            </span>
+          ))}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7"
+            disabled={pending}
+            onClick={() => {
+              const nom = prompt("Nom du morceau oublié (ex. « Poignet ») — il s'ajoute à tous les paquets de l'OF :");
+              if (nom?.trim()) lancer(A.ajouterMorceau(of.commandeId, nom), `« ${nom.trim()} » ajouté — imprimez ses étiquettes`);
+            }}
+          >
+            ＋ Morceau oublié
+          </Button>
+          {of.liasses.length > 1 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7"
+              disabled={pending}
+              onClick={() => {
+                const nom = prompt(`Morceau à annuler (il reste dans l'historique) :\n${of.liasses.join(", ")}`);
+                if (nom?.trim()) lancer(A.annulerMorceau(of.commandeId, nom), `« ${nom.trim()} » annulé`);
+              }}
+            >
+              Annuler un morceau
+            </Button>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Kpi l="Paquets" v={String(b.nbPaquets)} s={`${b.pieces} pièces`} />
         <Kpi l="Sans nouvelle" v={String(b.vides)} s="personne n'est passé" />
@@ -164,6 +222,11 @@ function Grille({ of, paquets, peutRelever }: { of: OfAvecPaquets; paquets: Paqu
                   {l}
                 </th>
               ))}
+              {ancienReleve && (
+                <th className="px-2 py-2 text-center" title="Ancien relevé « travaillé dessus » de la saisie horaire">
+                  En chaîne (ancien)
+                </th>
+              )}
               <th className="px-2 py-2 text-center">Assemblé</th>
               <th className="px-3 py-2 text-left">État</th>
             </tr>
@@ -171,7 +234,7 @@ function Grille({ of, paquets, peutRelever }: { of: OfAvecPaquets; paquets: Paqu
           <tbody>
             {paquets.length === 0 ? (
               <tr>
-                <td colSpan={of.liasses.length + 5} className="py-8 text-center text-muted-foreground">
+                <td colSpan={of.liasses.length + (ancienReleve ? 6 : 5)} className="py-8 text-center text-muted-foreground">
                   Aucun paquet sur cet OF.
                 </td>
               </tr>
@@ -185,11 +248,33 @@ function Grille({ of, paquets, peutRelever }: { of: OfAvecPaquets; paquets: Paqu
                       <span className="ml-1 font-mono text-[10px] font-normal text-muted-foreground">{p.code}</span>
                     </td>
                     <td className="px-2 py-1.5">{p.taille || "—"}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">
-                      {p.qte}
+                    <td className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
+                      {p.qteImprimee !== p.qte && (
+                        <span className="mr-1 text-[10px] text-muted-foreground line-through" title="Quantité imprimée sur l'étiquette">
+                          {p.qteImprimee}
+                        </span>
+                      )}
+                      <b title={p.qteImprimee !== p.qte ? "Quantité réelle corrigée par la coupe" : undefined}>{p.qte}</b>
                       <span className="ml-1 text-[10px] text-muted-foreground">
                         ({p.pieceDebut}–{p.pieceFin})
                       </span>
+                      {peutRelever && p.statut === "actif" && (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          title="Corriger la quantité réelle (tracé)"
+                          className="ml-1 text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            const q = prompt(`Paquet ${p.numero} : quantité RÉELLE (imprimée : ${p.qteImprimee}) ?`, String(p.qte));
+                            if (q == null || q.trim() === String(p.qte)) return;
+                            const motif = prompt("Motif de la correction (obligatoire) :");
+                            if (!motif?.trim()) return;
+                            lancer(A.corrigerQuantitePaquet(p.id, q, motif), `Paquet ${p.numero} : ${q.trim()} pièces`);
+                          }}
+                        >
+                          ✎
+                        </button>
+                      )}
                     </td>
                     {p.cases.map((c) => (
                       <td key={c.liasse} className="px-2 py-1.5 text-center">
@@ -198,20 +283,52 @@ function Grille({ of, paquets, peutRelever }: { of: OfAvecPaquets; paquets: Paqu
                           title={
                             c.etat === "vide"
                               ? CASE.vide.titre
-                              : `${CASE[c.etat].titre} — ${c.le} par ${c.par}${c.note ? ` · ${c.note}` : ""}`
+                              : c.etat === "en_cours"
+                                ? `Dernier poste : ${c.poste} — ${c.ouvrier || c.par} le ${c.le} · ${c.nbPostes} poste(s) passé(s)`
+                                : `${CASE[c.etat].titre} — ${c.le} par ${c.par}${c.note ? ` · ${c.note}` : ""}`
                           }
                         >
-                          {CASE[c.etat].texte}
+                          {c.etat === "en_cours" ? c.nbPostes : CASE[c.etat].texte}
                         </span>
+                        {c.etat === "en_cours" && <div className="max-w-24 truncate text-[9.5px] text-muted-foreground">{c.poste}</div>}
                       </td>
                     ))}
+                    {ancienReleve && (
                     <td className="px-2 py-1.5 text-center">
-                      <span
-                        className={`inline-flex size-6 items-center justify-center rounded font-bold ${p.assemble ? CASE.fait.classe : CASE.vide.classe}`}
-                        title={p.assemble ? `Assemblé le ${p.assembleLe} par ${p.assemblePar}` : CASE.vide.titre}
-                      >
-                        {p.assemble ? "✓" : "·"}
-                      </span>
+                      {p.chaine ? (
+                        <span
+                          className="text-[10.5px] font-semibold text-brand"
+                          title={`Travaillé en chaîne sur ${p.chaine.heures} heure(s)${p.chaine.ouvrieres.length ? ` par ${p.chaine.ouvrieres.join(", ")}` : ""} — relevé dans la saisie horaire`}
+                        >
+                          {dateCourte(p.chaine.dernier)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/50" title="Aucun passage relevé dans la saisie horaire">
+                          ·
+                        </span>
+                      )}
+                    </td>
+                    )}
+                    <td className="px-2 py-1.5 text-center">
+                      {!p.assemble && peutRelever && p.statut === "actif" ? (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => {
+                            if (confirm(`Paquet ${p.numero} assemblé ?`)) lancer(A.relever({ code: p.code, etape: "assemble" }), `Paquet ${p.numero} assemblé`);
+                          }}
+                          className="rounded border px-1.5 py-0.5 text-[10.5px] font-semibold hover:bg-muted"
+                        >
+                          🧵 Assemblé
+                        </button>
+                      ) : (
+                        <span
+                          className={`inline-flex size-6 items-center justify-center rounded font-bold ${p.assemble ? CASE.fait.classe : CASE.vide.classe}`}
+                          title={p.assemble ? `Assemblé le ${p.assembleLe} par ${p.assemblePar}` : CASE.vide.titre}
+                        >
+                          {p.assemble ? "✓" : "·"}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-1.5">
                       <StatusBadge tone={lib.tone}>{lib.label}</StatusBadge>
@@ -224,8 +341,11 @@ function Grille({ of, paquets, peutRelever }: { of: OfAvecPaquets; paquets: Paqu
         </table>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Une case grise « · » veut dire <b>sans nouvelle</b> : personne n&apos;est passé relever cette liasse. Ce
-        n&apos;est pas un retard, et rien n&apos;est bloqué — la production avance de toute façon.
+        Une case grise « · » veut dire <b>sans nouvelle</b> : aucun poste n&apos;a encore fini ce morceau. Ce
+        n&apos;est pas un retard, et rien n&apos;est bloqué. Une case bleue donne le <b>nombre de postes</b> déjà
+        passés par le morceau, et le dernier : elle se remplit toute seule quand l&apos;agent scanne le paquet
+        « fini au poste » dans la saisie horaire — rien n&apos;est saisi deux fois. Le paquet se marque assemblé par
+        le bouton 🧵.
         {peutRelever && (
           <>
             {" "}
@@ -242,7 +362,10 @@ export type PaquetLigne = {
   code: string;
   numero: number;
   taille: string;
+  /** Quantité réelle (corrigée le cas échéant). */
   qte: number;
+  /** Quantité imprimée sur l'étiquette. */
+  qteImprimee: number;
   pieceDebut: number;
   pieceFin: number;
   statut: string;
@@ -251,6 +374,8 @@ export type PaquetLigne = {
   assembleLe: string;
   assemblePar: string;
   avancement: pq.EtatPaquet["avancement"];
+  /** Passage de la chaîne, dérivé de la saisie horaire GPAO. */
+  chaine: { dernier: string; heures: number; ouvrieres: string[] } | null;
 };
 
 function Kpi({ l, v, s, ton }: { l: string; v: string; s?: string; ton?: "success" | "warning" }) {
@@ -472,3 +597,111 @@ function Reglages({
 }
 
 const setListeDepuisGabarit = (g: Gabarit, set: (v: string) => void) => set(g.liasses.join(", "));
+
+/* ─────────── qui a fait ce paquet ─────────── */
+
+function QuiAFait() {
+  const [code, setCode] = useState("");
+  const [pending, start] = useTransition();
+  const [res, setRes] = useState<Awaited<ReturnType<typeof A.historique>> | null>(null);
+  const chercher = () =>
+    start(async () => {
+      setRes(await A.historique(code));
+    });
+  return (
+    <div className="mb-4 rounded-lg border bg-card p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <b>🔎 Qui a fait ce paquet ?</b>
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && chercher()}
+          placeholder="Scannez l'étiquette ou tapez PQ-2026-000145"
+          className="h-8 w-72 rounded-md border bg-background px-2 font-mono"
+        />
+        <Button size="sm" className="h-8" disabled={pending || !code.trim()} onClick={chercher}>
+          Chercher
+        </Button>
+      </div>
+      {res && !res.ok && <div className="mt-2 font-semibold text-[var(--danger-d)]">{res.error}</div>}
+      {res && res.ok && (
+        <div className="mt-2">
+          <div className="mb-1 font-semibold">
+            Paquet {res.paquet.numero} · {res.paquet.ofNumber}
+            {res.paquet.couleur ? ` · ${res.paquet.couleur}` : ""} · T. {res.paquet.taille} · {res.paquet.qteEffective} pcs (pièces{" "}
+            {res.paquet.pieceDebut}–{res.paquet.pieceFin})
+          </div>
+          {res.lignes.length === 0 ? (
+            <div className="text-muted-foreground">Aucun passage enregistré pour l&apos;instant.</div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b text-[10.5px] uppercase text-muted-foreground">
+                  <th className="py-1 text-left">Date</th>
+                  <th className="py-1 text-left">Morceau</th>
+                  <th className="py-1 text-left">Quoi</th>
+                  <th className="py-1 text-left">Ouvrière / par</th>
+                  <th className="py-1 text-left">Chaîne · heure</th>
+                </tr>
+              </thead>
+              <tbody>
+                {res.lignes.map((l) => (
+                  <tr key={l.id} className={`border-b last:border-0 ${l.annule ? "text-muted-foreground line-through" : ""}`}>
+                    <td className="py-1">{l.date.split("-").reverse().join("/")}</td>
+                    <td className="py-1">{l.liasse || "—"}</td>
+                    <td className="py-1">
+                      {l.etape === "poste"
+                        ? `Fini au poste « ${l.poste} »`
+                        : l.etape === "assemble"
+                          ? "Assemblé"
+                          : l.etape === "probleme"
+                            ? `Problème : ${l.note}`
+                            : l.etape === "correction"
+                              ? `Quantité corrigée : ${l.note}`
+                              : "Morceau fini (tournée)"}
+                    </td>
+                    <td className="py-1 font-semibold">{l.ouvrier || l.createdBy}</td>
+                    <td className="py-1 text-muted-foreground">{[l.chaine, l.heure].filter(Boolean).join(" · ") || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FichesSansPaquets({ fiches, peutRegler }: { fiches: { id: number; numero: string; date: string }[]; peutRegler: boolean }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  return (
+    <div className="mb-4 rounded-lg border border-info/40 bg-info/5 px-4 py-3 text-xs">
+      <b>{fiches.length} fiche(s) de coupe validée(s) sans paquets</b> — validées avant l&apos;activation du suivi. Leurs paquets peuvent être créés maintenant
+      (avec les morceaux du plan de coupe) :
+      <div className="mt-2 flex flex-wrap gap-2">
+        {fiches.slice(0, 12).map((f) => (
+          <Button
+            key={f.id}
+            size="sm"
+            variant="outline"
+            className="h-7"
+            disabled={pending || !peutRegler}
+            title={peutRegler ? "Créer les paquets de cette fiche" : "Réservé au responsable de production"}
+            onClick={() =>
+              start(async () => {
+                const r = await A.creerPaquetsApresCoup(f.id);
+                if (!r.ok) return void toast.error(r.error);
+                toast.success(`${f.numero} : ${r.n} paquet(s) créé(s)`);
+                router.refresh();
+              })
+            }
+          >
+            {f.numero} · {f.date.split("-").reverse().join("/")}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}

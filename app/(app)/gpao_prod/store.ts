@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { cleNom } from "@/lib/domain/atelier";
-import * as pq from "@/lib/domain/paquets";
+import * as pq from "@/lib/domain/paquets-heure";
 import * as rd from "@/lib/domain/rendement";
 import * as rp from "@/lib/domain/rendement-personne";
 
@@ -68,6 +68,10 @@ export type Journee = {
 };
 /** Registre du personnel, tel que l'écran GPAO en a besoin : de quoi proposer
  * un nom et le relier à sa fiche. Le reste de la fiche vit dans /personnel. */
+/** Paquets réels d'un modèle, pour la saisie horaire : scanner une étiquette
+ * donne le numéro, et le recoupement porte sur la vraie quantité. */
+export type PaquetCarnet = pq.PaquetConnu;
+
 export type Personne = { id: number; matricule: string; nom: string; fonction: string; /** Sortie de l'entreprise : plus proposée à la saisie, son passé reste lisible. */ sortie?: boolean };
 /** Opération du catalogue : sert à proposer un libellé et son temps standard. */
 export type OperationRef = { id: number; nom: string; sam: number };
@@ -83,6 +87,8 @@ export type GpaoState = {
   fusions?: rp.FusionFiche[];
   operations: OperationRef[];
   reglages: Reglages;
+  /** Paquets réels par modèle GPAO (vide quand la coupe n'est pas suivie). */
+  carnets?: Record<number, PaquetCarnet[]>;
   nextOuvId: number;
   tvDayId?: number | null;
 };

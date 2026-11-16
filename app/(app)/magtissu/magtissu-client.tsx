@@ -270,6 +270,11 @@ function OngletCommandes({ rows, q, peutSaisir }: { rows: MatiereCommandeRow[]; 
                     <td className="px-3 py-2 text-right tabular-nums">
                       {q2.format(r.etat.affecte)} m
                       {r.lots.length > 0 && <div className="text-[10px] text-muted-foreground">{r.lots.join(", ")}</div>}
+                      {r.lots.length > 0 && (
+                        <a href={`/m/tissu/prelevement?of=${r.id}`} target="_blank" rel="noreferrer" className="text-[10px] font-semibold text-brand underline">
+                          📋 prélèvement
+                        </a>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{r.etat.consomme ? `${q2.format(r.etat.consomme)} m` : "—"}</td>
                     <td className={`px-3 py-2 text-right font-bold tabular-nums ${r.etat.manque > 0 ? "text-[var(--danger-d)]" : ""}`}>

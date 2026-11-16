@@ -311,7 +311,7 @@ export function useFactStore(initial: FactStoreData) {
     );
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "dbs_sauvegarde_2026_" + new Date().toISOString().split("T")[0] + ".json";
+    a.download = "dbs_sauvegarde_factures_" + new Date().toISOString().split("T")[0] + ".json";
     a.click();
   }, [factures, couts]);
 

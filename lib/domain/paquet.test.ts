@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import * as pq from "./paquet";
 import {
   bilanOf,
   decouperEnPaquets,
@@ -165,5 +166,98 @@ describe("retour affiché après un scan", () => {
   it("dit où en est le paquet, en une ligne", () => {
     const e = etatPaquet(LIASSES, [rel({ liasse: "Col" }), rel({ liasse: "Dos" })]);
     assert.equal(resumeScan(12, "M", e), "Paquet 12 · M — 2/4 liasse(s)");
+  });
+});
+
+/* ═══════════ fini au poste, morceaux, découpage choisi (15/11) ═══════════ */
+
+describe("lecture d'un scan qui contient un %", () => {
+  it("ne plante pas sur un QR étranger", () => {
+    assert.equal(pq.lireScanPaquet("WIFI:S:atelier;P:50%off;;"), null);
+    assert.equal(pq.lireScanPaquet("Lot 80% coton"), null);
+    assert.deepEqual(pq.lireScanPaquet("https://x/p/PQ-2026-000012%2F3"), { code: "PQ-2026-000012", rang: 3 });
+  });
+});
+
+describe("quantité réelle et morceaux", () => {
+  it("la quantité corrigée fait foi", () => {
+    assert.equal(pq.qteEffective({ qte: 25, qteReelle: 23 }), 23);
+    assert.equal(pq.qteEffective({ qte: 25, qteReelle: null }), 25);
+    assert.equal(pq.qteEffective({ qte: 25, qteReelle: 0 }), 0);
+  });
+  it("un morceau annulé ne compte plus, l'étiquette garde son rang", () => {
+    assert.deepEqual(pq.morceauxActifs(["Col", "Dos", "Manche"], ["dos"]), ["Col", "Manche"]);
+    assert.deepEqual(pq.morceauxActifs([], []), [pq.LIASSE_UNIQUE]);
+    assert.equal(pq.morceauDuRang(["Col", "Dos", "Manche"], 3), "Manche");
+    assert.equal(pq.morceauDuRang(["Col"], 4), null);
+  });
+});
+
+describe("découpage décidé par la coupe", () => {
+  it("propose, lit, refuse une somme fausse", () => {
+    assert.deepEqual(pq.proposerDecoupage(60, 25), [25, 25, 10]);
+    assert.equal(pq.formatDecoupage([25, 25, 25, 10]), "3×25 + 10");
+    assert.deepEqual(pq.lireDecoupage("3×25 + 10", 85), { ok: true, qtes: [25, 25, 25, 10] });
+    assert.deepEqual(pq.lireDecoupage("20, 20 20", 60), { ok: true, qtes: [20, 20, 20] });
+    assert.deepEqual(pq.lireDecoupage("2x30", 60), { ok: true, qtes: [30, 30] });
+    const r = pq.lireDecoupage("25 25", 60);
+    assert.equal(r.ok, false);
+    assert.match((r as { error: string }).error, /50 pièces.*60.*-10/);
+    assert.equal(pq.lireDecoupage("25 abc", 25).ok, false);
+    assert.deepEqual(pq.lireDecoupage("", 0), { ok: true, qtes: [] });
+  });
+  it("numérote à la suite, taille après taille", () => {
+    const n = pq.decouperSelonListes([{ taille: "S", qtes: [20, 20] }, { taille: "M", qtes: [30] }], 4, 100);
+    assert.deepEqual(n.map((x) => [x.numero, x.taille, x.qte, x.pieceDebut, x.pieceFin]), [
+      [5, "S", 20, 101, 120],
+      [6, "S", 20, 121, 140],
+      [7, "M", 30, 141, 170],
+    ]);
+  });
+});
+
+describe("fini au poste", () => {
+  const base = { statutPaquet: "actif", assemble: false, morceaux: ["Col", "Manche"], deja: [] as { morceau: string; poste: string; ouvrier: string; date: string; heure: string }[] };
+  it("accepte une première fois, refuse le même morceau au même poste, même un autre jour", () => {
+    assert.equal(pq.refusFiniAuPoste({ ...base, morceau: "Col", poste: "Montage col" }), null);
+    const deja = [{ morceau: "col", poste: "MONTAGE  COL", ouvrier: "Amel", date: "2026-11-14", heure: "h3" }];
+    assert.match(pq.refusFiniAuPoste({ ...base, deja, morceau: "Col", poste: "Montage col" })!, /Amel le 14\/11\/2026 \(h3\)/);
+    assert.equal(pq.refusFiniAuPoste({ ...base, deja, morceau: "Col", poste: "Surpiqûre col" }), null, "autre poste : normal");
+    assert.equal(pq.refusFiniAuPoste({ ...base, deja, morceau: "Manche", poste: "Montage col" }), null, "autre morceau");
+  });
+  it("refuse un paquet annulé, assemblé, un morceau inconnu, un poste vide", () => {
+    assert.match(pq.refusFiniAuPoste({ ...base, statutPaquet: "annule", morceau: "Col", poste: "x" })!, /annulé/);
+    assert.match(pq.refusFiniAuPoste({ ...base, assemble: true, morceau: "Col", poste: "x" })!, /assemblé/);
+    assert.match(pq.refusFiniAuPoste({ ...base, morceau: "Dos", poste: "x" })!, /n'est pas un morceau/);
+    assert.match(pq.refusFiniAuPoste({ ...base, morceau: "Col", poste: " " })!, /poste/);
+  });
+  it("propose les pièces de l'heure sans compter deux fois un paquet entamé", () => {
+    const cols = ["h1", "h2", "h3"];
+    // 10 h : paquet 12 fini (25) → proposé 25 ; l'agent tape 35 (13 entamé).
+    assert.equal(pq.propositionPieces({ cols, col: "h1", pieces: {}, finis: { h1: 25 } }), 25);
+    // 11 h : paquet 13 fini (25) → 25 + 25 − 35 déjà déclarés = 15.
+    assert.equal(pq.propositionPieces({ cols, col: "h2", pieces: { h1: 35 }, finis: { h1: 25, h2: 25 } }), 15);
+    // ABS / RI ne comptent pas comme pièces.
+    assert.equal(pq.propositionPieces({ cols, col: "h3", pieces: { h1: "ABS", h2: 20 }, finis: { h3: 25 } }), 5);
+    assert.equal(pq.propositionPieces({ cols, col: "h9", pieces: {}, finis: {} }), 0);
+  });
+  it("recoupement : un paquet entamé par poste est toléré", () => {
+    assert.equal(pq.controleFiniAuPoste({ pieces: 60, finis: 50, nbPaquets: 2, taillePaquet: 25, postes: 1 }), null);
+    assert.match(pq.controleFiniAuPoste({ pieces: 90, finis: 50, nbPaquets: 2, taillePaquet: 25, postes: 1 })!.message, /40 pièces sans paquet fini/);
+    assert.match(pq.controleFiniAuPoste({ pieces: 20, finis: 75, nbPaquets: 3, taillePaquet: 25, postes: 1 })!.message, /55 pièces manquent/);
+    assert.equal(pq.controleFiniAuPoste({ pieces: 20, finis: 75, nbPaquets: 3, taillePaquet: 25, postes: 3 }), null);
+    assert.equal(pq.controleFiniAuPoste({ pieces: 500, finis: 0, nbPaquets: 0, taillePaquet: 25, postes: 1 }), null);
+  });
+  it("un numéro tapé peut désigner deux OF : on rend les deux", () => {
+    const p = [{ numero: 12, of: "A" }, { numero: 12, of: "B" }, { numero: 12, of: "C", statut: "annule" }, { numero: 3, of: "A" }];
+    assert.deepEqual(pq.candidatsNumero(12, p).map((x) => x.of), ["A", "B"]);
+  });
+  it("l'état du morceau dit le dernier poste passé et par qui", () => {
+    const r = (id: number, etape: string, liasse: string, x: Partial<pq.Releve> = {}): pq.Releve => ({ id, paquetId: 1, liasse, etape, qte: null, note: "", date: "2026-11-15", annuleId: null, par: "agent", ...x });
+    const e = pq.etatPaquet(["Col", "Dos"], [r(1, "poste", "Col", { poste: "Montage col", ouvrier: "Amel" }), r(2, "poste", "Col", { poste: "Surpiqûre", ouvrier: "Sana" })]);
+    assert.equal(e.cases[0].etat, "en_cours");
+    assert.deepEqual([e.cases[0].poste, e.cases[0].ouvrier, e.cases[0].nbPostes, e.cases[0].par], ["Surpiqûre", "Sana", 2, "Sana"]);
+    assert.equal(e.cases[1].etat, "vide");
+    assert.equal(e.avancement, "en_cours");
   });
 });

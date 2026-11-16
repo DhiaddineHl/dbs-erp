@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import * as cp from "@/lib/domain/coupe";
+import * as pq from "@/lib/domain/paquet";
 import { validerFicheCoupe } from "@/lib/actions/coupe";
 import type { ContexteCoupe } from "@/lib/services/coupe";
 
@@ -47,6 +48,11 @@ export function AssistantCoupe({ ctx }: { ctx: ContexteCoupe }) {
   const [type, setType] = useState(ctx.porteur.sousTraitee ? "soustraite" : "interne");
   const [matiereRang, setMatiereRang] = useState(plan.matieres[0]?.rang ?? 0);
   const [conso, setConso] = useState<Record<string, { consomme: string; chute: string }>>({});
+  /* Paquets : l'application PROPOSE, la coupe décide (morceaux, et pièces de
+     chaque paquet taille par taille). */
+  const [morceauxTxt, setMorceauxTxt] = useState(ctx.paquets.morceaux.join(", "));
+  const [parPaquet, setParPaquet] = useState(String(ctx.paquets.taille[ctx.porteur.id] ?? 25));
+  const [decoupe, setDecoupe] = useState<Record<string, string>>({});
 
   const coupeTotal = Object.fromEntries(sizes.map((s) => [s, ctx.membres.reduce((a, m) => a + entier(saisie[m.id]?.[s] ?? ""), 0)]));
   const cmdTotal = Object.fromEntries(sizes.map((s) => [s, ctx.membres.reduce((a, m) => a + commande[m.id][s], 0)]));
@@ -62,6 +68,19 @@ export function AssistantCoupe({ ctx }: { ctx: ContexteCoupe }) {
   const bilan = cp.bilanConsommation(consoPiece, tot.coupe, reel);
   const tropConso = ctx.rouleaux.find((r) => metre(conso[r.code]?.consomme ?? "") + metre(conso[r.code]?.chute ?? "") > r.enCoupe + 0.001);
 
+  const avecPaquets = ctx.paquets.actif && type === "interne";
+  const morceaux = pq.normaliserLiasses(morceauxTxt.split(/[,;\n]+/));
+  const tailleParPaquet = entier(parPaquet) || 25;
+  const texteDecoupe = (id: number, s: string) =>
+    decoupe[`${id}|${s}`] ?? pq.formatDecoupage(pq.proposerDecoupage(entier(saisie[id]?.[s] ?? ""), tailleParPaquet));
+  const lecturesPaquets = ctx.membres.flatMap((m) =>
+    sizes
+      .filter((s) => entier(saisie[m.id]?.[s] ?? "") > 0)
+      .map((s) => ({ id: m.id, of: m.of, taille: s, coupe: entier(saisie[m.id]?.[s] ?? ""), lu: pq.lireDecoupage(texteDecoupe(m.id, s), entier(saisie[m.id]?.[s] ?? "")) })),
+  );
+  const erreurPaquets = avecPaquets ? lecturesPaquets.find((x) => !x.lu.ok) : undefined;
+  const nbPaquets = lecturesPaquets.reduce((a, x) => a + (x.lu.ok ? x.lu.qtes.length : 0), 0);
+
   const valider = () =>
     start(async () => {
       const r = await validerFicheCoupe({
@@ -74,6 +93,17 @@ export function AssistantCoupe({ ctx }: { ctx: ContexteCoupe }) {
         note,
         matiereRang,
         consommations: ctx.rouleaux.map((x) => ({ code: x.code, consomme: metre(conso[x.code]?.consomme ?? ""), chute: metre(conso[x.code]?.chute ?? "") })),
+        paquets: avecPaquets
+          ? {
+              morceaux,
+              decoupage: Object.fromEntries(
+                ctx.membres.map((m) => [
+                  m.id,
+                  Object.fromEntries(lecturesPaquets.filter((x) => x.id === m.id && x.lu.ok).map((x) => [x.taille, x.lu.ok ? x.lu.qtes : []])),
+                ]),
+              ),
+            }
+          : undefined,
       });
       if (!r.ok) return void toast.error(r.error);
       toast.success(`Fiche de coupe ${r.numero} validée`);
@@ -279,8 +309,87 @@ export function AssistantCoupe({ ctx }: { ctx: ContexteCoupe }) {
         </div>
       </SectionPanel>
 
-      {/* 5 — validation */}
-      <SectionPanel title="5 · Valider la coupe">
+      {/* 5 — paquets et morceaux */}
+      {avecPaquets && (
+        <SectionPanel title={`5 · Paquets et morceaux — ${nbPaquets} paquet(s) × ${morceaux.length} morceau(x) = ${nbPaquets * morceaux.length} étiquette(s)`}>
+          <div className="space-y-3 text-xs">
+            <div>
+              <div className="mb-1 font-semibold text-muted-foreground">Morceaux de chaque paquet (une étiquette par morceau)</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={morceauxTxt}
+                  onChange={(e) => setMorceauxTxt(e.target.value)}
+                  placeholder="Manche, Col, Pied de col, Dos, Poignet…"
+                  aria-label="Morceaux"
+                  className="h-8 min-w-80 flex-1 bg-card"
+                />
+                {ctx.paquets.gabarits.map((g) => (
+                  <button
+                    key={g.nom}
+                    type="button"
+                    onClick={() => setMorceauxTxt(g.liasses.join(", "))}
+                    className="h-8 rounded-md border px-2 font-semibold hover:bg-muted"
+                    title={g.liasses.join(" · ")}
+                  >
+                    {g.nom}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                Paquet 1 → {morceaux.map((x) => `« 1 – ${x} »`).join(", ")}. Deux morceaux qui voyagent ensemble s&apos;écrivent sur une ligne :
+                « Col + pied de col ». La liste est retenue pour le modèle.
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-muted-foreground">Pièces par paquet (proposition)</span>
+              <Input
+                value={parPaquet}
+                onChange={(e) => {
+                  setParPaquet(e.target.value.replace(/\D/g, ""));
+                  setDecoupe({});
+                }}
+                inputMode="numeric"
+                aria-label="Pièces par paquet"
+                className="h-8 w-20 bg-card text-center font-bold"
+              />
+              <span className="text-muted-foreground">La coupe peut changer chaque taille : « 25 25 10 », « 3×20 », « 2x30 + 15 ».</span>
+            </div>
+            <table className="w-full">
+              <thead>
+                <tr className="border-b text-[10.5px] uppercase text-muted-foreground">
+                  {ctx.membres.length > 1 && <th className="px-2 py-1 text-left">OF</th>}
+                  <th className="px-2 py-1 text-left">Taille</th>
+                  <th className="px-2 py-1 text-right">Coupé</th>
+                  <th className="px-2 py-1 text-left">Paquets (pièces de chacun)</th>
+                  <th className="px-2 py-1 text-right">Nombre</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lecturesPaquets.map((x) => (
+                  <tr key={`${x.id}|${x.taille}`} className="border-b">
+                    {ctx.membres.length > 1 && <td className="px-2 py-1">{x.of}</td>}
+                    <td className="px-2 py-1 font-bold">{x.taille}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{x.coupe}</td>
+                    <td className="px-2 py-1">
+                      <Input
+                        value={texteDecoupe(x.id, x.taille)}
+                        onChange={(e) => setDecoupe((d) => ({ ...d, [`${x.id}|${x.taille}`]: e.target.value }))}
+                        aria-label={`Paquets ${x.of} taille ${x.taille}`}
+                        className={`h-8 bg-card font-mono ${x.lu.ok ? "" : "border-[var(--danger-d)]"}`}
+                      />
+                      {!x.lu.ok && <div className="text-[11px] font-semibold text-[var(--danger-d)]">{x.lu.error}</div>}
+                    </td>
+                    <td className="px-2 py-1 text-right tabular-nums">{x.lu.ok ? x.lu.qtes.length : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionPanel>
+      )}
+
+      {/* 6 — validation */}
+      <SectionPanel title={avecPaquets ? "6 · Valider la coupe" : "5 · Valider la coupe"}>
         <div className="flex flex-wrap items-end gap-3 text-xs">
           <label className="flex flex-col gap-1 font-semibold text-muted-foreground">
             Date de coupe
@@ -297,11 +406,16 @@ export function AssistantCoupe({ ctx }: { ctx: ContexteCoupe }) {
             Note
             <Input value={note} onChange={(e) => setNote(e.target.value)} className="h-8 bg-card" />
           </label>
-          <Button disabled={pending || !!refus || !!tropConso} onClick={valider} className="h-9">
+          <Button disabled={pending || !!refus || !!tropConso || !!erreurPaquets} onClick={valider} className="h-9">
             {pending ? "Validation…" : `✔ Valider la coupe · ${nb.format(tot.coupe)} pcs`}
           </Button>
         </div>
         {refus && <p className="mt-2 text-[11px] font-semibold text-[var(--danger-d)]">{refus}</p>}
+        {erreurPaquets && !erreurPaquets.lu.ok && (
+          <p className="mt-2 text-[11px] font-semibold text-[var(--danger-d)]">
+            Paquets {erreurPaquets.of} taille {erreurPaquets.taille} : {erreurPaquets.lu.error}
+          </p>
+        )}
         <p className="mt-2 text-[11px] text-muted-foreground">
           Une fois validée, la fiche est figée (prévu et coupé conservés). Une erreur se corrige en l&apos;annulant (motif) et en la refaisant. Étape 6 :
           « Générer le PV de coupe » sur la fiche.

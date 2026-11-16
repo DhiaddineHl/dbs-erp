@@ -20,7 +20,18 @@ import { assertUser } from "@/lib/auth/server";
 import { auteurTissu } from "@/lib/auth/tissu";
 import * as rl from "@/lib/domain/rouleau";
 import * as tx from "@/lib/domain/tissu";
-import { creerEtiquettesAMesurer, declarerConsommation, getInventaire, prochainCodeRouleau, recalculerStatut, type Executeur } from "@/lib/services/rouleaux";
+import {
+  chargerRouleaux,
+  cibleSortie,
+  creerEtiquettesAMesurer,
+  declarerConsommation,
+  feuRouleau,
+  getInventaire,
+  prochainCodeRouleau,
+  recalculerStatut,
+  type CibleSortie,
+  type Executeur,
+} from "@/lib/services/rouleaux";
 
 /* Rouleaux physiques — écritures.
  *
@@ -578,7 +589,11 @@ export async function bonRecapitulatif(codes: string[], note = ""): Promise<Resu
 }
 
 /** Contrôle d'un rouleau AVANT de l'ajouter à une sortie groupée (scan). */
-export async function verifierPourSortie(scan: string): Promise<Result<{ code: string; disponible: number; lot: string; tissu: string; unite: string }>> {
+export async function verifierPourSortie(
+  scan: string,
+  /** L'OF de la sortie : le rouleau lui est comparé (bon client, bonne couleur, réservé ?). */
+  commandeId?: number | null,
+): Promise<Result<{ code: string; disponible: number; lot: string; tissu: string; unite: string; couleur: string; bain: string; feu: rl.FeuTissu }>> {
   try {
     await auteurTissu();
     const lu = rl.lireScan(scan);
@@ -598,6 +613,8 @@ export async function verifierPourSortie(scan: string): Promise<Result<{ code: s
     const refus = rl.refusSortie(r.r.valideLe != null, b, b.disponible || 1);
     if (refus || b.disponible <= 0.001) return { ok: false, error: `${lu.code} : ${refus ?? "rouleau vide (plus rien en stock)."}` };
     if (r.lot.controle === "refuse") return { ok: false, error: `${lu.code} : lot refusé au contrôle.` };
+    const [ligne] = await chargerRouleaux({ codes: [lu.code] });
+    const cible = commandeId ? await cibleSortie(commandeId) : null;
     return {
       ok: true,
       code: lu.code,
@@ -605,6 +622,9 @@ export async function verifierPourSortie(scan: string): Promise<Result<{ code: s
       lot: r.lot.identifiant,
       tissu: [r.lot.reference, r.lot.couleur].filter(Boolean).join(" · "),
       unite: r.lot.unite,
+      couleur: r.lot.couleur,
+      bain: r.lot.lotFournisseur,
+      feu: ligne ? feuRouleau(ligne, cible) : { ton: "vert", message: "" },
     };
   } catch (e) {
     return fail(e);
@@ -1038,6 +1058,32 @@ export async function cloturerInventaire(input: {
     revalider();
     revalidatePath("/m/tissu/inventaire");
     return { ok: true, ...res };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/* ─────────── sortie : besoin de l'OF, feu d'un rouleau ─────────── */
+
+/** Ce qu'il faut encore à l'OF : affiché pendant le scan de la sortie. */
+export async function infoSortie(commandeId: number): Promise<Result<{ cible: CibleSortie }>> {
+  try {
+    await auteurTissu();
+    const cible = await cibleSortie(commandeId);
+    if (!cible) return { ok: false, error: "Commande introuvable." };
+    return { ok: true, cible };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Le feu d'UN rouleau pour un OF (sortie d'un seul rouleau). */
+export async function feuPourRouleau(code: string, commandeId: number | null): Promise<Result<{ feu: rl.FeuTissu }>> {
+  try {
+    await auteurTissu();
+    const [r] = await chargerRouleaux({ codes: [rl.lireScan(code)?.code ?? code] });
+    if (!r) return { ok: false, error: "Rouleau introuvable." };
+    return { ok: true, feu: feuRouleau(r, commandeId ? await cibleSortie(commandeId) : null) };
   } catch (e) {
     return fail(e);
   }

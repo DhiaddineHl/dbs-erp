@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { BonSortie } from "@/lib/services/rouleaux";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
 
@@ -80,7 +81,19 @@ export function DocumentSortie({
           </tr>
         </thead>
         <tbody>
-          {b.lignes.map((l) => (
+          {/* Rangé par couleur puis par BAIN, avec un sous-total : la coupe voit
+              tout de suite quels rouleaux vont ensemble dans un matelas. */}
+          {parBain(b.lignes).map(({ cle, lignes, total, plusieurs }) => (
+            <Fragment key={cle}>
+              {plusieurs && (
+                <tr className="bg-neutral-50">
+                  <td colSpan={8 + (parLigne ? 1 : 0) + (recap ? 1 : 0)} className="py-1 pl-2 text-[10.5px] font-bold uppercase">
+                    {lignes[0].couleur || "—"} · bain {lignes[0].lotFournisseur || "non renseigné"} — {lignes.length} rouleau(x) · {nbFr.format(total)}{" "}
+                    {lignes[0].unite}
+                  </td>
+                </tr>
+              )}
+          {lignes.map((l) => (
             <tr key={l.id} className={`border-b border-neutral-200 ${l.annule ? "text-neutral-400 line-through" : ""}`}>
               <td className="py-1.5 pl-2 font-mono font-bold">{l.code}</td>
               {parLigne && <td className="py-1.5">{l.commande || "—"}</td>}
@@ -95,6 +108,8 @@ export function DocumentSortie({
               </td>
             </tr>
           ))}
+            </Fragment>
+          ))}
         </tbody>
       </table>
       {b.lignes.some((l) => l.annule) && <p className="mt-2 text-[11px] text-neutral-500">Lignes barrées : sortie annulée depuis.</p>}
@@ -104,4 +119,18 @@ export function DocumentSortie({
       </p>
     </DocumentImprimable>
   );
+}
+
+/** Lignes groupées par couleur et bain (lot fournisseur). Un seul groupe :
+ * pas d'en-tête de bain (le bon reste tel qu'avant). */
+function parBain<L extends { couleur: string; lotFournisseur: string; quantite: number; annule?: boolean }>(lignes: L[]) {
+  const groupes = new Map<string, L[]>();
+  for (const l of lignes) {
+    const k = `${(l.couleur ?? "").toLowerCase()}|${(l.lotFournisseur ?? "").toLowerCase()}`;
+    groupes.set(k, [...(groupes.get(k) ?? []), l]);
+  }
+  const plusieurs = groupes.size > 1;
+  return [...groupes.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([cle, ls]) => ({ cle, lignes: ls, plusieurs, total: ls.filter((l) => !l.annule).reduce((s, l) => s + l.quantite, 0) }));
 }

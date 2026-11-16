@@ -462,3 +462,83 @@ export async function commandesACiter(q: string) {
     .orderBy(desc(commande.id))
     .limit(15);
 }
+
+
+/* ─────────── fils des portails extérieurs ───────────
+ *
+ * Un client (ou un sous-traitant) écrit depuis son portail : il n'a pas de
+ * compte. Son fil est un GROUPE dont les membres sont les responsables
+ * (administrateur, responsable de production) ; ses messages portent son nom
+ * sans compte rattaché. Tout ce qui s'écrit dans ce fil est lu par lui. */
+
+export async function creerFilPortail(nom: string): Promise<number> {
+  const membres = await db.select({ id: user.id }).from(user).where(inArray(user.role, ["admin", "resp"]));
+  const id = await db.transaction(async (t) => {
+    const [c] = await t.insert(conversation).values({ type: "groupe", nom: nom.slice(0, ms.NOM_GROUPE_MAX) }).returning({ id: conversation.id });
+    if (membres.length) await t.insert(conversationMembre).values(membres.map((m, i) => ({ conversationId: c.id, userId: m.id, role: i === 0 ? "admin" : "membre" })));
+    return c.id;
+  });
+  await ecrireMessage(id, null, {
+    genre: "systeme",
+    texte: "🌐 Fil d'un portail extérieur : tout ce qui est écrit ici est LU par la personne de l'extérieur.",
+  });
+  return id;
+}
+
+/** Message écrit depuis un portail (sans compte). */
+export async function messageExterieur(
+  convId: number,
+  auteurNom: string,
+  texte: string,
+  commandeId?: number | null,
+  /** Une photo jointe (portail sous-traitant : « signaler un problème »). */
+  fichier?: { hash: string; nom: string; mime: string; taille: number } | null,
+): Promise<number> {
+  const t = ms.texteMessage(texte ?? "") ?? "";
+  if (!t && !fichier) throw new Error("Message vide.");
+  let commandeLabel = "";
+  if (commandeId) {
+    const [c] = await db.select({ of: commande.ofNumber, modele: commande.modele }).from(commande).where(eq(commande.id, commandeId));
+    commandeLabel = c ? `${c.of} · ${c.modele}` : "";
+  }
+  // Pas de compte : l'auteur est son nom seul (auteur_id reste vide).
+  const [row] = await db
+    .insert(message)
+    .values({
+      conversationId: convId, auteurId: null, auteurNom: auteurNom.slice(0, 120), texte: t, commandeId: commandeId ?? null, commandeLabel,
+      fichierHash: fichier?.hash ?? null, fichierNom: fichier?.nom.slice(0, 200) ?? "", fichierMime: fichier?.mime ?? "", fichierTaille: fichier?.taille ?? 0,
+    })
+    .returning({ id: message.id });
+  await db.update(conversation).set({ dernierMessageLe: new Date() }).where(eq(conversation.id, convId));
+  return row.id;
+}
+
+/** Les messages d'un fil de portail, du plus ancien au plus récent (lecture
+ * pour le portail : texte, auteur, commande citée — rien d'autre). */
+export async function filPortail(convId: number, limite = 80) {
+  const rows = await db
+    .select({ id: message.id, auteurNom: message.auteurNom, auteurId: message.auteurId, genre: message.genre, texte: message.texte, commandeLabel: message.commandeLabel, supprime: message.supprime, createdAt: message.createdAt })
+    .from(message)
+    .where(eq(message.conversationId, convId))
+    .orderBy(desc(message.id))
+    .limit(limite);
+  return rows
+    .reverse()
+    .filter((r) => r.genre === "texte" && !r.supprime)
+    .map((r) => ({ id: r.id, auteur: r.auteurNom, interne: r.auteurId != null, texte: r.texte, commande: r.commandeLabel, le: iso(r.createdAt) }));
+}
+
+/** Message du bureau dans un fil de portail, écrit par l'application au nom
+ * de la personne qui agit (réception validée, rapport de coupe validé…) :
+ * l'extérieur le lit sur son portail. Sans contrôle d'appartenance au fil —
+ * le magasinier qui valide une livraison n'en est pas forcément membre. */
+export async function messageBureau(convId: number, moi: Moi, texte: string, commandeId?: number | null): Promise<number> {
+  const t = ms.texteMessage(texte ?? "") ?? "";
+  if (!t) throw new Error("Message vide.");
+  let commandeLabel = "";
+  if (commandeId) {
+    const [c] = await db.select({ of: commande.ofNumber, modele: commande.modele }).from(commande).where(eq(commande.id, commandeId));
+    commandeLabel = c ? `${c.of} · ${c.modele}` : "";
+  }
+  return ecrireMessage(convId, moi, { texte: t, commandeId: commandeId ?? null, commandeLabel });
+}

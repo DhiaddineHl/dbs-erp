@@ -11,7 +11,7 @@
  * s'écraser. La tablette et le bureau passent par le même chemin — il n'y a
  * qu'une saisie, faite une seule fois. */
 
-import { PAQUET_MAX, PAQUETS_MAX_PAR_CASE } from "./paquets";
+import { PAQUET_MAX, PAQUETS_MAX_PAR_CASE } from "./paquets-heure";
 
 export type Cellule = number | "RI" | "ABS";
 export type OpDetail = { poste: string; sam: number; qte: number };

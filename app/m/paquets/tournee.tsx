@@ -51,11 +51,17 @@ export function TourneePaquets({
     if (ton === "erreur") navigator.vibrate?.([80, 60, 80]);
   };
 
+  /* Un paquet ouvert = la caméra en PAUSE : une étiquette voisine qui passe
+     devant l'objectif ne doit pas remplacer le paquet avant le geste. On
+     reprend avec « Scanner un autre paquet ». */
+  const [enAttente, setEnAttente] = useState(!!paquetInitial);
+
   const ouvrir = async (code: string, rang: number | null) => {
     const r = await A.lirePaquet(code);
     if (!r.ok) return signaler("erreur", r.error);
     setPaquet(r.paquet);
-    // Le QR d'une liasse ouvre directement la bonne : un geste de moins.
+    setEnAttente(true);
+    // Le QR d'un morceau ouvre directement le bon : un geste de moins.
     setLiasse(liasseAProposer(r.paquet, rang));
     setNote("");
     signaler("ok", pq.resumeScan(r.paquet.numero, r.paquet.taille, r.paquet.etat));
@@ -64,14 +70,24 @@ export function TourneePaquets({
   const scanner = (brut: string) => {
     const lu = pq.lireScanPaquet(brut);
     if (!lu) return signaler("erreur", "Ce code n'est pas un paquet.");
+    if (enAttente) return;
     // Les lectures s'enchaînent plus vite que le serveur : une à la fois.
-    file.current = file.current.then(() => ouvrir(lu.code, lu.rang)).catch(() => {});
+    file.current = file.current
+      .then(() => ouvrir(lu.code, lu.rang))
+      .catch(() => signaler("erreur", "Réseau indisponible : rien n'est ouvert, rescannez."));
   };
 
   const poser = (etape: "liasse" | "assemble" | "probleme") => {
     if (!paquet) return;
     start(async () => {
-      const r = await A.relever({ code: paquet.code, etape, liasse, note, date });
+      let r: Awaited<ReturnType<typeof A.relever>>;
+      try {
+        r = await A.relever({ code: paquet.code, etape, liasse, note, date });
+      } catch {
+        // Réseau coupé : avant, rien ne s'affichait et le relevé était perdu.
+        signaler("erreur", "Réseau indisponible : relevé NON enregistré, réessayez.");
+        return void toast.error("Réseau indisponible : relevé non enregistré.");
+      }
       if (!r.ok) {
         signaler("erreur", r.error);
         return void toast.error(r.error);
@@ -94,6 +110,7 @@ export function TourneePaquets({
         placeholder="Scanner ou taper PQ-2026-000145"
         autoCamera
         occupe={pending}
+        pause={enAttente}
         retour={retour}
         compteur={`${faits} relevé${faits > 1 ? "s" : ""} aujourd'hui`}
       />
@@ -106,17 +123,26 @@ export function TourneePaquets({
 
       {!paquet ? (
         <div className="rounded-2xl bg-white px-4 py-6 text-center text-sm text-slate-600">
-          Scannez l&apos;étiquette d&apos;une liasse. Rien n&apos;est obligatoire : ce que vous ne relevez pas reste
-          simplement « sans nouvelle », et la production continue.
+          Scannez l&apos;étiquette d&apos;un paquet. Les morceaux finis aux postes se relèvent tout seuls dans la saisie
+          horaire ; ici, on marque le paquet <b>assemblé</b> ou on signale un <b>problème</b>.
         </div>
       ) : (
         <>
+          {enAttente && (
+            <button
+              type="button"
+              onClick={() => setEnAttente(false)}
+              className="w-full rounded-2xl bg-slate-900 py-3 text-base font-black text-white"
+            >
+              📷 Scanner un autre paquet
+            </button>
+          )}
           <div className="rounded-2xl bg-white p-4 shadow-sm">
             <div className="flex items-baseline gap-2">
               <span className="text-4xl font-black">{paquet.numero}</span>
               <span className="text-sm font-bold text-slate-500">
                 {paquet.ofNumber}
-                {paquet.taille ? ` · T. ${paquet.taille}` : ""} · {paquet.qte} pcs
+                {paquet.taille ? ` · T. ${paquet.taille}` : ""} · {paquet.qteReelle ?? paquet.qte} pcs
               </span>
             </div>
             <div className="text-sm text-slate-500">
@@ -138,11 +164,17 @@ export function TourneePaquets({
                   onClick={() => setLiasse(c.liasse)}
                   className={`rounded-xl px-3 py-2.5 text-left ${
                     c.liasse === liasse ? "ring-2 ring-slate-900" : ""
-                  } ${c.etat === "fait" ? "bg-emerald-100" : c.etat === "probleme" ? "bg-amber-100" : "bg-slate-100"}`}
+                  } ${c.etat === "fait" ? "bg-emerald-100" : c.etat === "probleme" ? "bg-amber-100" : c.etat === "en_cours" ? "bg-sky-100" : "bg-slate-100"}`}
                 >
                   <div className="truncate text-sm font-bold">{c.liasse}</div>
                   <div className="text-[11px] text-slate-600">
-                    {c.etat === "fait" ? `✓ ${c.le}` : c.etat === "probleme" ? `⚠ ${c.note || "problème"}` : "sans nouvelle"}
+                    {c.etat === "fait"
+                      ? `✓ ${c.le}`
+                      : c.etat === "probleme"
+                        ? `⚠ ${c.note || "problème"}`
+                        : c.etat === "en_cours"
+                          ? `▸ ${c.poste} · ${c.ouvrier || c.par}`
+                          : "sans nouvelle"}
                   </div>
                 </button>
               ))}

@@ -49,10 +49,10 @@ async function exigerDroit(domaine: fx.DomaineDroit): Promise<svc.Auteur> {
 
 /* ─────────── têtes de série ─────────── */
 
-export async function ajouterTds(commandeId: number): Promise<Result> {
+export async function ajouterTds(commandeId: number, nature: "tds" | "ok" = "tds"): Promise<Result> {
   try {
     const auteur = await exigerDroit("tds");
-    await svc.ajouterTds(commandeId, auteur);
+    await svc.ajouterTds(commandeId, auteur, nature === "ok" ? "ok" : "tds");
     revalider();
     return ok;
   } catch (e) {
@@ -62,7 +62,7 @@ export async function ajouterTds(commandeId: number): Promise<Result> {
 
 export async function majTds(
   tdsId: number,
-  champ: "envoi" | "retour" | "verdict" | "commentaire",
+  champ: "envoi" | "retour" | "verdict" | "commentaire" | "transporteur" | "suivi",
   valeur: string,
 ): Promise<Result> {
   try {

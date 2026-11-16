@@ -4,8 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { relireJournee, saisirProduction } from "@/lib/actions/saisie-gpao";
+import { passagesJournee } from "@/lib/actions/paquets";
+import type { PassageVue } from "@/lib/services/paquets";
+import { FeuilleFiniAuPoste, LigneFinis, RecapFinis, proposition } from "@/components/gpao/paquets-poste";
 import { cleOperation } from "@/lib/domain/atelier";
-import * as pq from "@/lib/domain/paquets";
+import * as pq from "@/lib/domain/paquets-heure";
 import * as rd from "@/lib/domain/rendement";
 import * as sg from "@/lib/domain/saisie-gpao";
 import type { JourneeTablette } from "@/lib/services/saisie-gpao";
@@ -41,7 +44,11 @@ import {
 type Row = JourneeTablette["journee"];
 type Ligne = JourneeTablette["roster"][number];
 type Onglet = string; // "H1"… | "ret" | "arrets" | "recap"
-type Feuille = { type: "poste"; ouvId: number; col: string } | { type: "arret"; ouvId: number } | null;
+type Feuille =
+  | { type: "poste"; ouvId: number; col: string }
+  | { type: "arret"; ouvId: number }
+  | { type: "fini"; ouvId: number; nom: string; col: string; posteH: string }
+  | null;
 
 const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
 const fmtCase = (v: sg.Cellule | number | undefined | null) => (v === undefined || v === null ? "" : String(v).replace(".", ","));
@@ -91,6 +98,8 @@ export function SaisieTablette({
   seuilAlerte,
   suiviPaquets,
   taillePaquet,
+  carnet,
+  passagesInitiaux = [],
 }: {
   utilisateur: string;
   initial: JourneeTablette;
@@ -100,6 +109,11 @@ export function SaisieTablette({
   suiviPaquets: boolean;
   /** Pièces par paquet de l'usine (le modèle peut en fixer une autre). */
   taillePaquet: number;
+  /** Paquets réellement créés à la coupe pour l'OF de ce modèle. Vide quand
+   * la coupe n'est pas suivie : la saisie retombe sur le calcul théorique. */
+  carnet: pq.PaquetConnu[];
+  /** Morceaux de paquets déjà déclarés « finis au poste » dans cette journée. */
+  passagesInitiaux?: PassageVue[];
 }) {
   const { chaine, modele } = initial;
   const id = initial.journee.id;
@@ -134,6 +148,7 @@ export function SaisieTablette({
   const [attente, setAttente] = useState(0);
   const [horsLigne, setHorsLigne] = useState(false);
   const [enregistreA, setEnregistreA] = useState("");
+  const [passages, setPassages] = useState<PassageVue[]>(passagesInitiaux);
 
   /* ─────────── envoi : file d'attente, dans l'ordre, jamais perdue ─────────── */
   const file = useRef<sg.Saisie[][]>([]);
@@ -198,9 +213,11 @@ export function SaisieTablette({
           if (r.ok && !file.current.length && !enCours.current) majJ(r.journee);
         })
         .catch(() => setHorsLigne(true));
+      // Les paquets finis scannés ailleurs (bureau, autre tablette) apparaissent aussi.
+      if (suiviPaquets) void passagesJournee(id).then((r) => r.ok && setPassages(r.passages)).catch(() => {});
     }, 15000);
     return () => clearInterval(t);
-  }, [id, majJ]);
+  }, [id, majJ, suiviPaquets]);
 
   /** Applique tout de suite à l'écran (même règle que le serveur), puis envoie. */
   const saisir = (...saisies: sg.Saisie[]): boolean => {
@@ -223,12 +240,20 @@ export function SaisieTablette({
   /* Relevé des paquets : tout est calculé à partir de ce qui est déjà saisi.
      Éteint, rien n'est calculé ni affiché — l'écran reste celui d'avant. */
   const tailleP = pq.taillePaquet(modele.taillePaquet, taillePaquet);
+  const carnetPq = useMemo(() => pq.carnet(carnet), [carnet]);
   const infoPaquets = useMemo(
     () =>
       suiviPaquets
-        ? { actif: true, taille: tailleP, qteOf: modele.qte, nbPaquets: pq.nbPaquetsOf(modele.qte, tailleP) }
+        ? {
+            actif: true,
+            taille: tailleP,
+            qteOf: modele.qte,
+            // Avec les vrais paquets, le compte de l'OF est connu exactement.
+            nbPaquets: carnetPq ? carnetPq.parNumero.size : pq.nbPaquetsOf(modele.qte, tailleP),
+            carnet: carnetPq,
+          }
         : null,
-    [suiviPaquets, tailleP, modele.qte],
+    [suiviPaquets, tailleP, modele.qte, carnetPq],
   );
   const etat: GpaoState = useMemo(
     () => ({
@@ -398,7 +423,10 @@ export function SaisieTablette({
             suivante={suivante}
             saisir={saisir}
             paquets={infoPaquets}
+            passages={passages}
+            onAnnulePassage={(pid) => setPassages((l) => l.filter((x) => x.id !== pid))}
             ouvrirPoste={(ouvId) => setFeuille({ type: "poste", ouvId, col: onglet })}
+            ouvrirScanPaquet={(ouvId, nom, posteH) => setFeuille({ type: "fini", ouvId, nom, col: onglet, posteH })}
             heureSuivante={() => {
               const i = heures.indexOf(onglet);
               if (i < heures.length - 1) setOnglet(heures[i + 1]);
@@ -481,6 +509,8 @@ export function SaisieTablette({
             alertes={alertes.map((a) => `${a.ouv.nom} (${a.rend} %)`)}
             seuilAlerte={seuilAlerte}
             paquets={infoPaquets}
+            passages={passages}
+            taillePaquet={tailleP}
             ferme={ferme}
             onCloturer={() => {
               const incompletes = heures.filter((c) => !sg.avancementHeure(m, roster, c).complete);
@@ -507,6 +537,32 @@ export function SaisieTablette({
           }}
         />
       )}
+      {feuille?.type === "fini" && infoPaquets && (
+        <FeuilleFiniAuPoste
+          journeeId={id}
+          ouvId={feuille.ouvId}
+          nom={feuille.nom}
+          col={feuille.col}
+          posteH={feuille.posteH}
+          passages={passages}
+          Cadre={Feuille}
+          onFermer={() => setFeuille(null)}
+          onPassage={(p) => {
+            /* Les pièces de l'heure sont PROPOSÉES d'après les paquets finis :
+               remplies si la case est vide ou tient encore la proposition
+               d'avant ; jamais écrasées si l'agent y a tapé autre chose. */
+            const avant = proposition(passages, m, jj.cols, p.ouvId ?? feuille.ouvId, feuille.col);
+            const apres = [...passages, p];
+            setPassages(apres);
+            const ouvId = p.ouvId ?? feuille.ouvId;
+            if ((m.opsDetail[ouvId]?.[feuille.col]?.length ?? 0) > 1) return;
+            const v = m.ops[ouvId]?.[feuille.col];
+            const prop = proposition(apres, m, jj.cols, ouvId, feuille.col);
+            if ((v === undefined || v === avant) && prop > 0 && prop !== v) saisir({ type: "op", ouvId, col: feuille.col, valeur: prop });
+          }}
+        />
+      )}
+
       {feuille?.type === "arret" && (
         <FeuilleArret
           o={roster.find((o) => o.id === feuille.ouvId)!}
@@ -533,8 +589,11 @@ function VueHeure({
   suivante,
   saisir,
   ouvrirPoste,
+  ouvrirScanPaquet,
   heureSuivante,
   paquets,
+  passages,
+  onAnnulePassage,
 }: {
   col: string;
   j: Journee;
@@ -543,12 +602,15 @@ function VueHeure({
   objH: number;
   ferme: boolean;
   /** Relevé des paquets : éteint, la ligne n'apparaît pas du tout. */
-  paquets: { actif: boolean; taille: number; qteOf: number; nbPaquets: number } | null;
+  paquets: InfoPaquets | null;
   poserCase: (i: number, el: HTMLInputElement | null) => void;
   suivante: (i: number) => void;
   saisir: (...s: sg.Saisie[]) => boolean;
   ouvrirPoste: (ouvId: number) => void;
+  ouvrirScanPaquet: (ouvId: number, nom: string, posteH: string) => void;
   heureSuivante: () => void;
+  passages: PassageVue[];
+  onAnnulePassage: (id: number) => void;
 }) {
   const sortie = m.sortie[col];
   const pSortie = typeof sortie === "number" && objH > 0 ? Math.round((sortie / objH) * 100) : null;
@@ -618,12 +680,17 @@ function VueHeure({
               <div className={`w-16 text-right text-lg font-extrabold tabular-nums ${pctTone(pct)}`}>{pct === null ? (v === "ABS" || v === "RI" ? v : "—") : `${pct}%`}</div>
               </div>
               {paquets?.actif && (
-                <LignePaquets
-                  numeros={m.paquets[o.id]?.[col] ?? []}
-                  pieces={v}
-                  info={paquets}
+                <LigneFinis
+                  ouvId={o.id}
+                  col={col}
+                  cols={j.cols}
+                  m={m}
+                  passages={passages}
+                  legacy={m.paquets[o.id]?.[col] ?? []}
                   disabled={ferme}
-                  onValider={(nums) => saisir({ type: "paquets", ouvId: o.id, col, numeros: nums })}
+                  onScanner={() => ouvrirScanPaquet(o.id, o.nom, posteH)}
+                  onAnnule={onAnnulePassage}
+                  onAppliquer={(n) => saisir({ type: "op", ouvId: o.id, col, valeur: n })}
                 />
               )}
             </div>
@@ -669,55 +736,9 @@ function VueHeure({
   );
 }
 
-/* ═══════════ relevé des numéros de paquets (facultatif) ═══════════
- *
- * Une ligne discrète sous l'ouvrière : l'agent note les paquets travaillés
- * dans l'heure. Rien n'est obligatoire, et rien de ce qui est noté ici
- * n'entre dans le comptage de la production. */
-
-function LignePaquets({
-  numeros,
-  pieces,
-  info,
-  disabled,
-  onValider,
-}: {
-  numeros: number[];
-  pieces: pq.Pieces;
-  info: { taille: number; qteOf: number; nbPaquets: number };
-  disabled: boolean;
-  onValider: (nums: number[]) => void;
-}) {
-  const texte = pq.formatPaquets(numeros);
-  const souci = pq.controleHeure({ pieces, numeros, qteOf: info.qteOf, taille: info.taille, nbPaquets: info.nbPaquets });
-  const ton = !souci ? "border-slate-200" : souci.niveau === "erreur" ? "border-red-400 bg-red-50" : "border-amber-400 bg-amber-50";
-  return (
-    <div className="mt-1.5 flex items-center gap-2 pl-7">
-      <span className="text-sm text-slate-400">🏷</span>
-      <input
-        key={`pq-${texte}`}
-        defaultValue={texte}
-        disabled={disabled}
-        inputMode="numeric"
-        placeholder="paquets — ex. 12, 13 ou 12-15"
-        className={`min-w-0 flex-1 rounded-lg border-2 px-3 py-1.5 text-base tabular-nums ${ton}`}
-        onBlur={(e) => {
-          const lu = pq.lirePaquets(e.target.value);
-          if (!lu.ok) return void toast.error(lu.error);
-          const avant = numeros;
-          if (avant.length === lu.numeros.length && avant.every((n, i) => n === lu.numeros[i])) return;
-          onValider(lu.numeros);
-        }}
-        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-      />
-      {souci && (
-        <span className={`max-w-[45%] text-xs font-semibold ${souci.niveau === "erreur" ? "text-red-700" : "text-amber-700"}`}>
-          {souci.niveau === "erreur" ? "⛔" : "⚠"} {souci.message}
-        </span>
-      )}
-    </div>
-  );
-}
+/* Relevé des paquets : réglages lus par la saisie (le scan « fini au poste »
+ * est dans components/gpao/paquets-poste.tsx). */
+export type InfoPaquets = { actif: boolean; taille: number; qteOf: number; nbPaquets: number; carnet: pq.Carnet };
 
 /* ═══════════ récapitulatif de la journée ═══════════ */
 
@@ -732,8 +753,12 @@ function Recap({
   onCloturer,
   onHeure,
   paquets,
+  passages,
+  taillePaquet,
 }: {
-  paquets: { actif: boolean; taille: number; qteOf: number; nbPaquets: number } | null;
+  paquets: InfoPaquets | null;
+  passages: PassageVue[];
+  taillePaquet: number;
   j: Journee;
   m: sg.Matrices;
   roster: Ligne[];
@@ -830,10 +855,13 @@ function Recap({
         </table>
       </div>
 
+      {paquets?.actif && <RecapFinis passages={passages} roster={roster} m={m} cols={j.cols} taille={taillePaquet} />}
+
+      {/* Ancien relevé « travaillé dessus » (avant le 15/11), encore lisible. */}
       {ctrl && ctrl.utilise && (
         <div className="rounded-2xl bg-white p-4 shadow-sm">
           <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <b className="text-base">🏷 Recoupement par paquets</b>
+            <b className="text-base">🏷 Ancien relevé des paquets (numéros notés)</b>
             <span className="text-xs text-slate-500">
               paquets de {paquets!.taille} pièces
               {ctrl.couverture.nbPaquets > 0 ? ` · OF = ${ctrl.couverture.nbPaquets} paquets` : ""} · vus aujourd&apos;hui :{" "}

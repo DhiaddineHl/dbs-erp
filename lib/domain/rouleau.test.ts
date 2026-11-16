@@ -234,3 +234,68 @@ describe("dernier envoi (bon récapitulatif)", () => {
     assert.deepEqual(r?.aPorter.map((x) => x.id), [4]);
   });
 });
+
+/* ═══════════ sortie : bon tissu, bains, prélèvement, tissu dehors (15/11) ═══════════ */
+import * as rl2 from "./rouleau";
+
+describe("feu à la sortie", () => {
+  const cible = { ofs: [10, 11], client: "Gérard Darel", reference: "SH19", couleur: "Blanc" };
+  const lot = (x: Partial<Parameters<typeof rl2.feuSortie>[0]["lot"]> = {}) => ({ client: "GERARD DAREL", reference: "SH19", couleur: "blanc", reservePour: [], ...x });
+  it("vert : réservé à cet OF, ou tissu libre du même client et de la même couleur", () => {
+    assert.equal(rl2.feuSortie({ lot: lot({ reservePour: [{ id: 11, label: "OF-11" }] }), cible }).ton, "vert");
+    assert.equal(rl2.feuSortie({ lot: lot(), cible }).ton, "vert");
+    assert.equal(rl2.feuSortie({ lot: lot(), cible: null }).ton, "vert");
+  });
+  it("orange : réservé à un autre OF, ou autre référence", () => {
+    const f = rl2.feuSortie({ lot: lot({ reservePour: [{ id: 99, label: "OF-99 · Polo" }] }), cible });
+    assert.deepEqual([f.ton, f.message], ["orange", "Réservé à OF-99 · Polo."]);
+    assert.equal(rl2.feuSortie({ lot: lot({ reference: "PT02" }), cible }).ton, "orange");
+  });
+  it("rouge : autre client, ou autre couleur", () => {
+    assert.match(rl2.feuSortie({ lot: lot({ client: "Bonpoint" }), cible }).message, /Tissu du client Bonpoint/);
+    assert.equal(rl2.feuSortie({ lot: lot({ client: "Bonpoint", reservePour: [{ id: 10, label: "x" }] }), cible }).ton, "rouge", "même réservé : autre client");
+    assert.equal(rl2.feuSortie({ lot: lot({ couleur: "Marine" }), cible }).ton, "rouge");
+  });
+});
+
+describe("bains", () => {
+  it("repère deux bains d'une même couleur, pas deux couleurs", () => {
+    const r = [
+      { couleur: "Marine", bain: "B1" },
+      { couleur: "marine", bain: "B1" },
+      { couleur: "Marine", bain: "B2" },
+      { couleur: "Blanc", bain: "B9" },
+      { couleur: "Marine", bain: "" },
+    ];
+    assert.deepEqual(rl2.bainsMelanges(r), [{ couleur: "Marine", bains: [{ bain: "B1", n: 2 }, { bain: "B2", n: 1 }] }]);
+    assert.match(rl2.autreBain({ couleur: "Marine", bain: "B2" }, [{ couleur: "Marine", bain: "B1" }])!, /Autre bain \(B2\)/);
+    assert.equal(rl2.autreBain({ couleur: "Marine", bain: "B1" }, [{ couleur: "Marine", bain: "B1" }]), null);
+    assert.equal(rl2.autreBain({ couleur: "Blanc", bain: "B2" }, [{ couleur: "Marine", bain: "B1" }]), null);
+  });
+});
+
+describe("liste de prélèvement", () => {
+  it("un bain à la fois, entamés d'abord, puis l'ordre des rayons", () => {
+    const r = (code: string, bain: string, emplacement: string, disponible: number, initial = 50) => ({ code, bain, couleur: "Marine", emplacement, disponible, initial });
+    const ordre = rl2.ordrePrelevement([
+      r("R5", "B2", "A01", 50),
+      r("R1", "B1", "C10", 50),
+      r("R2", "B1", "A02", 50),
+      r("R3", "B1", "B04", 20),
+      r("R4", "B1", "", 50),
+      r("R6", "B1", "A01", 0),
+    ]);
+    assert.deepEqual(ordre.map((x) => x.code), ["R3", "R2", "R1", "R4", "R5"]);
+  });
+});
+
+describe("tissu dehors", () => {
+  it("par lieu, le plus ancien en haut", () => {
+    const auj = new Date(2026, 10, 15);
+    const l = (code: string, lieu: string, enCoupe: number, sortieLe: string) => ({ code, lieu, enCoupe, sortieLe, commande: "", unite: "m" });
+    const t = rl2.tissuDehors([l("R1", "Coupe interne", 10, "2026-11-14"), l("R2", "chez Twintex", 30, "2026-10-30"), l("R3", "chez Twintex", 5, "2026-11-10"), l("R4", "Coupe interne", 0, "2026-01-01")], auj);
+    assert.deepEqual(t.map((x) => [x.lieu, x.metrage, x.plusVieux]), [["chez Twintex", 35, 16], ["Coupe interne", 10, 1]]);
+    assert.deepEqual(t[0].rouleaux.map((x) => x.code), ["R2", "R3"]);
+    assert.equal(rl2.joursDepuis("x"), null);
+  });
+});

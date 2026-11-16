@@ -39,7 +39,18 @@ const etat = (kind: KindFeu, label: string): EtatFeu => ({ kind, label, tone: TO
 /* ─────────── entrées ─────────── */
 
 export type VerdictTds = "attente" | "ok" | "refus";
-export type Tds = { id: number; n: number; envoi: string | null; retour: string | null; verdict: string; commentaire: string; par: string };
+export type Tds = {
+  id: number;
+  n: number;
+  envoi: string | null;
+  retour: string | null;
+  verdict: string;
+  commentaire: string;
+  par: string;
+  /** Envoi au client : transporteur et n° de suivi (facultatifs). */
+  transporteur?: string;
+  suivi?: string;
+};
 export type Etape = { etape: string; fait: boolean; date: string | null; par: string };
 export type LigneFourniture = {
   id: number;

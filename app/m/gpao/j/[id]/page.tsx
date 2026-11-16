@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { accesGpaoPage } from "@/lib/auth/gpao";
-import { TAILLE_PAQUET_DEFAUT } from "@/lib/domain/paquets";
+import { TAILLE_PAQUET_DEFAUT } from "@/lib/domain/paquets-heure";
 import { CLE_SEUIL_ALERTE, SEUIL_ALERTE_DEFAUT } from "@/lib/domain/rendement";
 import { listOperations } from "@/lib/services/atelier";
 import { getSetting } from "@/lib/services/permissions";
 import { journeeTablette } from "@/lib/services/saisie-gpao";
+import { carnetDeCommandes, passagesDeJournee, suiviPaquetsActif, type PaquetCarnet, type PassageVue } from "@/lib/services/paquets";
+import { idsFreres } from "@/lib/services/avancement";
+import { db } from "@/lib/db";
+import { modele } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { SaisieTablette } from "./saisie-tablette";
 
 /* Saisie de production heure par heure, sur la tablette, directement dans la
@@ -31,10 +36,22 @@ export default async function SaisieJourneePage({ params }: { params: Promise<{ 
     journeeTablette(Number(id)),
     listOperations(),
     getSetting<number>(CLE_SEUIL_ALERTE, SEUIL_ALERTE_DEFAUT),
-    getSetting<boolean>("gpao.suiviPaquets", false),
+    suiviPaquetsActif(),
     getSetting<number>("gpao.taillePaquet", TAILLE_PAQUET_DEFAUT),
   ]);
   if (!data) notFound();
+
+  /* Les paquets réels de l'OF produit par ce modèle : avec eux, scanner une
+   * étiquette dans la case de l'heure donne directement le numéro, et le
+   * recoupement porte sur la vraie quantité du paquet. */
+  let carnet: PaquetCarnet[] = [];
+  let passages: PassageVue[] = [];
+  if (suiviPaquets) {
+    passages = await passagesDeJournee(data.journee.id);
+    const [m] = await db.select({ c: modele.commandeId }).from(modele).where(eq(modele.id, data.modele.id));
+    if (m?.c != null) carnet = await carnetDeCommandes(await idsFreres(db, m.c));
+  }
+
   return (
     <SaisieTablette
       utilisateur={user.name}
@@ -43,6 +60,8 @@ export default async function SaisieJourneePage({ params }: { params: Promise<{ 
       seuilAlerte={seuilAlerte}
       suiviPaquets={suiviPaquets}
       taillePaquet={taillePaquet}
+      carnet={carnet}
+      passagesInitiaux={passages}
     />
   );
 }

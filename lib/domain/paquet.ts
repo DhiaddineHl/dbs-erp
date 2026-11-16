@@ -36,7 +36,15 @@ export const formatCodePaquet = (annee: number, n: number) => `PQ-${annee}-${Str
  * texte d'une douchette, ou le code tapé à la main. Le rang de liasse est
  * facultatif : sans lui, le scan ouvre le paquet et l'on choisit la liasse. */
 export function lireScanPaquet(brut: string): { code: string; rang: number | null } | null {
-  const t = decodeURIComponent((brut ?? "").trim()).toUpperCase().replace(/\s+/g, "");
+  /* Un QR étranger contenant « % » (« 50%off ») faisait planter
+     decodeURIComponent, et avec lui la caméra : on lit alors le texte tel quel. */
+  let t = (brut ?? "").trim();
+  try {
+    t = decodeURIComponent(t);
+  } catch {
+    /* texte non encodé : gardé tel quel */
+  }
+  t = t.toUpperCase().replace(/\s+/g, "");
   const m = /PQ-(\d{4})-(\d{1,6})(?:\/(\d{1,2}))?(?!\d)/.exec(t);
   if (!m) return null;
   const rang = m[3] ? Number(m[3]) : null;
@@ -111,13 +119,17 @@ export type Releve = {
   paquetId: number;
   /** "" = concerne le paquet entier (assemblage). */
   liasse: string;
-  /** liasse | assemble | probleme | annulation */
+  /** poste | liasse | assemble | probleme | correction | annulation */
   etape: string;
   qte: number | null;
   note: string;
   date: string;
   annuleId: number | null;
   par: string;
+  /* « fini au poste » (etape = poste) */
+  poste?: string;
+  ouvrier?: string;
+  heure?: string;
 };
 
 /** Relevés encore valables : les annulations neutralisent sans effacer. */
@@ -126,7 +138,9 @@ export function relevesValables<R extends Releve>(releves: R[]): R[] {
   return releves.filter((r) => r.etape !== "annulation" && !annules.has(r.id));
 }
 
-export type EtatCase = "vide" | "fait" | "probleme";
+/** vide = sans nouvelle · en_cours = passé à au moins un poste (scan dans la
+ * saisie horaire) · fait = déclaré fini à la tournée · probleme. */
+export type EtatCase = "vide" | "en_cours" | "fait" | "probleme";
 export type CaseLiasse = {
   liasse: string;
   rang: number;
@@ -136,6 +150,11 @@ export type CaseLiasse = {
   par: string;
   note: string;
   qte: number | null;
+  /** Dernier poste où le morceau a été fini, et par qui (scan GPAO). */
+  poste: string;
+  ouvrier: string;
+  /** Nombre de postes déjà passés par ce morceau. */
+  nbPostes: number;
 };
 
 const cleLiasse = (s: string) => (s ?? "").trim().toLowerCase();
@@ -164,16 +183,21 @@ export function etatPaquet(liasses: string[], releves: Releve[]): EtatPaquet {
   const cases: CaseLiasse[] = (liasses.length ? liasses : [LIASSE_UNIQUE]).map((liasse, i) => {
     /* Le DERNIER relevé d'une liasse fait foi : un problème signalé puis
      * corrigé se termine par un « fait ». */
-    const siens = valables.filter((r) => r.liasse && cleLiasse(r.liasse) === cleLiasse(liasse));
+    const siens = valables.filter((r) => r.liasse && cleLiasse(r.liasse) === cleLiasse(liasse) && r.etape !== "correction");
     const dernier = siens[siens.length - 1];
+    const postes = siens.filter((r) => r.etape === "poste");
+    const dernierPoste = postes[postes.length - 1];
     return {
       liasse,
       rang: i + 1,
-      etat: !dernier ? "vide" : dernier.etape === "probleme" ? "probleme" : "fait",
+      etat: !dernier ? "vide" : dernier.etape === "probleme" ? "probleme" : dernier.etape === "poste" ? "en_cours" : "fait",
       le: dernier?.date ?? "",
-      par: dernier?.par ?? "",
+      par: dernier?.etape === "poste" ? (dernier.ouvrier || dernier.par) : (dernier?.par ?? ""),
       note: dernier?.note ?? "",
       qte: dernier?.qte ?? null,
+      poste: dernierPoste?.poste ?? "",
+      ouvrier: dernierPoste?.ouvrier ?? "",
+      nbPostes: postes.length,
     };
   });
   const assemblage = valables.filter((r) => r.etape === "assemble").at(-1);
@@ -276,4 +300,199 @@ export function refusReleve(v: {
 export function resumeScan(numero: number, taille: string, etat: EtatPaquet): string {
   const faites = etat.cases.filter((c) => c.etat === "fait").length;
   return `Paquet ${numero}${taille ? ` · ${taille}` : ""} — ${faites}/${etat.cases.length} liasse(s)${etat.assemble ? " · assemblé" : ""}`;
+}
+
+
+/* ═══════════ quantité réelle et morceaux ═══════════ */
+
+/** Pièces que contient VRAIMENT le paquet : la quantité corrigée par la coupe
+ * quand il y en a une, sinon celle imprimée sur l'étiquette. */
+export const qteEffective = (p: { qte: number; qteReelle?: number | null }) => (p.qteReelle ?? null) ?? p.qte;
+
+/** Morceaux d'un paquet qui comptent : sa liste, moins les morceaux annulés.
+ * Jamais vide : un paquet sans morceau déclaré voyage d'un seul bloc. */
+export function morceauxActifs(liasses: string[], annules: string[] = []): string[] {
+  const off = new Set(annules.map(cleLiasse));
+  const l = (liasses.length ? liasses : [LIASSE_UNIQUE]).filter((x) => !off.has(cleLiasse(x)));
+  return l.length ? l : [LIASSE_UNIQUE];
+}
+
+/** Le morceau désigné par un QR de liasse (…/PQ-…/3 → 3ᵉ morceau de la liste
+ * IMPRIMÉE, annulés compris : l'étiquette ne change pas). */
+export function morceauDuRang(liasses: string[], rang: number | null): string | null {
+  const l = liasses.length ? liasses : [LIASSE_UNIQUE];
+  return rang && l[rang - 1] ? l[rang - 1] : null;
+}
+
+/* ═══════════ découpage décidé par la coupe ═══════════
+ *
+ * L'application PROPOSE (25 + 25 + 10) ; la coupe décide. Elle tape les
+ * quantités de ses paquets pour chaque taille : « 25 25 10 », « 20, 20, 20 »,
+ * ou « 2x25 10 ». La somme doit faire exactement le coupé de la taille. */
+
+export const PIECES_PAR_PAQUET_MAX = 999;
+
+export function proposerDecoupage(qte: number, taille: number): number[] {
+  const t = Math.max(1, Math.trunc(taille) || 1);
+  const out: number[] = [];
+  let reste = Math.max(0, Math.trunc(qte) || 0);
+  while (reste > 0) {
+    const q = Math.min(t, reste);
+    out.push(q);
+    reste -= q;
+  }
+  return out;
+}
+
+export const formatDecoupage = (qtes: number[]) => {
+  // « 25 25 25 10 » se lit mieux « 3×25 + 10 ».
+  const bouts: string[] = [];
+  for (let i = 0; i < qtes.length; ) {
+    let j = i;
+    while (j + 1 < qtes.length && qtes[j + 1] === qtes[i]) j++;
+    const n = j - i + 1;
+    bouts.push(n > 1 ? `${n}×${qtes[i]}` : String(qtes[i]));
+    i = j + 1;
+  }
+  return bouts.join(" + ");
+};
+
+export function lireDecoupage(texte: string, qteCoupee: number): { ok: true; qtes: number[] } | { ok: false; error: string } {
+  const t = (texte ?? "").toLowerCase().replace(/\s*[x×*]\s*/g, "x").trim();
+  if (!t) return qteCoupee > 0 ? { ok: false, error: "Indiquez les paquets." } : { ok: true, qtes: [] };
+  const qtes: number[] = [];
+  for (const bout of t.split(/[\s,;+]+/).filter(Boolean)) {
+    const m = /^(?:(\d+)x)?(\d+)$/.exec(bout);
+    if (!m) return { ok: false, error: `« ${bout} » n'est pas une quantité de paquet.` };
+    const n = m[1] ? Number(m[1]) : 1;
+    const q = Number(m[2]);
+    if (!(q > 0) || q > PIECES_PAR_PAQUET_MAX) return { ok: false, error: `« ${bout} » : un paquet contient de 1 à ${PIECES_PAR_PAQUET_MAX} pièces.` };
+    if (!(n > 0) || n > 500) return { ok: false, error: `« ${bout} » : nombre de paquets invalide.` };
+    for (let i = 0; i < n; i++) qtes.push(q);
+  }
+  const somme = qtes.reduce((a, b) => a + b, 0);
+  if (somme !== qteCoupee) {
+    return { ok: false, error: `Les paquets font ${somme} pièces, la coupe en compte ${qteCoupee} (${somme > qteCoupee ? "+" : ""}${somme - qteCoupee}).` };
+  }
+  return { ok: true, qtes };
+}
+
+/** Comme `decouperEnPaquets`, mais avec les quantités que la coupe a choisies,
+ * taille par taille. Les numéros continuent après ceux déjà donnés à l'OF. */
+export function decouperSelonListes(
+  lignes: { taille: string; qtes: number[] }[],
+  numeroDepart = 0,
+  pieceDepart = 0,
+): PaquetNeuf[] {
+  let numero = Math.max(0, Math.trunc(numeroDepart));
+  let piece = Math.max(0, Math.trunc(pieceDepart));
+  const out: PaquetNeuf[] = [];
+  for (const l of lignes) {
+    for (const q0 of l.qtes) {
+      const q = Math.trunc(q0);
+      if (!(q > 0)) continue;
+      numero += 1;
+      out.push({ numero, taille: l.taille, qte: q, pieceDebut: piece + 1, pieceFin: piece + q });
+      piece += q;
+    }
+  }
+  return out;
+}
+
+/* ═══════════ « fini au poste », scanné dans la saisie horaire ═══════════
+ *
+ * Le scan veut dire : CE MORCEAU de ce paquet est FINI à CE POSTE, par CETTE
+ * ouvrière, dans CETTE heure. Il se fait une seule fois. L'application en
+ * tire : la proposition des pièces de l'heure, le recoupement par ouvrière,
+ * et l'endroit où se trouve chaque paquet. */
+
+export type Passage = {
+  id: number;
+  paquetId: number;
+  morceau: string;
+  poste: string;
+  ouvrier: string;
+  ouvId: number | null;
+  journeeId: number | null;
+  heure: string;
+  date: string;
+  /** Pièces du paquet au moment du scan (quantité réelle). */
+  qte: number;
+};
+
+const clePoste = (s: string) => (s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase().replace(/\s+/g, " ");
+
+/** Passages valables (« poste », non annulés) d'un journal de relevés. */
+export function passagesValables<R extends Releve & { poste?: string; ouvrier?: string; ouvId?: number | null; journeeId?: number | null; heure?: string }>(
+  releves: R[],
+): R[] {
+  return relevesValables(releves).filter((r) => r.etape === "poste");
+}
+
+export function refusFiniAuPoste(v: {
+  statutPaquet: string;
+  assemble: boolean;
+  morceau: string;
+  morceaux: string[];
+  poste: string;
+  /** Passages valables déjà enregistrés sur CE paquet. */
+  deja: { morceau: string; poste: string; ouvrier: string; date: string; heure: string }[];
+}): Refus {
+  if (v.statutPaquet !== "actif") return "Ce paquet a été annulé (sa fiche de coupe l'a été).";
+  if (v.assemble) return "Ce paquet est déjà assemblé : ce sont maintenant des pièces finies.";
+  if (!v.morceau) return "Choisissez le morceau.";
+  if (!v.morceaux.some((m) => cleLiasse(m) === cleLiasse(v.morceau))) return `« ${v.morceau} » n'est pas un morceau de ce paquet.`;
+  if (!clePoste(v.poste)) return "Indiquez le poste de l'ouvrière pour cette heure.";
+  const d = v.deja.find((x) => cleLiasse(x.morceau) === cleLiasse(v.morceau) && clePoste(x.poste) === clePoste(v.poste));
+  if (d) {
+    return `Déjà fini au poste « ${d.poste} » par ${d.ouvrier || "?"} le ${d.date.split("-").reverse().join("/")}${d.heure ? ` (${d.heure})` : ""}.`;
+  }
+  return null;
+}
+
+/** Pièces à PROPOSER dans la case d'une heure, d'après les paquets finis :
+ * tout ce que les paquets finis jusqu'à cette heure contiennent, moins ce qui
+ * a déjà été déclaré aux heures d'avant (un paquet entamé à 10 h et fini à
+ * 11 h ne se compte pas deux fois). Une proposition, jamais une obligation. */
+export function propositionPieces(v: {
+  cols: string[];
+  col: string;
+  /** Pièces déjà déclarées par heure (RI / ABS ne comptent pas). */
+  pieces: Record<string, number | "RI" | "ABS" | undefined>;
+  /** Pièces des paquets finis, par heure. */
+  finis: Record<string, number>;
+}): number {
+  const i = v.cols.indexOf(v.col);
+  if (i < 0) return 0;
+  let finis = 0;
+  let avant = 0;
+  for (let k = 0; k <= i; k++) {
+    finis += v.finis[v.cols[k]] ?? 0;
+    const p = v.pieces[v.cols[k]];
+    if (k < i && typeof p === "number") avant += p;
+  }
+  return Math.max(0, finis - avant);
+}
+
+/** Recoupement d'une ouvrière sur la journée : pièces déclarées contre pièces
+ * des paquets qu'elle a finis. Un paquet entamé (en plus ou en moins, à
+ * chaque poste tenu) est normal ; au-delà, on le signale sans accuser. */
+export function controleFiniAuPoste(v: { pieces: number; finis: number; nbPaquets: number; taillePaquet: number; postes: number }): { niveau: "attention"; message: string } | null {
+  if (v.nbPaquets === 0) return null;
+  const marge = Math.max(1, v.postes) * Math.max(1, v.taillePaquet);
+  const ecart = v.pieces - v.finis;
+  if (ecart > marge) {
+    return { niveau: "attention", message: `${v.pieces} pièces déclarées, mais ses ${v.nbPaquets} paquet(s) fini(s) n'en contiennent que ${v.finis} : ${ecart} pièces sans paquet fini.` };
+  }
+  if (-ecart > marge) {
+    return { niveau: "attention", message: `Ses ${v.nbPaquets} paquet(s) fini(s) contiennent ${v.finis} pièces, seulement ${v.pieces} déclarées : ${-ecart} pièces manquent dans la saisie.` };
+  }
+  return null;
+}
+
+/** Un numéro tapé à la main peut exister dans plusieurs OF (deux couleurs du
+ * même modèle, numérotées chacune de 1 à n) : on rend tous les candidats, et
+ * l'écran demande lequel quand il y en a plus d'un. */
+export function candidatsNumero<P extends { numero: number; statut?: string }>(numero: number, paquets: P[]): P[] {
+  return paquets.filter((p) => p.numero === numero && (p.statut ?? "actif") === "actif");
 }

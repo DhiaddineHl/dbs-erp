@@ -216,6 +216,7 @@ export async function creerBl(v: {
   clientId: number | null;
   clientNom: string;
   transporteur?: string;
+  suivi?: string;
   adresseLivraison?: string;
   note?: string;
   lignes: { commandeId: number; qteLivree: number }[];
@@ -229,7 +230,7 @@ export async function creerBl(v: {
 
     const r = await svc.creerBl({
       date: v.date, clientId: v.clientId, clientNom: v.clientNom,
-      transporteur: v.transporteur ?? "", adresseLivraison: v.adresseLivraison ?? "",
+      transporteur: v.transporteur ?? "", suivi: v.suivi ?? "", adresseLivraison: v.adresseLivraison ?? "",
       note: v.note ?? "", lignes,
     });
     await journaliser("creation", "Bons de livraison", `${r.numero} — ${v.clientNom}, ${lignes.length} ligne(s)`);
@@ -353,6 +354,17 @@ export async function traiterNc(v: {
     );
     revalider();
     return ok(r);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function majSuiviBl(id: number, transporteur: string, suivi: string): Promise<Result> {
+  try {
+    await exigerAval();
+    await svc.majSuiviBl(id, transporteur, suivi);
+    revalider();
+    return ok();
   } catch (e) {
     return fail(e);
   }

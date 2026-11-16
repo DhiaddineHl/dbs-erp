@@ -35,6 +35,7 @@ export function BlClient({
   commandes: CommandeAval[];
   peutSaisir: boolean;
 }) {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [statut, setStatut] = useState("");
   const [creation, setCreation] = useState(false);
@@ -146,7 +147,26 @@ export function BlClient({
                         </td>
                         <td className="px-3 py-2 tabular-nums">{dateFr(b.date)}</td>
                         <td className="px-3 py-2 font-semibold">{b.clientNom}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{b.transporteur || "—"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {b.transporteur || "—"}
+                          {b.suivi && <div className="font-mono text-[10.5px]">{b.suivi}</div>}
+                          {peutSaisir && (
+                            <button
+                              className="text-[10.5px] font-semibold text-brand underline"
+                              onClick={async () => {
+                                const t = prompt("Transporteur (DHL, UPS…) :", b.transporteur || "DHL");
+                                if (t == null) return;
+                                const n = prompt("N° de suivi du colis (le client le verra sur son portail) :", b.suivi);
+                                if (n == null) return;
+                                const r = await A.majSuiviBl(b.id, t, n);
+                                if (!r.ok) toast.error(r.error);
+                                else router.refresh();
+                              }}
+                            >
+                              {b.suivi ? "modifier le suivi" : "+ n° de suivi"}
+                            </button>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums">{b.lignes.length}</td>
                         <td className="px-3 py-2 text-right font-semibold tabular-nums">{nb.format(b.totalQte)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{eur.format(b.totalHt)} €</td>
@@ -235,6 +255,7 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
   const [date, setDate] = useState(auj());
   const [client, setClient] = useState("");
   const [transporteur, setTransporteur] = useState("");
+  const [suivi, setSuivi] = useState("");
   const [adresse, setAdresse] = useState("");
   const [note, setNote] = useState("");
   const [qtes, setQtes] = useState<Record<number, string>>({});
@@ -307,6 +328,14 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
               value={transporteur}
               onChange={(e) => setTransporteur(e.target.value)}
               placeholder="Transporteur, immatriculation…"
+              className="w-full rounded-md border border-input bg-card px-2 py-1.5 text-xs"
+            />
+          </Champ>
+          <Champ label="N° de suivi (DHL…)">
+            <input
+              value={suivi}
+              onChange={(e) => setSuivi(e.target.value)}
+              placeholder="Visible par le client sur son portail"
               className="w-full rounded-md border border-input bg-card px-2 py-1.5 text-xs"
             />
           </Champ>
@@ -406,6 +435,7 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
                   clientId,
                   clientNom: client,
                   transporteur,
+                  suivi,
                   adresseLivraison: adresse,
                   note,
                   lignes: selection.map((l) => ({ commandeId: l.c.id, qteLivree: l.qte })),

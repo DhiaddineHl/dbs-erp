@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as A from "@/lib/actions/rouleaux";
-import { lireScan } from "@/lib/domain/rouleau";
+import { lireScan, type FeuTissu } from "@/lib/domain/rouleau";
 import type { RouleauRow } from "@/lib/services/rouleaux";
 import { ScannerQr } from "@/components/shared/scanner-qr";
 import { ChoixSortie, lieuComplet, lieuInitial, type CmdSortie, type Lieu, type SousTraitant } from "../../choix-sortie";
@@ -265,12 +265,34 @@ function FormSortie({
   const [lieu, setLieu] = useState<Lieu>(() => lieuInitial(commandes));
   const [qte, setQte] = useState(String(b.disponible));
   const [motif, setMotif] = useState("");
+  /* Le bon tissu pour cet OF ? (même client, même couleur, réservé ?) */
+  const [feu, setFeu] = useState<{ pour: number | null; feu: FeuTissu } | null>(null);
+  useEffect(() => {
+    let actif = true;
+    const id = lieu.commandeId;
+    if (id == null) return;
+    void A.feuPourRouleau(r.code, id)
+      .then((x) => actif && x.ok && setFeu({ pour: id, feu: x.feu }))
+      .catch(() => {});
+    return () => {
+      actif = false;
+    };
+  }, [lieu.commandeId, r.code]);
+  const feuCourant = feu && feu.pour === lieu.commandeId ? feu.feu : null;
   const v = lire(qte);
   const trop = v > b.disponible + 0.001;
   return (
     <>
       <Titre>Sortie du rouleau {r.code}</Titre>
       <ChoixSortie commandes={commandes} sousTraitants={sousTraitants} valeur={lieu} onChange={setLieu} />
+      {feuCourant && feuCourant.ton !== "vert" && (
+        <div className={`rounded-xl px-3 py-2 text-sm font-semibold ${feuCourant.ton === "rouge" ? "bg-red-100 text-red-900" : "bg-amber-100 text-amber-900"}`}>
+          {feuCourant.ton === "rouge" ? "⛔" : "⚠"} {feuCourant.message}
+        </div>
+      )}
+      {feuCourant && feuCourant.ton === "vert" && feuCourant.message && (
+        <div className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">✓ {feuCourant.message}</div>
+      )}
       {r.lot.controle === "refuse" && <div className="rounded-xl bg-red-100 px-3 py-2 text-sm text-red-900">Lot refusé au contrôle : sortie bloquée.</div>}
       <div className="text-sm font-bold text-slate-700">3 · Métrage sorti ({r.lot.unite})</div>
       <GrosChiffre value={qte} onChange={setQte} />
@@ -283,7 +305,14 @@ function FormSortie({
       {(lieu.destination === "autre" || !lieu.commandeId) && (
         <input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif (obligatoire sans commande)" className="w-full rounded-2xl border border-slate-300 px-3 py-3" />
       )}
-      <Valider pending={pending} disabled={v <= 0 || trop || !lieuComplet(lieu, motif)} onClick={() => onOk({ quantite: String(v), ...lieu, motif })}>
+      <Valider
+        pending={pending}
+        disabled={v <= 0 || trop || !lieuComplet(lieu, motif)}
+        onClick={() => {
+          if (feuCourant?.ton === "rouge" && !confirm(`${feuCourant.message}\n\nSortir quand même ce rouleau pour cet OF ?`)) return;
+          onOk({ quantite: String(v), ...lieu, motif });
+        }}
+      >
         ✔ Sortir {nb.format(v)} {r.lot.unite}
         {lieu.destination === "soustraitant" && lieu.faconnierId ? ` → ${sousTraitants.find((s) => s.id === lieu.faconnierId)?.nom ?? ""}` : ""}
       </Valider>

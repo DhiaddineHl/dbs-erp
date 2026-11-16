@@ -27,9 +27,14 @@ export const config = {
    * un téléphone personnel, sans compte. Son contrôle d'accès est la clé
    * opaque de l'URL, vérifiée dans la page elle-même.
    *
+   * Les portails des clients (/portail/c/…) et des sous-traitants
+   * (/portail/s/…) aussi, pour la même raison (clé + PIN, voir
+   * lib/services/portail-acces.ts). « portail/ » et non « portail » : la page
+   * interne /portails (gestion des accès) reste, elle, derrière la connexion.
+   *
    * Le manifeste aussi : le navigateur le télécharge SANS cookie, et une
    * redirection vers /login empêcherait d'installer l'application. */
   matcher: [
-    "/((?!login|portail|api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+    "/((?!login|portail/|portail$|api/auth|_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
   ],
 };

@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  client,
   commande,
   faconnier,
   tissuAffectation,
@@ -16,6 +17,9 @@ import {
   tissuRouleau,
 } from "@/lib/db/schema";
 import * as rl from "@/lib/domain/rouleau";
+import * as tx from "@/lib/domain/tissu";
+import { listPreparation } from "@/lib/services/preparation";
+import { listLots } from "@/lib/services/tissu";
 
 /* Rouleaux physiques — lecture. Même principe que les lots : rien n'est
  * stocké en dur, le disponible se recalcule depuis les mouvements du rouleau
@@ -64,6 +68,8 @@ export type RouleauRow = {
   chez: string;
   /** Bon de sortie (BST-…) de sa dernière sortie, "" s'il est sorti sans bon. */
   bonSortie: string;
+  /** Date de sa dernière sortie (ISO), "" s'il n'est jamais sorti. */
+  sortieLe: string;
   bilan: rl.BilanRouleau;
   createdAt: string;
 };
@@ -124,6 +130,7 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
         destination: tissuMouvement.destination,
         faconnierNom: tissuMouvement.faconnierNom,
         bon: tissuMouvement.bon,
+        createdAt: tissuMouvement.createdAt,
       })
       .from(tissuMouvement)
       .where(inArray(tissuMouvement.rouleauId, ids))
@@ -172,6 +179,7 @@ export async function chargerRouleaux(filtre: { ids?: number[]; codes?: string[]
       derniereCommande: derniereSortie?.commandeLabel ?? "",
       chez: bilan.enCoupe > 0.001 && derniereSortie ? rl.lieuSortie(derniereSortie) : "",
       bonSortie: derniereSortie?.bon ?? "",
+      sortieLe: derniereSortie ? iso(derniereSortie.createdAt) : "",
       bilan,
       createdAt: iso(r.createdAt),
     };
@@ -552,4 +560,111 @@ export async function listBonsSortie(limite = 30) {
   // Par n° décroissant : un bon établi après coup porte des sorties anciennes
   // mais reste le plus récent.
   return [...par.values()].sort((a, b) => b.numero.localeCompare(a.numero, "fr", { numeric: true })).slice(0, limite);
+}
+
+
+/* ═══════════ sortie : le bon tissu, le besoin, la liste de prélèvement ═══════════ */
+
+/** Ce que la sortie compare au rouleau scanné : l'OF (et son groupe, la
+ * matière étant portée par le porteur), son client, sa référence, sa
+ * couleur, et ce qu'il lui faut encore. */
+export type CibleSortie = {
+  ofs: number[];
+  label: string;
+  client: string;
+  reference: string;
+  couleur: string;
+  besoin: number;
+  sorti: number;
+  reste: number;
+};
+
+export async function cibleSortie(commandeId: number): Promise<CibleSortie | null> {
+  const [c] = await db
+    .select({ id: commande.id, parentId: commande.parentId })
+    .from(commande)
+    .where(eq(commande.id, commandeId));
+  if (!c) return null;
+  const porteurId = c.parentId ?? c.id;
+  const [p] = await db
+    .select({ c: commande, clientNom: client.nom })
+    .from(commande)
+    .leftJoin(client, eq(commande.clientId, client.id))
+    .where(eq(commande.id, porteurId));
+  if (!p) return null;
+  const enfants = await db.select({ id: commande.id }).from(commande).where(eq(commande.parentId, porteurId));
+  const ofs = [porteurId, ...enfants.map((e) => e.id)];
+  const [prepa, mvts] = await Promise.all([
+    listPreparation(),
+    db
+      .select({ id: tissuMouvement.id, sens: tissuMouvement.sens, quantite: tissuMouvement.quantite, annuleId: tissuMouvement.annuleId })
+      .from(tissuMouvement)
+      .where(and(inArray(tissuMouvement.commandeId, ofs), inArray(tissuMouvement.sens, ["sortie", "retour", "annulation"]))),
+  ]);
+  const besoin = prepa.find((r) => r.id === porteurId)?.besoinTissu ?? 0;
+  let sorti = 0;
+  for (const m of rl.mouvementsEffectifs(mvts)) sorti += m.sens === "sortie" ? m.quantite : m.sens === "retour" ? -m.quantite : 0;
+  const r2 = (n: number) => Math.round(n * 100) / 100 + 0;
+  return {
+    ofs,
+    label: `${p.c.ofNumber} · ${p.c.modele}`,
+    client: p.clientNom ?? "",
+    reference: p.c.refArticle,
+    couleur: p.c.couleur,
+    besoin: r2(besoin),
+    sorti: r2(sorti),
+    reste: r2(Math.max(0, besoin - sorti)),
+  };
+}
+
+/** Le feu d'un rouleau pour une sortie (voir lib/domain/rouleau → feuSortie). */
+export function feuRouleau(r: RouleauRow, cible: CibleSortie | null): rl.FeuTissu {
+  return rl.feuSortie({
+    lot: { client: r.reception.client, reference: r.lot.reference, couleur: r.lot.couleur, reservePour: r.commandes },
+    cible,
+  });
+}
+
+export type LignePrelevement = rl.APrelever & { lot: string; tissu: string; unite: string; reserve: boolean };
+
+/** Liste de prélèvement d'un OF : les rouleaux en rayon des lots RÉSERVÉS à
+ * l'OF ; s'il n'y en a pas, ceux des lots du client qui conviennent (même
+ * référence, même couleur), signalés « non réservés ». */
+export async function listePrelevement(commandeId: number): Promise<{ cible: CibleSortie; lignes: LignePrelevement[]; reserves: boolean } | null> {
+  const cible = await cibleSortie(commandeId);
+  if (!cible) return null;
+  const affs = await db
+    .select({ lotId: tissuAffectation.lotId })
+    .from(tissuAffectation)
+    .where(inArray(tissuAffectation.commandeId, cible.ofs));
+  let lotIds = [...new Set(affs.map((a) => a.lotId))];
+  let reserves = true;
+  if (!lotIds.length) {
+    reserves = false;
+    const lots = await listLots();
+    lotIds = tx
+      .proposerLots(
+        { client: cible.client, reference: cible.reference, couleur: cible.couleur },
+        lots.filter((l) => !l.rangement).map((l) => ({ id: l.id, identifiant: l.identifiant, client: l.client, reference: l.reference, couleur: l.couleur, libre: l.bilan.libre, controle: l.controle })),
+      )
+      .map((l) => l.id);
+  }
+  const rs = await chargerRouleaux({ lotIds });
+  const lignes = rl.ordrePrelevement(
+    rs
+      .filter((r) => r.valide && !r.aMesurer && r.lot.controle !== "refuse" && r.bilan.disponible > 0.001)
+      .map((r) => ({
+        code: r.code,
+        bain: r.lot.lotFournisseur,
+        couleur: r.lot.couleur,
+        emplacement: r.emplacement,
+        disponible: r.bilan.disponible,
+        initial: r.metrageInitial,
+        lot: r.lot.identifiant,
+        tissu: [r.lot.reference, r.lot.composition].filter(Boolean).join(" · "),
+        unite: r.lot.unite,
+        reserve: r.commandes.some((c) => cible.ofs.includes(c.id)),
+      })),
+  );
+  return { cible, lignes, reserves };
 }

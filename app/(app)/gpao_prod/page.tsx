@@ -5,14 +5,15 @@ import { listClients } from "@/lib/services/commandes";
 import { listOperations, listPersonnel } from "@/lib/services/atelier";
 import { listFusions } from "@/lib/services/identite-ouvrieres";
 import { getSetting } from "@/lib/services/permissions";
+import { carnetParModele, suiviPaquetsActif } from "@/lib/services/paquets";
 import { estDisponible } from "@/lib/domain/atelier";
-import { TAILLE_PAQUET_DEFAUT } from "@/lib/domain/paquets";
+import { TAILLE_PAQUET_DEFAUT } from "@/lib/domain/paquets-heure";
 import { SEUIL_ALERTE_DEFAUT, TV_ROTATION_DEFAUT } from "./store";
 
 /* Shared GPAO state lives in Postgres now — load it server-side so every user
  * sees the same journées, chaînes and modèles. */
 export default async function GpaoProdPage() {
-  const [modeles, chaines, journees, clients, personnes, operations, seuilAlerte, tvRotSec, commandesInternes, fusions, suiviPaquets, taillePaquet] =
+  const [modeles, chaines, journees, clients, personnes, operations, seuilAlerte, tvRotSec, commandesInternes, fusions, suiviPaquets, taillePaquet, carnets] =
     await Promise.all([
       getModeles(),
       getChaines(),
@@ -24,8 +25,10 @@ export default async function GpaoProdPage() {
       getSetting<number>("gpao.tvRotSec", TV_ROTATION_DEFAUT),
       listCommandesInternes(),
       listFusions(),
-      getSetting<boolean>("gpao.suiviPaquets", false),
+      suiviPaquetsActif(),
       getSetting<number>("gpao.taillePaquet", TAILLE_PAQUET_DEFAUT),
+      // Les vrais paquets, pour que le scan d'une étiquette donne le numéro.
+      carnetParModele(),
     ]);
 
   const state: GpaoState = {
@@ -56,6 +59,7 @@ export default async function GpaoProdPage() {
       .filter((o) => !o.archive)
       .map((o) => ({ id: o.id, nom: o.nom, sam: o.sam })),
     reglages: { seuilAlerte, tvRotSec, suiviPaquets, taillePaquet },
+    carnets,
     nextOuvId: 0,
     tvDayId: null,
   };

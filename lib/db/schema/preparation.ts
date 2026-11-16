@@ -30,17 +30,23 @@ export const commandeTds = pgTable(
     commandeId: integer()
       .notNull()
       .references(() => commande.id, { onDelete: "cascade" }),
-    /** Rang dans le cycle : TDS1, TDS2… */
+    /** Rang dans le cycle : TDS1, TDS2… (par nature). */
     n: integer().notNull(),
+    /** tds = tête de série (décide l'OK production) · ok = pièces envoyées
+     * pour l'OK LIVRAISON (n'entre pas dans l'OK production). */
+    nature: text().notNull().default("tds"),
     envoi: date(),
     retour: date(),
     /** attente | ok | refus */
     verdict: text().notNull().default("attente"),
     commentaire: text().notNull().default(""),
+    /** Envoi au client : transporteur (DHL…) et numéro de suivi. */
+    transporteur: text().notNull().default(""),
+    suivi: text().notNull().default(""),
     par: text().notNull().default(""),
     createdAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [unique("commande_tds_rang").on(t.commandeId, t.n), index("commande_tds_cmd_idx").on(t.commandeId)],
+  (t) => [unique("commande_tds_rang").on(t.commandeId, t.nature, t.n), index("commande_tds_cmd_idx").on(t.commandeId)],
 );
 
 /** Étapes du bureau modélisme : patronage et tracés, toutes deux bloquantes. */

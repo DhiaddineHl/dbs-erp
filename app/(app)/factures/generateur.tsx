@@ -8,6 +8,7 @@ import {
   type Facture,
 } from "@/lib/facturation/store";
 import { type FactureForm, buildFactureDocHTML, printDocument } from "@/lib/facturation/print";
+import { anneeDe, controleNumero, prochainNumero } from "@/lib/domain/periode";
 
 type LineRow = { modele: string; desig: string; ref: string; couleur: string; qte: string; pu: string };
 const emptyLine = (): LineRow => ({ modele: "", desig: "", ref: "", couleur: "", qte: "", pu: "" });
@@ -55,9 +56,25 @@ function factToForm(f: Facture) {
  * from props — no effect needed. */
 export function Generateur({ store, seed, toast }: { store: FactStore; seed: Facture | null; toast: (m: string) => void }) {
   const init = seed ? factToForm(seed) : null;
-  const [num, setNum] = useState(init?.num ?? "");
+  /* Numéro : PROPOSÉ tant qu'on ne le tape pas. La proposition suit la date
+   * et le type — série par type, qui repart à 01 chaque année, l'année étant
+   * celle de la DATE DE FACTURE (31/12/2026 saisie le 2 janvier → 2026).
+   * Les factures supprimées comptent : on ne réattribue pas un numéro qui a
+   * pu circuler. */
+  const [numSaisi, setNumSaisi] = useState<string | null>(init?.num ?? null);
   const [date, setDate] = useState(init?.date ?? new Date().toISOString().split("T")[0]);
   const [typeDoc, setTypeDoc] = useState(init?.typeDoc ?? "FACTURE");
+  const typeCourant = typeDoc.includes("AVOIR") ? "avoir" : typeDoc.includes("PROFORMA") ? "proforma" : "facture";
+  const docsDuType = [...store.all(), ...store.deleted].filter((f) => f.type === typeCourant);
+  const numerosDuType = docsDuType.map((f) => f.id);
+  const anneeDate = anneeDe(date) || new Date().getFullYear();
+  const num = numSaisi ?? prochainNumero(numerosDuType, anneeDate);
+  const setNum = (v: string) => setNumSaisi(v);
+  // Un AUTRE document porte déjà ce numéro (pas celui qu'on est en train de revoir).
+  const doublon = docsDuType.find((f) => f.id === num.trim() && !(seed && seed.id === f.id && seed.type === f.type)) ?? null;
+  const alerteNumero = doublon
+    ? `Le n° ${num} existe déjà (${CLIENT_NAMES[doublon.client] || doublon.client}, ${doublon.date.split("-").reverse().join("/")}) : l'enregistrer le remplacerait.`
+    : controleNumero(num, date, numerosDuType.filter((n) => !(seed && n === seed.id)));
   const [incoterm, setIncoterm] = useState(init?.incoterm ?? "EX WORK");
   const [clientSel, setClientSel] = useState(init?.clientSel ?? "");
   const [clientNom, setClientNom] = useState(init?.clientNom ?? "");
@@ -154,12 +171,13 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
   const save = async () => {
     const f = collect();
     if (!f) return;
+    if (doublon && !confirm(`${alerteNumero}\n\nRemplacer quand même ce document ?`)) return;
     const existed = await store.saveFacture(f);
     toast(existed ? `Facture ${f.id} mise à jour ✓` : `Facture ${f.id} enregistrée ✓`);
   };
 
   const clearForm = () => {
-    setNum("");
+    setNumSaisi(null);
     setClientNom("");
     setClientAdresse("");
     setLivraison("");
@@ -201,7 +219,16 @@ export function Generateur({ store, seed, toast }: { store: FactStore; seed: Fac
       <div className="form-grid">
         <div className="form-group">
           <label>N° Facture</label>
-          <input value={num} onChange={(e) => setNum(e.target.value)} placeholder="ex: 79/2026" />
+          <div style={{ display: "flex", gap: 6 }}>
+            <input value={num} onChange={(e) => setNum(e.target.value)} placeholder={`ex: 01/${anneeDate}`} style={{ flex: 1 }} />
+            {numSaisi !== null && !seed && (
+              <button type="button" className="btn btn-outline btn-sm" title="Reprendre le numéro suivant de la série" onClick={() => setNumSaisi(null)}>
+                ↻
+              </button>
+            )}
+          </div>
+          {numSaisi === null && <div style={{ fontSize: 11, color: "var(--green)" }}>Numéro suivant de la série {anneeDate}</div>}
+          {alerteNumero && <div style={{ fontSize: 11, color: "var(--red)", fontWeight: 600 }}>⚠ {alerteNumero}</div>}
         </div>
         <div className="form-group">
           <label>Date</label>

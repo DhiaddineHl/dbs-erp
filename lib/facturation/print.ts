@@ -15,6 +15,7 @@ import {
   nb,
   nbI,
 } from "./store";
+import { dansPeriode, type Periode } from "@/lib/domain/periode";
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -115,15 +116,18 @@ function reportHeader(titre: string, periode: string) {
 const reportFooter = () =>
   `<div class="r-foot"><span>DBS Fashion — Document interne de gestion</span><span>Facturation export HT en euros</span></div>`;
 
+/** Rapport imprimable sur une PÉRIODE (lib/domain/periode) : exercice, mois,
+ * trimestre, du… au…. Le libellé de la période est imprimé en tête, pour que
+ * le papier dise toujours de quoi il parle. */
 export function buildReportHTML(
   type: string,
-  mois: string,
+  periodeChoisie: Pick<Periode, "du" | "au" | "label">,
   all: Facture[],
   couts: Couts,
   clientKey: string,
 ): string {
-  const periode = mois ? `${MOIS_FR[mois]} 2026` : "Année 2026";
-  const inPeriod = (f: Facture) => !mois || f.date.substring(5, 7) === mois;
+  const periode = periodeChoisie.label;
+  const inPeriod = (f: Facture) => dansPeriode(f.date, periodeChoisie);
   let html = "";
 
   if (type === "synthese") {
@@ -133,7 +137,7 @@ export function buildReportHTML(
     const av = avs.reduce((s, f) => s + f.total, 0);
     const net = ca - av;
     const pcs = fs.reduce((s, f) => s + f.pieces, 0);
-    const ana = clientAnalysis(all, mois || null);
+    const ana = clientAnalysis(all.filter(inPeriod));
     html =
       reportHeader("Synthèse générale de facturation", periode) +
       `<div class="r-kpis"><div class="r-kpi"><div class="l">CA net HT</div><div class="v">${nb(net)} €</div></div>` +
@@ -158,19 +162,21 @@ export function buildReportHTML(
       `<h2>Évolution mensuelle</h2><table><thead><tr><th>Mois</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net €</th><th class="r">Cumul €</th></tr></thead><tbody>` +
       (() => {
         const byM: Record<string, { n: number; pcs: number; ca: number }> = {};
+        // Mois de la PÉRIODE seulement, et clé AAAA-MM : janvier 2026 et
+        // janvier 2027 ne doivent jamais s'additionner.
         all
-          .filter((f) => f.type === "facture")
+          .filter((f) => f.type === "facture" && inPeriod(f))
           .forEach((f) => {
-            const mm = f.date.substring(5, 7);
+            const mm = f.date.substring(0, 7);
             if (!byM[mm]) byM[mm] = { n: 0, pcs: 0, ca: 0 };
             byM[mm].n++;
             byM[mm].pcs += f.pieces;
             byM[mm].ca += f.total;
           });
         all
-          .filter((f) => f.type === "avoir")
+          .filter((f) => f.type === "avoir" && inPeriod(f))
           .forEach((f) => {
-            const mm = f.date.substring(5, 7);
+            const mm = f.date.substring(0, 7);
             if (byM[mm]) byM[mm].ca -= f.total;
           });
         let cumul = 0;
@@ -178,7 +184,7 @@ export function buildReportHTML(
           .sort()
           .map(([mm, v]) => {
             cumul += v.ca;
-            return `<tr><td>${MOIS_FR[mm]}</td><td class="r">${v.n}</td><td class="r">${nbI(v.pcs)}</td><td class="r">${nb(
+            return `<tr><td>${MOIS_FR[mm.substring(5, 7)]} ${mm.substring(0, 4)}</td><td class="r">${v.n}</td><td class="r">${nbI(v.pcs)}</td><td class="r">${nb(
               v.ca,
             )}</td><td class="r">${nb(cumul)}</td></tr>`;
           })
@@ -189,7 +195,7 @@ export function buildReportHTML(
   }
 
   if (type === "clients") {
-    const ana = clientAnalysis(all, mois || null);
+    const ana = clientAnalysis(all.filter(inPeriod));
     html =
       reportHeader("Rapport par client — CA, pièces, prix moyen pondéré", periode) +
       `<table><thead><tr><th>Client</th><th class="r">Factures</th><th class="r">Pièces</th><th class="r">CA net €</th><th class="r">% du CA</th><th class="r">PMP €/pc</th><th class="r">CA moy./facture €</th><th class="r">Fournitures €</th><th class="r">Fourn. % CA</th></tr></thead><tbody>` +

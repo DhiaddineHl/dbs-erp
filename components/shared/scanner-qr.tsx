@@ -11,6 +11,9 @@ import { useEffect, useRef, useState } from "react";
 
 type Detecteur = { detect: (src: CanvasImageSource) => Promise<{ rawValue: string }[]> };
 
+/** Part de l'image lue : le carré central, celui que le cadre blanc montre. */
+const CADRE = 0.64;
+
 /** Retour affiché PAR-DESSUS la caméra en mode rafale : l'opérateur enchaîne
  * les rouleaux sans quitter l'objectif des yeux. `cle` change à chaque scan
  * pour relancer l'animation. */
@@ -24,6 +27,7 @@ export function ScannerQr({
   occupe = false,
   retour = null,
   compteur,
+  pause = false,
 }: {
   onCode: (brut: string) => void;
   placeholder?: string;
@@ -33,6 +37,9 @@ export function ScannerQr({
   retour?: RetourScan | null;
   /** Mode rafale : compteur permanent (« 12 rouleaux · 845 m »). */
   compteur?: string;
+  /** La caméra reste ouverte mais NE LIT PLUS : un choix est en attente, une
+   * étiquette voisine passant devant l'objectif ne doit rien déclencher. */
+  pause?: boolean;
 }) {
   const [saisie, setSaisie] = useState("");
   const [camera, setCamera] = useState(autoCamera);
@@ -44,24 +51,57 @@ export function ScannerQr({
   useEffect(() => {
     rappel.current = onCode;
   }, [onCode]);
+  const enPause = useRef(pause);
+  useEffect(() => {
+    enPause.current = pause;
+  }, [pause]);
+  const piste = useRef<MediaStreamTrack | null>(null);
+  const [lampeDispo, setLampeDispo] = useState(false);
+  const [lampe, setLampe] = useState(false);
 
   useEffect(() => {
     if (!camera) return;
     let arret = false;
     let flux: MediaStream | null = null;
+    let veille: { release: () => Promise<void> } | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
     (async () => {
       try {
-        flux = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        /* Une image NETTE et assez grande : sans préciser, beaucoup de
+           téléphones (et Safari) envoient du 640 × 480, illisible à plus de
+           10 cm d'une petite étiquette. La mise au point continue est
+           demandée quand le téléphone sait la faire (ignorée sinon). */
+        flux = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet],
+          },
+          audio: false,
+        });
       } catch {
-        setErreur("Caméra indisponible (autorisez-la, ou utilisez la douchette / la saisie).");
-        setCamera(false);
+        try {
+          flux = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        } catch {
+          setErreur("Caméra indisponible (autorisez-la, ou utilisez la douchette / la saisie).");
+          setCamera(false);
+          return;
+        }
+      }
+      if (arret || !video.current) {
+        flux.getTracks().forEach((t) => t.stop());
         return;
       }
-      if (arret || !video.current) return;
+      piste.current = flux.getVideoTracks()[0] ?? null;
+      const caps = (piste.current?.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { torch?: boolean };
+      setLampeDispo(!!caps.torch);
+      // L'écran ne se met pas en veille pendant qu'on scanne.
+      const nav = navigator as Navigator & { wakeLock?: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> } };
+      nav.wakeLock?.request("screen").then((v) => (veille = v)).catch(() => {});
       video.current.srcObject = flux;
       await video.current.play().catch(() => {});
 
@@ -72,17 +112,25 @@ export function ScannerQr({
       const tour = async () => {
         if (arret || !video.current || !ctx) return;
         const v = video.current;
-        if (v.readyState >= 2 && v.videoWidth) {
+        if (!enPause.current && v.readyState >= 2 && v.videoWidth) {
           let texte: string | null = null;
+          /* On ne lit QUE le centre de l'image — le cadre blanc : deux
+             étiquettes côte à côte (planche, liasses voisines) ne se
+             confondent plus. Le centre est lu en pleine définition, jusqu'à
+             900 px : un petit QR reste lisible de plus loin. */
+          const cw = Math.round(v.videoWidth * CADRE);
+          const ch = Math.round(v.videoHeight * CADRE);
+          const cx = Math.round((v.videoWidth - cw) / 2);
+          const cy = Math.round((v.videoHeight - ch) / 2);
+          const l = Math.min(900, cw);
+          const h = Math.round((ch / cw) * l);
+          canvas.width = l;
+          canvas.height = h;
+          ctx.drawImage(v, cx, cy, cw, ch, 0, 0, l, h);
           if (natif) {
-            const r = await natif.detect(v).catch(() => []);
+            const r = await natif.detect(canvas).catch(() => []);
             texte = r[0]?.rawValue ?? null;
           } else if (jsQR) {
-            const l = Math.min(640, v.videoWidth);
-            const h = Math.round((v.videoHeight / v.videoWidth) * l);
-            canvas.width = l;
-            canvas.height = h;
-            ctx.drawImage(v, 0, 0, l, h);
             const img = ctx.getImageData(0, 0, l, h);
             texte = jsQR(img.data, l, h, { inversionAttempts: "dontInvert" })?.data ?? null;
           }
@@ -103,8 +151,21 @@ export function ScannerQr({
       arret = true;
       if (timer) clearTimeout(timer);
       flux?.getTracks().forEach((t) => t.stop());
+      piste.current = null;
+      void veille?.release().catch(() => {});
+      setLampe(false);
+      setLampeDispo(false);
     };
   }, [camera]);
+
+  const basculerLampe = () => {
+    const t = piste.current;
+    if (!t) return;
+    const v = !lampe;
+    t.applyConstraints({ advanced: [{ torch: v } as MediaTrackConstraintSet] })
+      .then(() => setLampe(v))
+      .catch(() => setLampeDispo(false));
+  };
 
   const valider = () => {
     const t = saisie.trim();
@@ -120,6 +181,21 @@ export function ScannerQr({
         <div className="relative overflow-hidden rounded-2xl bg-black">
           <video ref={video} playsInline muted className="aspect-[4/3] max-h-[45vh] w-full object-cover" />
           <div className="pointer-events-none absolute inset-[18%] rounded-xl border-4 border-white/80" />
+          {pause && (
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-base font-black text-white drop-shadow">
+              ⏸ Lecture en pause
+            </div>
+          )}
+          {lampeDispo && (
+            <button
+              type="button"
+              onClick={basculerLampe}
+              aria-label="Lampe"
+              className={`absolute right-2 top-2 rounded-full px-3 py-1.5 text-sm font-black ${lampe ? "bg-amber-400 text-slate-900" : "bg-black/60 text-white"}`}
+            >
+              🔦
+            </button>
+          )}
           {compteur && (
             <div className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/70 px-3 py-1 text-sm font-black text-white">{compteur}</div>
           )}

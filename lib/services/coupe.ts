@@ -10,7 +10,7 @@ import { getSetting } from "@/lib/services/permissions";
 import { getPlan } from "@/lib/services/plan-coupe";
 import { recalculerCommande } from "@/lib/services/aval";
 import { chargerRouleaux, declarerConsommation, recalculerStatut } from "@/lib/services/rouleaux";
-import { annulerPaquetsDeFiche, creerPaquetsPourFiche } from "@/lib/services/paquets";
+import { annulerPaquetsDeFiche, creerPaquetsPourFiche, listGabarits, morceauxProposes, suiviPaquetsActif, tailleDeLaCommande, type ChoixPaquets } from "@/lib/services/paquets";
 
 /* Module COUPE — la coupe part du PLAN DE COUPE.
  *
@@ -63,6 +63,14 @@ export type ContexteCoupe = {
   lotsBloc: { lot: string; tissu: string; couleur: string; unite: string; net: number }[];
   seuil: number;
   fiches: FicheResume[];
+  /** Suivi par paquets : la coupe choisit ses morceaux et ses paquets. */
+  paquets: {
+    actif: boolean;
+    morceaux: string[];
+    gabarits: { nom: string; liasses: string[] }[];
+    /** Pièces par paquet proposées, par OF (celle du modèle, sinon de l'usine). */
+    taille: Record<number, number>;
+  };
 };
 
 /** Le porteur d'une commande (elle-même si elle n'est rattachée à rien). */
@@ -186,7 +194,43 @@ export async function contexteCoupe(commandeId: number): Promise<ContexteCoupe |
     lotsBloc,
     seuil,
     fiches,
+    paquets: await contextePaquets(porteurId, g.membres.map((m) => m.id)),
   };
+}
+
+async function contextePaquets(porteurId: number, ids: number[]): Promise<ContexteCoupe["paquets"]> {
+  const actif = await suiviPaquetsActif();
+  if (!actif) return { actif, morceaux: [], gabarits: [], taille: {} };
+  const [morceaux, gabarits] = await Promise.all([morceauxProposes(porteurId), listGabarits()]);
+  const taille: Record<number, number> = {};
+  for (const id of ids) taille[id] = await tailleDeLaCommande(db, id);
+  return { actif, morceaux, gabarits: gabarits.map((x) => ({ nom: x.nom, liasses: x.liasses })), taille };
+}
+
+/** Ce qu'on attend d'UN OF, taille par taille : le coupé quand la coupe est
+ * faite, sinon sa part du plan de coupe, sinon sa grille commandée. Sert au
+ * portail sous-traitant (livraison comparée à la coupe). Lecture seule. */
+export async function attenduDeLOf(commandeId: number): Promise<{ source: "coupe" | "plan" | "commande"; parTaille: Record<string, number>; sizes: string[] }> {
+  const lignes = await db.select({ taille: coupe.taille, qte: coupe.qte }).from(coupe).where(eq(coupe.commandeId, commandeId));
+  const coupeParTaille: Record<string, number> = {};
+  for (const l of lignes) coupeParTaille[l.taille || pc.TAILLE_UNIQUE] = (coupeParTaille[l.taille || pc.TAILLE_UNIQUE] ?? 0) + l.qte;
+  const porteurId = await porteurDe(commandeId);
+  const plan = porteurId != null ? await getPlan(porteurId) : null;
+  const sizes = plan?.sizes?.length ? plan.sizes : [];
+  if (Object.values(coupeParTaille).some((q) => q > 0)) {
+    return { source: "coupe", parTaille: coupeParTaille, sizes: [...new Set([...sizes, ...Object.keys(coupeParTaille)])] };
+  }
+  if (plan && porteurId != null) {
+    const g = await membresDuGroupe(db, porteurId);
+    const { prevu } = prevuDuPlan(plan);
+    if (g && Object.values(prevu).some((q) => q > 0)) {
+      const part = cp.repartitionParDefaut(plan.sizes, prevu, g.membres)[commandeId];
+      if (part) return { source: "plan", parTaille: part, sizes: plan.sizes };
+    }
+  }
+  const [c] = await db.select({ qte: commande.qte, tailles: commande.tailles }).from(commande).where(eq(commande.id, commandeId));
+  const grille = c?.tailles?.length ? versGrille(c.tailles) : { [pc.TAILLE_UNIQUE]: c?.qte ?? 0 };
+  return { source: "commande", parTaille: grille, sizes: Object.keys(grille) };
 }
 
 /* ═══════════ validation ═══════════ */
@@ -203,6 +247,8 @@ export type SaisieFiche = {
   matiereRang: number;
   /** Consommation déclarée maintenant, rouleau par rouleau. */
   consommations: { code: string; consomme: number; chute: number }[];
+  /** Morceaux et quantités des paquets décidés par la coupe (facultatif). */
+  paquets?: ChoixPaquets;
 };
 
 export async function validerFiche(v: SaisieFiche, par: string): Promise<{ id: number; numero: string }> {
@@ -299,7 +345,7 @@ export async function validerFiche(v: SaisieFiche, par: string): Promise<{ id: n
      * ils se déduisent d'elles (un OF × une taille → ses paquets). Ne fait
      * rien si le suivi par paquets n'est pas activé. Le coupé, lui, ne change
      * pas d'un iota : `coupe` reste la seule source de `commande.coupeQte`. */
-    await creerPaquetsPourFiche(t, fiche.id, par);
+    await creerPaquetsPourFiche(t, fiche.id, par, v.paquets ?? {});
     return { id: fiche.id, numero };
   });
 }

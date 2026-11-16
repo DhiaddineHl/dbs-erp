@@ -31,6 +31,8 @@ import {
   ListChecks,
   Settings,
   MessageCircle,
+  Globe,
+  Truck,
 } from "lucide-react";
 
 export type NavItem = {
@@ -75,6 +77,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
       { id: "clients", label: "Clients", href: "/clients", icon: Building2 },
       { id: "commandes", label: "Commandes", href: "/commandes", icon: Package },
       { id: "facon", label: "Façonniers", href: "/facon", icon: Handshake },
+      { id: "portails", label: "Portails extérieurs", href: "/portails", icon: Globe },
     ],
   },
   {
@@ -101,6 +104,7 @@ export const NAV_STRUCTURE: NavGroup[] = [
     items: [
       { id: "planning", label: "Planning général", href: "/planning", icon: CalendarDays },
       { id: "planfacon", label: "Plan façonnier", href: "/planfacon", icon: Handshake },
+      { id: "suivi_st", label: "Suivi sous-traitants", href: "/suivi_st", icon: Truck },
     ],
   },
   {
@@ -159,6 +163,7 @@ const SUBTITLES: Record<string, string> = {
   clients: "Répertoire clients — base de la facturation",
   commandes: "Commandes clients — prix, marges, tailles, OF",
   facon: "Référentiel des façonniers",
+  portails: "Liens et QR des clients et des sous-traitants",
   dt: "Tête de série, OK production et feu vert de lancement",
   modelisme: "Patronage et tirage des tracés avant coupe",
   nomen: "Consommations tissu et besoins par commande",
@@ -176,6 +181,7 @@ const SUBTITLES: Record<string, string> = {
   archives: "Commandes livrées, délais réels",
   tracabilite: "Cycle de vie complet d'une commande, imprimable",
   planfacon: "Charge mensuelle par façonnier, reste à produire",
+  suivi_st: "Déclarations des ateliers, livraisons à valider, rapports de coupe",
   prevexport: "Échéancier des exports et statut logistique",
   personnel: "Registre de l'atelier, matricules et rattachement aux chaînes",
   operations: "Catalogue des opérations et temps standards",

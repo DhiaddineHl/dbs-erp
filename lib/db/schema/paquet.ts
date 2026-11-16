@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import { date, index, integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { commande } from "./commande";
 import { coupeFiche } from "./aval";
+import { journee } from "./gpao";
 
 /* PAQUETS DE COUPE — suivi physique, de la coupe à l'assemblage.
  *
@@ -58,6 +59,14 @@ export const paquet = pgTable(
     liasses: jsonb().$type<string[]>().notNull().default([]),
     /** actif | annule (sa fiche de coupe a été annulée) */
     statut: text().notNull().default("actif"),
+    /** Quantité RÉELLE quand la coupe a corrigé le paquet après coup (23 au
+     * lieu de 25). null = la quantité imprimée fait foi. La quantité
+     * d'origine reste figée ; chaque correction est aussi tracée dans le
+     * journal (relevé « correction »). */
+    qteReelle: integer(),
+    /** Morceaux annulés (un morceau ajouté par erreur) : ils restent dans
+     * `liasses` — les étiquettes ont pu circuler — mais ne comptent plus. */
+    morceauxAnnules: jsonb().$type<string[]>().notNull().default([]),
     annuleLe: timestamp(),
     annulePar: text().notNull().default(""),
     motifAnnulation: text().notNull().default(""),
@@ -77,8 +86,12 @@ export const paquet = pgTable(
  * stocké — une frise dérivée ne peut pas mentir.
  *
  * etape :
- *   liasse     → cette liasse est finie (la plus courante)
- *   assemble   → le paquet est assemblé : il cesse d'exister comme paquet
+ *   poste      → ce MORCEAU (liasse) est fini à ce poste, par cette ouvrière,
+ *                dans cette heure : scanné dans la saisie horaire GPAO. Un
+ *                même morceau ne se finit qu'une fois au même poste.
+ *   liasse     → cette liasse est finie (relevé de tournée, ancien geste)
+ *   assemble   → le paquet est assemblé (bouton) : il cesse d'exister comme paquet
+ *   correction → la quantité réelle du paquet a été corrigée (qte = nouvelle)
  *   probleme   → quelque chose cloche (pièces manquantes, défaut) ; ne bloque
  *                rien, signale seulement
  *   annulation → neutralise un relevé (annule_id), l'original reste */
@@ -97,11 +110,24 @@ export const paquetReleve = pgTable(
     note: text().notNull().default(""),
     /** Jour CONSTATÉ : la tournée peut relever la veille. */
     date: date().notNull(),
+    /* ── « fini au poste », scanné dans la saisie horaire (etape = poste) ── */
+    /** Opération où le morceau a été fini (« Montage col »). */
+    poste: text().notNull().default(""),
+    /** Ouvrière qui l'a fini : nom recopié, et sa ligne dans la journée. */
+    ouvrier: text().notNull().default(""),
+    ouvId: integer(),
+    journeeId: integer().references(() => journee.id, { onDelete: "set null" }),
+    /** Colonne horaire de la journée (h1, h2…). */
+    heure: text().notNull().default(""),
     annuleId: integer(),
     createdBy: text().notNull().default(""),
     createdAt: timestamp().notNull().defaultNow(),
   },
-  (t) => [index("paquet_releve_paquet_idx").on(t.paquetId, t.id), index("paquet_releve_date_idx").on(t.date)],
+  (t) => [
+    index("paquet_releve_paquet_idx").on(t.paquetId, t.id),
+    index("paquet_releve_date_idx").on(t.date),
+    index("paquet_releve_journee_idx").on(t.journeeId),
+  ],
 );
 
 export const paquetRelations = relations(paquet, ({ one, many }) => ({

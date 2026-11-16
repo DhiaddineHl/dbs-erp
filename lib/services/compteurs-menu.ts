@@ -2,6 +2,7 @@ import "server-only";
 import { listCommandes } from "@/lib/services/commandes";
 import { listEncaissements } from "@/lib/services/finance";
 import { compterActionsOuvertes } from "@/lib/services/qc";
+import { compterAValider } from "@/lib/services/suivi-soustraitants";
 import { NAV_STRUCTURE, entreeAutorisee } from "@/lib/nav";
 
 /* Pastilles du menu — calculées sur les vraies données.
@@ -12,7 +13,8 @@ import { NAV_STRUCTURE, entreeAutorisee } from "@/lib/nav";
  * s'affiche plus que quand il y a quelque chose à faire :
  *   - Commandes : commandes en retard de livraison (même règle que le cockpit) ;
  *   - Factures  : factures dont l'échéance de paiement est dépassée ;
- *   - Qualité   : actions qualité encore ouvertes.
+ *   - Qualité   : actions qualité encore ouvertes ;
+ *   - Suivi sous-traitants : livraisons annoncées et rapports de coupe à valider.
  * Seuls les modules visibles par le rôle sont calculés. */
 export async function compteursMenu(modules: Record<string, boolean>): Promise<Record<string, number>> {
   const entrees = new Map(NAV_STRUCTURE.flatMap((g) => g.items).map((i) => [i.id, i]));
@@ -33,6 +35,8 @@ export async function compteursMenu(modules: Record<string, boolean>): Promise<R
     sur("commandes", async () => (await listCommandes()).filter((c) => c.statutKey === "retard").length),
     sur("factures", async () => (await listEncaissements()).filter((f) => f.statut === "retard").length),
     sur("qc", compterActionsOuvertes),
+    // Livraisons annoncées par les ateliers + rapports de coupe : à valider.
+    sur("suivi_st", compterAValider),
   ]);
   return Object.fromEntries(valeurs.filter(([, n]) => n > 0));
 }

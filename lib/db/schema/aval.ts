@@ -166,6 +166,8 @@ export const bl = pgTable(
     /** Recopié : le document ne doit pas changer si le client est renommé. */
     clientNom: text().notNull().default(""),
     transporteur: text().notNull().default(""),
+    /** Numéro de suivi du transporteur (DHL…) : le client le voit sur son portail. */
+    suivi: text().notNull().default(""),
     adresseLivraison: text().notNull().default(""),
     /** draft | sent | invoiced */
     statut: text().notNull().default("draft"),
