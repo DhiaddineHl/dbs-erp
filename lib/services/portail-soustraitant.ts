@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { br, client, commande, faconnier, stDeclaration, stLivraison, stRapportCoupe, stReceptionTissu, tissuLot, tissuMouvement, tissuRouleau } from "@/lib/db/schema";
 import * as st from "@/lib/domain/soustraitant";
@@ -7,7 +7,7 @@ import * as cp from "@/lib/domain/coupe";
 import { todayISO } from "@/lib/domain/commande";
 import { getSetting } from "@/lib/services/permissions";
 import { getPlan } from "@/lib/services/plan-coupe";
-import { attenduDeLOf, porteurDe } from "@/lib/services/coupe";
+import { attenduDeLOf, demandeDeCoupe, lignesCoupeValides, porteurDe } from "@/lib/services/coupe";
 import { filPortail, messageExterieur } from "@/lib/services/messagerie";
 import { journal, type Acces } from "@/lib/services/portail-acces";
 
@@ -58,6 +58,8 @@ export type CommandeSt = {
   coupe: number;
   /** Reçu et validé chez nous (BR) : ce qui compte vraiment. */
   recuValide: number;
+  /** Avancement : cible, cumuls déclarés, reçu, journal jour par jour, livrée ? */
+  avancement: Avancement;
   declaration: DeclarationSt | null;
   finEstimee: string | null;
   plan: { matiere: string; traces: TraceSt[] }[];
@@ -75,6 +77,7 @@ export type EnvoiTissu = {
   metrage: number;
   unite: string;
   of: string;
+  modele: string;
   commandeId: number | null;
   etat: "" | st.EtatReception;
   metrageConstate: number | null;
@@ -96,11 +99,12 @@ async function commandesDeLAtelier(faconnierId: number) {
     .select({
       id: commande.id, of: commande.ofNumber, modele: commande.modele, reference: commande.refArticle, couleur: commande.couleur,
       qte: commande.qte, prixFacon: commande.prixFacon, dateExport: commande.dateExport, exportPrev: commande.exportPrev,
-      coupe: commande.coupeQte, parentId: commande.parentId, clientNom: client.nom,
+      coupe: commande.coupeQte, parentId: commande.parentId, clientNom: client.nom, archived: commande.archived,
     })
     .from(commande)
     .leftJoin(client, eq(commande.clientId, client.id))
-    .where(and(eq(commande.faconnierId, faconnierId), eq(commande.archived, false)))
+    // En cours, et celles rangées depuis moins de 120 jours (ses archives).
+    .where(and(eq(commande.faconnierId, faconnierId), or(eq(commande.archived, false), gte(commande.updatedAt, new Date(Date.now() - 120 * 86_400_000)))))
     .orderBy(asc(commande.dateExport), asc(commande.id));
 }
 
@@ -122,6 +126,75 @@ function lignesLivrees(ls: { statut: string; lignes: st.Ligne[]; lignesRecues: s
   return out;
 }
 
+/* ═══════════ avancement d'une commande confiée ═══════════ */
+
+export type Avancement = {
+  /** Ce qu'on attend de l'atelier : le coupé, sinon la quantité commandée. */
+  cible: number;
+  qte: number;
+  coupe: number;
+  /** Derniers cumuls déclarés (saisie du soir). */
+  lance: number;
+  produit: number;
+  emballe: number;
+  /** Reçu chez nous (BR) : 1er + 2e choix, dont conforme. */
+  recu: number;
+  recuOk: number;
+  reste: number;
+  livree: boolean;
+  journal: st.JourAvancement[];
+  finEstimee: string | null;
+  /** Historique (jour → produit cumulé), pour le rythme de l'atelier. */
+  historique: { jour: string; produit: number }[];
+};
+
+/** Avancement de commandes : coupe jour par jour (lignes de coupe valides),
+ * lancé / produit (saisies du soir), livré (BR). Lecture seule — partagé par
+ * le portail de l'atelier et l'écran « Suivi sous-traitants ». */
+export async function avancementCommandes(ids: number[], aujourdhui = todayISO()): Promise<Map<number, Avancement>> {
+  const out = new Map<number, Avancement>();
+  if (!ids.length) return out;
+  const [cmds, coupes, decls, brs, livs] = await Promise.all([
+    db.select({ id: commande.id, qte: commande.qte, coupe: commande.coupeQte, archived: commande.archived }).from(commande).where(inArray(commande.id, ids)),
+    lignesCoupeValides(ids),
+    db.select().from(stDeclaration).where(inArray(stDeclaration.commandeId, ids)).orderBy(asc(stDeclaration.jour), asc(stDeclaration.id)),
+    db.select({ commandeId: br.commandeId, date: br.date, qteRecue: br.qteRecue, qteOk: br.qteOk }).from(br).where(inArray(br.commandeId, ids)),
+    db.select({ commandeId: stLivraison.commandeId, motif: stLivraison.motif, recueLe: stLivraison.recueLe }).from(stLivraison).where(and(inArray(stLivraison.commandeId, ids), eq(stLivraison.statut, "recue"))),
+  ]);
+  for (const c of cmds) {
+    const d = decls.filter((x) => x.commandeId === c.id);
+    const parJour = new Map<string, { lance: number; produit: number }>();
+    for (const x of d) parJour.set(jourIso(x.jour), { lance: x.lance, produit: x.produit });
+    const der = d.at(-1);
+    const b = brs.filter((x) => x.commandeId === c.id);
+    const recu = b.reduce((s2, x) => s2 + (x.qteRecue || 0), 0);
+    const cible = c.coupe > 0 ? c.coupe : c.qte;
+    const derniereRecue = livs.filter((l) => l.commandeId === c.id).sort((a, z) => iso(a.recueLe).localeCompare(iso(z.recueLe))).at(-1) ?? null;
+    const etat = st.etatLivraison({ attendu: cible, recu, archivee: c.archived, derniereRecue });
+    const historique = [...parJour].map(([jour, v]) => ({ jour, produit: v.produit }));
+    out.set(c.id, {
+      cible,
+      qte: c.qte,
+      coupe: c.coupe,
+      lance: der?.lance ?? 0,
+      produit: der?.produit ?? 0,
+      emballe: der?.emballe ?? 0,
+      recu,
+      recuOk: b.reduce((s2, x) => s2 + (x.qteOk || 0), 0),
+      reste: etat.reste,
+      livree: etat.livree,
+      journal: st.journalJourParJour({
+        coupe: coupes.filter((x) => x.commandeId === c.id).map((x) => ({ date: jourIso(x.date), qte: x.qte })),
+        declarations: [...parJour].map(([jour, v]) => ({ jour, ...v })),
+        livraisons: b.map((x) => ({ date: jourIso(x.date), pieces: x.qteRecue })),
+      }),
+      finEstimee: etat.livree ? null : st.dateFinEstimee(historique, cible, aujourdhui),
+      historique,
+    });
+  }
+  return out;
+}
+
 export async function vueSt(acces: Acces): Promise<VueSt | null> {
   if (acces.faconnierId == null) return null;
   const [f] = await db.select({ nom: faconnier.nom }).from(faconnier).where(eq(faconnier.id, acces.faconnierId));
@@ -131,8 +204,8 @@ export async function vueSt(acces: Acces): Promise<VueSt | null> {
   const ids = rows.map((r) => r.id);
   const aujourdhui = todayISO();
 
-  const [decls, livs, recus, rapports, tissu, messages] = await Promise.all([
-    ids.length ? db.select().from(stDeclaration).where(inArray(stDeclaration.commandeId, ids)).orderBy(asc(stDeclaration.id)) : Promise.resolve([]),
+  const [decls, livs, recus, rapports, tissu, messages, avancements] = await Promise.all([
+    ids.length ? db.select().from(stDeclaration).where(inArray(stDeclaration.commandeId, ids)).orderBy(asc(stDeclaration.jour), asc(stDeclaration.id)) : Promise.resolve([]),
     ids.length ? db.select().from(stLivraison).where(inArray(stLivraison.commandeId, ids)).orderBy(desc(stLivraison.id)) : Promise.resolve([]),
     ids.length
       ? db.select({ commandeId: br.commandeId, ok: sql<number>`coalesce(sum(${br.qteOk}),0)::int` }).from(br).where(inArray(br.commandeId, ids)).groupBy(br.commandeId)
@@ -146,6 +219,7 @@ export async function vueSt(acces: Acces): Promise<VueSt | null> {
       .limit(30),
     tissuEnvoye(acces.faconnierId),
     acces.conversationId != null ? filPortail(acces.conversationId) : Promise.resolve([]),
+    avancementCommandes(ids, aujourdhui),
   ]);
   const recuParCmd = new Map(recus.map((r) => [Number(r.commandeId), Number(r.ok)]));
 
@@ -155,9 +229,7 @@ export async function vueSt(acces: Acces): Promise<VueSt | null> {
     const plan = porteurId != null ? await getPlan(porteurId) : null;
     const mesDecls = decls.filter((d) => d.commandeId === r.id);
     const der = mesDecls.at(-1);
-    // La dernière saisie de chaque jour fait foi (pour le rythme).
-    const parJour = new Map<string, number>();
-    for (const d of mesDecls) parJour.set(jourIso(d.jour), d.produit);
+    const av = avancements.get(r.id)!;
     const mesLivs = livs.filter((l) => l.commandeId === r.id);
     const exportPrevu = jourIso(r.exportPrev) || jourIso(r.dateExport);
     commandes.push({
@@ -177,8 +249,9 @@ export async function vueSt(acces: Acces): Promise<VueSt | null> {
       dejaLivre: lignesLivrees(mesLivs),
       coupe: r.coupe,
       recuValide: recuParCmd.get(r.id) ?? 0,
+      avancement: av,
       declaration: der ? { jour: jourIso(der.jour), lance: der.lance, produit: der.produit, emballe: der.emballe, alertes: der.alertes, le: iso(der.createdAt) } : null,
-      finEstimee: st.dateFinEstimee([...parJour].map(([jour, produit]) => ({ jour, produit })), r.coupe > 0 ? r.coupe : r.qte, aujourdhui),
+      finEstimee: av.finEstimee,
       plan: (plan?.matieres ?? []).map((m) => ({
         matiere: m.nom,
         traces: m.traces.map((t) => ({
@@ -214,7 +287,7 @@ export async function tissuEnvoye(faconnierId: number): Promise<EnvoiTissu[]> {
   const rows = await db
     .select({
       id: tissuMouvement.id, date: tissuMouvement.createdAt, bon: tissuMouvement.bon, quantite: tissuMouvement.quantite, commandeId: tissuMouvement.commandeId,
-      of: commande.ofNumber, rouleau: tissuRouleau.code, reference: tissuLot.reference, couleur: tissuLot.couleur, codeCouleur: tissuLot.codeCouleur,
+      of: commande.ofNumber, modele: commande.modele, rouleau: tissuRouleau.code, reference: tissuLot.reference, couleur: tissuLot.couleur, codeCouleur: tissuLot.codeCouleur,
       bain: tissuLot.lotFournisseur, unite: tissuLot.unite,
     })
     .from(tissuMouvement)
@@ -247,6 +320,7 @@ export async function tissuEnvoye(faconnierId: number): Promise<EnvoiTissu[]> {
         metrage: r2(r.quantite),
         unite: r.unite,
         of: r.of ?? "",
+        modele: r.modele ?? "",
         commandeId: r.commandeId,
         etat: (rec?.etat ?? "") as EnvoiTissu["etat"],
         metrageConstate: rec?.metrageConstate ?? null,
@@ -266,7 +340,7 @@ export async function declarer(a: Acces, commandeId: number, s: st.Cumuls, note:
   const saisie = { lance: Number(s.lance), produit: Number(s.produit), emballe: Number(s.emballe) };
   const refus = st.refusDeclaration(saisie);
   if (refus) throw new Error(refus);
-  const [prec] = await db.select().from(stDeclaration).where(eq(stDeclaration.commandeId, commandeId)).orderBy(desc(stDeclaration.id)).limit(1);
+  const [prec] = await db.select().from(stDeclaration).where(eq(stDeclaration.commandeId, commandeId)).orderBy(desc(stDeclaration.jour), desc(stDeclaration.id)).limit(1);
   const jour = todayISO();
   const alertes = st.alertesDeclaration({
     saisie,
@@ -354,7 +428,12 @@ export async function contexteRapport(a: Acces, commandeId: number) {
     .select({ id: commande.id, of: commande.ofNumber, faconnierId: commande.faconnierId, parentId: commande.parentId })
     .from(commande)
     .where(sql`${commande.id} = ${porteurId} or ${commande.parentId} = ${porteurId}`);
-  const ofs = groupe.filter((g) => g.faconnierId === a.faconnierId).map((g) => ({ id: g.id, of: g.of }));
+  const ofs = await Promise.all(
+    groupe
+      .filter((g) => g.faconnierId === a.faconnierId)
+      // Tailles demandées à couper pour cet OF (plan de coupe, sinon commande).
+      .map(async (g) => ({ id: g.id, of: g.of, demande: (await demandeDeCoupe(g.id)).parTaille })),
+  );
   const ids = new Set(groupe.map((g) => g.id));
   const rouleaux = (await tissuEnvoye(a.faconnierId!)).filter((e) => e.rouleau && e.commandeId != null && ids.has(e.commandeId));
   return { porteurId, sizes: plan.sizes, ofs, rouleaux: rouleaux.map((r) => ({ code: r.rouleau, tissu: r.tissu, couleur: r.couleur, recu: r.metrageConstate ?? r.metrage, unite: r.unite })) };

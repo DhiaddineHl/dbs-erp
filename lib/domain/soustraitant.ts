@@ -74,8 +74,27 @@ export function sansNouvelle(derniere: string | null, aujourdhui: string, jours 
   return joursEntre(derniere, aujourdhui) >= jours;
 }
 
-/** Date de fin estimée au rythme des 7 derniers jours de saisie (produit).
- * null si pas assez d'historique ou si rien n'avance. */
+/* ─────────── jours ouvrés (lundi → samedi) ─────────── */
+
+const estDimanche = (d: string) => new Date(`${d.slice(0, 10)}T00:00:00Z`).getUTCDay() === 0;
+/** Jours ouvrés (dimanche exclu) après `du`, jusqu'à `au` compris. */
+export function joursOuvresEntre(du: string, au: string): number {
+  let n = 0;
+  for (let d = ajouterJours(du, 1); d <= au; d = ajouterJours(d, 1)) if (!estDimanche(d)) n++;
+  return n;
+}
+/** `d` + n jours ouvrés (le dimanche ne compte pas). */
+export function ajouterJoursOuvres(d: string, n: number): string {
+  let x = d.slice(0, 10);
+  for (let i = 0; i < Math.max(0, Math.ceil(n)); ) {
+    x = ajouterJours(x, 1);
+    if (!estDimanche(x)) i++;
+  }
+  return x;
+}
+
+/** Date de fin estimée au rythme des 7 derniers jours de saisie (produit),
+ * en jours ouvrés. null si pas assez d'historique ou si rien n'avance. */
 export function dateFinEstimee(historique: { jour: string; produit: number }[], total: number, aujourdhui: string): string | null {
   const h = [...historique].sort((a, b) => a.jour.localeCompare(b.jour));
   if (h.length < 2 || total <= 0) return null;
@@ -83,11 +102,119 @@ export function dateFinEstimee(historique: { jour: string; produit: number }[], 
   if (dernier.produit >= total) return dernier.jour;
   const depuis = ajouterJours(dernier.jour, -7);
   const premier = h.find((x) => x.jour >= depuis && x.jour < dernier.jour) ?? h[h.length - 2];
-  const jours = joursEntre(premier.jour, dernier.jour);
+  const jours = joursOuvresEntre(premier.jour, dernier.jour);
   const rythme = jours > 0 ? (dernier.produit - premier.produit) / jours : 0;
   if (rythme <= 0) return null;
-  const fin = ajouterJours(dernier.jour, Math.ceil((total - dernier.produit) / rythme));
+  const fin = ajouterJoursOuvres(dernier.jour, (total - dernier.produit) / rythme);
   return fin < aujourdhui ? aujourdhui : fin;
+}
+
+/* ─────────── jour par jour ─────────── */
+
+export type JourAvancement = {
+  jour: string;
+  coupe: number;
+  coupeCumul: number;
+  lance: number;
+  lanceCumul: number;
+  produit: number;
+  produitCumul: number;
+  livre: number;
+  livreCumul: number;
+};
+
+/** Le journal d'une commande, jour par jour (le plus récent d'abord) :
+ * coupé (lignes de coupe), lancé et produit (saisies du soir — cumuls : la
+ * dernière saisie du jour fait foi, le chiffre du jour est l'écart avec la
+ * veille), livré (reçu chez nous). Un jour sans rien n'apparaît pas. */
+export function journalJourParJour(v: {
+  coupe: { date: string; qte: number }[];
+  declarations: { jour: string; lance: number; produit: number }[];
+  livraisons: { date: string; pieces: number }[];
+}): JourAvancement[] {
+  const jours = new Set<string>();
+  const coupeJour = new Map<string, number>();
+  for (const c of v.coupe) {
+    const j = c.date.slice(0, 10);
+    jours.add(j);
+    coupeJour.set(j, (coupeJour.get(j) ?? 0) + c.qte);
+  }
+  const decl = new Map<string, { lance: number; produit: number }>();
+  for (const d of v.declarations) {
+    jours.add(d.jour.slice(0, 10));
+    decl.set(d.jour.slice(0, 10), { lance: d.lance, produit: d.produit });
+  }
+  const livJour = new Map<string, number>();
+  for (const l of v.livraisons) {
+    const j = l.date.slice(0, 10);
+    jours.add(j);
+    livJour.set(j, (livJour.get(j) ?? 0) + l.pieces);
+  }
+  const out: JourAvancement[] = [];
+  let coupeCumul = 0;
+  let livreCumul = 0;
+  let prec = { lance: 0, produit: 0 };
+  for (const j of [...jours].sort()) {
+    const c = coupeJour.get(j) ?? 0;
+    coupeCumul += c;
+    const l = livJour.get(j) ?? 0;
+    livreCumul += l;
+    const d = decl.get(j) ?? prec;
+    out.push({
+      jour: j, coupe: c, coupeCumul, lance: d.lance - prec.lance, lanceCumul: d.lance, produit: d.produit - prec.produit, produitCumul: d.produit, livre: l, livreCumul,
+    });
+    prec = d;
+  }
+  return out.reverse();
+}
+
+/* ─────────── livrée ? ─────────── */
+
+/** Une commande est LIVRÉE (passe aux archives de l'atelier) quand :
+ *  · elle est rangée chez vous (archivée) ;
+ *  · ou tout ce qui était attendu est reçu (1er + 2e choix) ;
+ *  · ou la dernière livraison reçue n'annonçait PAS de suite (motif
+ *    « manquant », « défaut »… plutôt que « partielle — le reste suit »).
+ * Sinon elle reste EN COURS : une livraison partielle ne la ferme pas. */
+export function etatLivraison(v: { attendu: number; recu: number; archivee: boolean; derniereRecue: { motif: string } | null }): { livree: boolean; reste: number } {
+  const reste = Math.max(0, v.attendu - v.recu);
+  if (v.archivee) return { livree: true, reste };
+  if (v.attendu > 0 && v.recu >= v.attendu) return { livree: true, reste: 0 };
+  if (v.recu > 0 && v.derniereRecue && v.derniereRecue.motif && v.derniereRecue.motif !== "partielle") return { livree: true, reste };
+  return { livree: false, reste };
+}
+
+/* ─────────── charge d'un atelier : quand lancer la suivante ? ─────────── */
+
+/** Rythme de l'atelier (pièces produites par jour ouvré) sur les `jours`
+ * derniers jours, toutes commandes confondues. Pour chaque commande : le
+ * produit déclaré en fin de période moins celui d'avant la période (ou, si
+ * la commande n'avait rien avant, sa première saisie de la période : une
+ * reprise d'historique ne gonfle pas le rythme). */
+export function rythmeAtelier(parCommande: { jour: string; produit: number }[][], aujourdhui: string, jours = 14): number | null {
+  const debut = ajouterJours(aujourdhui, -jours);
+  let pieces = 0;
+  let vu = false;
+  for (const h of parCommande) {
+    const tri = [...h].sort((a, b) => a.jour.localeCompare(b.jour));
+    const avant = tri.filter((x) => x.jour <= debut).at(-1);
+    const dedans = tri.filter((x) => x.jour > debut && x.jour <= aujourdhui);
+    if (!dedans.length) continue;
+    const base = avant ?? dedans[0];
+    pieces += Math.max(0, dedans[dedans.length - 1].produit - base.produit);
+    vu = true;
+  }
+  if (!vu) return null;
+  const n = joursOuvresEntre(debut, aujourdhui);
+  return n > 0 ? Math.round((pieces / n) * 10) / 10 : null;
+}
+
+/** Date à laquelle l'atelier aura fini son travail en cours, à son rythme :
+ * c'est la date à partir de laquelle on peut lui lancer une nouvelle commande. */
+export function dateLibre(resteAProduire: number, rythme: number | null, aujourdhui: string): string | null {
+  if (resteAProduire <= 0) return aujourdhui;
+  if (!rythme || rythme <= 0) return null;
+  return ajouterJoursOuvres(aujourdhui, resteAProduire / rythme);
 }
 
 /** Ce que le CLIENT voit d'une confection déclarée : jamais plus que lancé ni

@@ -207,19 +207,11 @@ async function contextePaquets(porteurId: number, ids: number[]): Promise<Contex
   return { actif, morceaux, gabarits: gabarits.map((x) => ({ nom: x.nom, liasses: x.liasses })), taille };
 }
 
-/** Ce qu'on attend d'UN OF, taille par taille : le coupé quand la coupe est
- * faite, sinon sa part du plan de coupe, sinon sa grille commandée. Sert au
- * portail sous-traitant (livraison comparée à la coupe). Lecture seule. */
-export async function attenduDeLOf(commandeId: number): Promise<{ source: "coupe" | "plan" | "commande"; parTaille: Record<string, number>; sizes: string[] }> {
-  const lignes = await db.select({ taille: coupe.taille, qte: coupe.qte }).from(coupe).where(eq(coupe.commandeId, commandeId));
-  const coupeParTaille: Record<string, number> = {};
-  for (const l of lignes) coupeParTaille[l.taille || pc.TAILLE_UNIQUE] = (coupeParTaille[l.taille || pc.TAILLE_UNIQUE] ?? 0) + l.qte;
+/** Ce qu'on DEMANDE de couper pour un OF, taille par taille : sa part du
+ * plan de coupe, sinon sa grille commandée. Lecture seule. */
+export async function demandeDeCoupe(commandeId: number): Promise<{ source: "plan" | "commande"; parTaille: Record<string, number>; sizes: string[] }> {
   const porteurId = await porteurDe(commandeId);
   const plan = porteurId != null ? await getPlan(porteurId) : null;
-  const sizes = plan?.sizes?.length ? plan.sizes : [];
-  if (Object.values(coupeParTaille).some((q) => q > 0)) {
-    return { source: "coupe", parTaille: coupeParTaille, sizes: [...new Set([...sizes, ...Object.keys(coupeParTaille)])] };
-  }
   if (plan && porteurId != null) {
     const g = await membresDuGroupe(db, porteurId);
     const { prevu } = prevuDuPlan(plan);
@@ -230,7 +222,33 @@ export async function attenduDeLOf(commandeId: number): Promise<{ source: "coupe
   }
   const [c] = await db.select({ qte: commande.qte, tailles: commande.tailles }).from(commande).where(eq(commande.id, commandeId));
   const grille = c?.tailles?.length ? versGrille(c.tailles) : { [pc.TAILLE_UNIQUE]: c?.qte ?? 0 };
-  return { source: "commande", parTaille: grille, sizes: Object.keys(grille) };
+  return { source: "commande", parTaille: grille, sizes: plan?.sizes?.length ? plan.sizes : Object.keys(grille) };
+}
+
+/** Lignes de coupe VALIDES d'OF (celles d'une fiche annulée restent en base
+ * pour l'historique mais ne comptent plus — même règle que `coupeQte`). */
+export async function lignesCoupeValides(commandeIds: number[]) {
+  if (!commandeIds.length) return [];
+  return db
+    .select({ commandeId: coupe.commandeId, date: coupe.date, taille: coupe.taille, qte: coupe.qte })
+    .from(coupe)
+    .leftJoin(coupeFiche, eq(coupe.ficheId, coupeFiche.id))
+    .where(and(inArray(coupe.commandeId, commandeIds), or(isNull(coupe.ficheId), eq(coupeFiche.statut, "validee"))))
+    .orderBy(asc(coupe.date));
+}
+
+/** Ce qu'on attend d'UN OF, taille par taille : le coupé quand la coupe est
+ * faite, sinon ce qui est demandé (plan de coupe, sinon commande). Sert au
+ * portail sous-traitant (livraison comparée à la coupe). Lecture seule. */
+export async function attenduDeLOf(commandeId: number): Promise<{ source: "coupe" | "plan" | "commande"; parTaille: Record<string, number>; sizes: string[] }> {
+  const lignes = await lignesCoupeValides([commandeId]);
+  const coupeParTaille: Record<string, number> = {};
+  for (const l of lignes) coupeParTaille[l.taille || pc.TAILLE_UNIQUE] = (coupeParTaille[l.taille || pc.TAILLE_UNIQUE] ?? 0) + l.qte;
+  const demande = await demandeDeCoupe(commandeId);
+  if (Object.values(coupeParTaille).some((q) => q > 0)) {
+    return { source: "coupe", parTaille: coupeParTaille, sizes: [...new Set([...demande.sizes, ...Object.keys(coupeParTaille)])] };
+  }
+  return demande;
 }
 
 /* ═══════════ validation ═══════════ */

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as A from "@/lib/actions/portail-soustraitant";
 import type { CommandeSt, EnvoiTissu, VueSt } from "@/lib/services/portail-soustraitant";
+import { BarresAvancement, JournalJours } from "@/components/shared/avancement-atelier";
 
 /* L'espace de l'atelier sous-traitant, sur son téléphone : ses commandes, la
  * saisie du soir, ses livraisons par taille, le tissu reçu, le rapport de
@@ -12,7 +13,10 @@ import type { CommandeSt, EnvoiTissu, VueSt } from "@/lib/services/portail-soust
 
 type Motif = { value: string; label: string };
 const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
-const eur = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+const eur = new Intl.NumberFormat("fr-FR", {
+  style: "currency",
+  currency: "EUR",
+});
 const dateFr = (iso: string | null) => (/^\d{4}-\d{2}-\d{2}/.test(iso ?? "") ? iso!.slice(0, 10).split("-").reverse().join("/") : "—");
 const ent = (s: string) => (s.trim() === "" ? 0 : Number(s.replace(",", ".")));
 
@@ -77,24 +81,23 @@ export function PortailSt({ cle, vue, motifs }: { cle: string; vue: VueSt; motif
         <div className="mx-auto flex max-w-3xl gap-1 px-2">
           {(
             [
-              ["commandes", `Commandes (${vue.commandes.length})`],
+              ["commandes", `Commandes (${vue.commandes.filter((c) => !c.avancement.livree).length} en cours)`],
               ["tissu", `Tissu${aConfirmer ? ` · ${aConfirmer} à confirmer` : ""}`],
               ["messages", "Messages"],
             ] as [Onglet, string][]
           ).map(([k, l]) => (
-            <button key={k} onClick={() => setOnglet(k)} className={`px-3 py-3 text-sm font-bold ${onglet === k ? "border-b-4 border-[#C9A227]" : "text-slate-500"}`}>
+            <button
+              key={k}
+              onClick={() => setOnglet(k)}
+              className={`px-3 py-3 text-sm font-bold ${onglet === k ? "border-b-4 border-[#C9A227]" : "text-slate-500"}`}
+            >
               {l}
             </button>
           ))}
         </div>
       </nav>
       <main className="mx-auto max-w-3xl space-y-4 px-3 py-4">
-        {onglet === "commandes" &&
-          (vue.commandes.length === 0 ? (
-            <p className="rounded-xl bg-white p-6 text-center text-slate-500">Aucune commande en cours pour votre atelier.</p>
-          ) : (
-            vue.commandes.map((c) => <CarteCommande key={c.id} cle={cle} c={c} motifs={motifs} aujourdhui={vue.aujourdhui} />)
-          ))}
+        {onglet === "commandes" && <OngletCommandes cle={cle} vue={vue} motifs={motifs} />}
         {onglet === "tissu" && <OngletTissu cle={cle} tissu={vue.tissu} />}
         {onglet === "messages" && <OngletMessages cle={cle} vue={vue} />}
       </main>
@@ -102,11 +105,43 @@ export function PortailSt({ cle, vue, motifs }: { cle: string; vue: VueSt; motif
   );
 }
 
+/* ─────────── commandes : en cours, puis livrées (archives) ─────────── */
+
+function OngletCommandes({ cle, vue, motifs }: { cle: string; vue: VueSt; motifs: Motif[] }) {
+  const [archives, setArchives] = useState(false);
+  const enCours = vue.commandes.filter((c) => !c.avancement.livree);
+  const livrees = vue.commandes.filter((c) => c.avancement.livree);
+  return (
+    <>
+      {enCours.length === 0 ? (
+        <p className="rounded-xl bg-white p-6 text-center text-slate-500">Aucune commande en cours pour votre atelier.</p>
+      ) : (
+        enCours.map((c) => <CarteCommande key={c.id} cle={cle} c={c} motifs={motifs} aujourdhui={vue.aujourdhui} />)
+      )}
+      {livrees.length > 0 && (
+        <section className="rounded-2xl border bg-white/60">
+          <button onClick={() => setArchives(!archives)} className="flex w-full items-center justify-between px-4 py-3 text-left font-bold">
+            <span>✅ Livrées — archives ({livrees.length})</span>
+            <span className="text-slate-500">{archives ? "▾" : "▸"}</span>
+          </button>
+          {archives && (
+            <div className="space-y-3 px-3 pb-3">
+              {livrees.map((c) => (
+                <CarteCommande key={c.id} cle={cle} c={c} motifs={motifs} aujourdhui={vue.aujourdhui} archivee />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+    </>
+  );
+}
+
 /* ─────────── une commande ─────────── */
 
-type Volet = "" | "soir" | "livrer" | "rapport" | "plan";
+type Volet = "" | "soir" | "livrer" | "rapport" | "plan" | "jours";
 
-function CarteCommande({ cle, c, motifs, aujourdhui }: { cle: string; c: CommandeSt; motifs: Motif[]; aujourdhui: string }) {
+function CarteCommande({ cle, c, motifs, aujourdhui, archivee }: { cle: string; c: CommandeSt; motifs: Motif[]; aujourdhui: string; archivee?: boolean }) {
   const [volet, setVolet] = useState<Volet>("");
   const d = c.declaration;
   const retard = c.aLivrerLe && c.finEstimee && c.finEstimee > c.aLivrerLe;
@@ -124,13 +159,18 @@ function CarteCommande({ cle, c, motifs, aujourdhui }: { cle: string; c: Command
               {[c.reference, c.couleur, c.client].filter(Boolean).join(" · ")} · <b>{nb.format(c.qte)} pcs</b>
             </div>
           </div>
-          {c.prixFacon != null && <div className="rounded-lg bg-emerald-50 px-2 py-1 text-sm font-bold text-emerald-900">Façon {eur.format(c.prixFacon)} / pc</div>}
+          {c.prixFacon != null && (
+            <div className="rounded-lg bg-emerald-50 px-2 py-1 text-sm font-bold text-emerald-900">Façon {eur.format(c.prixFacon)} / pc</div>
+          )}
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
           <Info label="À livrer chez nous" valeur={dateFr(c.aLivrerLe)} fort />
           <Info label="Export" valeur={dateFr(c.exportPrevu)} />
-          <Info label="Coupé" valeur={c.coupe ? nb.format(c.coupe) : "—"} />
-          <Info label="Reçu et validé" valeur={nb.format(c.recuValide)} />
+          <Info label="Livré (reçu)" valeur={nb.format(c.avancement.recu)} />
+          <Info label={archivee ? "Livrée" : "Reste à livrer"} valeur={archivee ? "✅" : nb.format(c.avancement.reste)} />
+        </div>
+        <div className="mt-3">
+          <BarresAvancement a={c.avancement} />
         </div>
         {d && (
           <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm">
@@ -145,24 +185,37 @@ function CarteCommande({ cle, c, motifs, aujourdhui }: { cle: string; c: Command
           </div>
         )}
         <div className="mt-3 flex flex-wrap gap-2">
-          <Bouton actif={volet === "soir"} onClick={() => basculer("soir")}>
-            📝 Saisie du soir{!saisieDuJour && <span className="ml-1 rounded bg-amber-300 px-1 text-[10px] text-amber-950">à faire</span>}
+          <Bouton actif={volet === "jours"} onClick={() => basculer("jours")}>
+            📅 Jour par jour
           </Bouton>
-          <Bouton actif={volet === "livrer"} onClick={() => basculer("livrer")}>
-            🚚 Livrer
-          </Bouton>
-          <Bouton actif={volet === "rapport"} onClick={() => basculer("rapport")}>
-            ✂ Rapport de coupe
-          </Bouton>
-          <Bouton actif={volet === "plan"} onClick={() => basculer("plan")}>
-            📐 Plan de coupe
-          </Bouton>
+          {!archivee && (
+            <>
+              <Bouton actif={volet === "soir"} onClick={() => basculer("soir")}>
+                📝 Saisie du soir
+                {!saisieDuJour && <span className="ml-1 rounded bg-amber-300 px-1 text-[10px] text-amber-950">à faire</span>}
+              </Bouton>
+              <Bouton actif={volet === "livrer"} onClick={() => basculer("livrer")}>
+                🚚 Livrer
+              </Bouton>
+              <Bouton actif={volet === "rapport"} onClick={() => basculer("rapport")}>
+                ✂ Rapport de coupe
+              </Bouton>
+              <Bouton actif={volet === "plan"} onClick={() => basculer("plan")}>
+                📐 Plan de coupe
+              </Bouton>
+            </>
+          )}
         </div>
       </div>
       {volet === "soir" && <SaisieSoir cle={cle} c={c} fermer={() => setVolet("")} />}
       {volet === "livrer" && <FormLivraison cle={cle} c={c} motifs={motifs} fermer={() => setVolet("")} />}
       {volet === "rapport" && <FormRapport cle={cle} c={c} fermer={() => setVolet("")} />}
       {volet === "plan" && <PlanCoupe c={c} />}
+      {volet === "jours" && (
+        <div className="border-t bg-slate-50 p-4">
+          <JournalJours journal={c.avancement.journal} />
+        </div>
+      )}
       {c.livraisons.length > 0 && <Livraisons cle={cle} c={c} />}
     </article>
   );
@@ -179,7 +232,10 @@ function Info({ label, valeur, fort }: { label: string; valeur: string; fort?: b
 
 function Bouton({ actif, onClick, children }: { actif?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} className={`rounded-xl border-2 px-3 py-2 text-sm font-bold ${actif ? "border-[#1F2A1F] bg-[#1F2A1F] text-white" : "border-slate-300 bg-white"}`}>
+    <button
+      onClick={onClick}
+      className={`rounded-xl border-2 px-3 py-2 text-sm font-bold ${actif ? "border-[#1F2A1F] bg-[#1F2A1F] text-white" : "border-slate-300 bg-white"}`}
+    >
       {children}
     </button>
   );
@@ -196,7 +252,11 @@ const champ = "w-full rounded-lg border-2 border-slate-300 px-2 py-2 text-center
 function SaisieSoir({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: () => void }) {
   const router = useRouter();
   const d = c.declaration;
-  const [v, setV] = useState({ lance: String(d?.lance ?? ""), produit: String(d?.produit ?? ""), emballe: String(d?.emballe ?? "") });
+  const [v, setV] = useState({
+    lance: String(d?.lance ?? ""),
+    produit: String(d?.produit ?? ""),
+    emballe: String(d?.emballe ?? ""),
+  });
   const [note, setNote] = useState("");
   const [msg, setMsg] = useState<{ erreur?: string; ok?: string }>({});
   const [pending, start] = useTransition();
@@ -217,7 +277,12 @@ function SaisieSoir({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: ()
           </label>
         ))}
       </div>
-      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Un mot (facultatif)" className="mt-2 w-full rounded-lg border px-3 py-2 text-sm" />
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Un mot (facultatif)"
+        className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+      />
       <div className="mt-2">
         <Message {...msg} />
       </div>
@@ -226,9 +291,20 @@ function SaisieSoir({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: ()
           disabled={pending}
           onClick={() =>
             start(async () => {
-              const r = await A.declarer(cle, c.id, { lance: ent(v.lance), produit: ent(v.produit), emballe: ent(v.emballe) }, note);
+              const r = await A.declarer(
+                cle,
+                c.id,
+                {
+                  lance: ent(v.lance),
+                  produit: ent(v.produit),
+                  emballe: ent(v.emballe),
+                },
+                note,
+              );
               if (!r.ok) return void setMsg({ erreur: r.error });
-              setMsg({ ok: r.alertes.length ? `Enregistré. À vérifier : ${r.alertes.join(" ")}` : "Enregistré, merci." });
+              setMsg({
+                ok: r.alertes.length ? `Enregistré. À vérifier : ${r.alertes.join(" ")}` : "Enregistré, merci.",
+              });
               router.refresh();
             })
           }
@@ -252,11 +328,23 @@ function FormLivraison({ cle, c, motifs, fermer }: { cle: string; c: CommandeSt;
   const [msg, setMsg] = useState<{ erreur?: string; ok?: string }>({});
   const [numero, setNumero] = useState("");
   const [pending, start] = useTransition();
-  const lignes = c.tailles.map((t) => ({ taille: t, premier: ent(q[t]?.premier ?? ""), second: ent(q[t]?.second ?? "") }));
+  const lignes = c.tailles.map((t) => ({
+    taille: t,
+    premier: ent(q[t]?.premier ?? ""),
+    second: ent(q[t]?.second ?? ""),
+  }));
   const ecarts = lignes.map((l) => (c.dejaLivre[l.taille] ?? 0) + l.premier + l.second - (c.attendu[l.taille] ?? 0));
   const total = lignes.reduce((s, l) => s + l.premier + l.second, 0);
   const avecEcart = total > 0 && ecarts.some((e) => e !== 0);
-  const maj = (t: string, k: "premier" | "second", val: string) => setQ({ ...q, [t]: { premier: q[t]?.premier ?? "", second: q[t]?.second ?? "", [k]: val.replace(/\D/g, "") } });
+  const maj = (t: string, k: "premier" | "second", val: string) =>
+    setQ({
+      ...q,
+      [t]: {
+        premier: q[t]?.premier ?? "",
+        second: q[t]?.second ?? "",
+        [k]: val.replace(/\D/g, ""),
+      },
+    });
   if (numero) {
     return (
       <div className="border-t bg-emerald-50 p-4 text-center">
@@ -303,13 +391,19 @@ function FormLivraison({ cle, c, motifs, fermer }: { cle: string; c: CommandeSt;
               <td className="px-1">
                 <input inputMode="numeric" value={q[t]?.second ?? ""} onChange={(e) => maj(t, "second", e.target.value)} className={champ} />
               </td>
-              <td className={`text-center font-bold ${ecarts[i] === 0 ? "text-emerald-700" : "text-amber-700"}`}>{ecarts[i] > 0 ? `+${ecarts[i]}` : ecarts[i]}</td>
+              <td className={`text-center font-bold ${ecarts[i] === 0 ? "text-emerald-700" : "text-amber-700"}`}>
+                {ecarts[i] > 0 ? `+${ecarts[i]}` : ecarts[i]}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
       {avecEcart && (
-        <select value={motif} onChange={(e) => setMotif(e.target.value)} className="mt-3 w-full rounded-lg border-2 border-amber-400 bg-white px-2 py-2 text-sm">
+        <select
+          value={motif}
+          onChange={(e) => setMotif(e.target.value)}
+          className="mt-3 w-full rounded-lg border-2 border-amber-400 bg-white px-2 py-2 text-sm"
+        >
           <option value="">— Pourquoi ça ne tombe pas juste ? —</option>
           {motifs.map((m) => (
             <option key={m.value} value={m.value}>
@@ -318,7 +412,12 @@ function FormLivraison({ cle, c, motifs, fermer }: { cle: string; c: CommandeSt;
           ))}
         </select>
       )}
-      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (nombre de cartons, chauffeur…)" className="mt-2 w-full rounded-lg border px-3 py-2 text-sm" />
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Note (nombre de cartons, chauffeur…)"
+        className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+      />
       <div className="mt-2">
         <Message {...msg} />
       </div>
@@ -475,7 +574,9 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
     );
   return (
     <div className="border-t bg-slate-50 p-4 text-sm">
-      <p className="mb-2 text-slate-600">Pièces coupées par taille, puis pour chaque rouleau : mètres utilisés, chute, et ce qu&apos;il en reste (à nous rendre).</p>
+      <p className="mb-2 text-slate-600">
+        Pièces coupées par taille, puis pour chaque rouleau : mètres utilisés, chute, et ce qu&apos;il en reste (à nous rendre).
+      </p>
       <table className="w-full">
         <thead>
           <tr className="text-[10px] uppercase text-slate-500">
@@ -487,19 +588,38 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
         </thead>
         <tbody>
           {ctx.ofs.map((o) => (
-            <tr key={o.id}>
-              <td className="pr-1 font-bold">{o.of}</td>
-              {ctx.sizes.map((s) => (
-                <td key={s} className="px-0.5">
-                  <input
-                    inputMode="numeric"
-                    value={coupe[o.id]?.[s] ?? ""}
-                    onChange={(e) => setCoupe({ ...coupe, [o.id]: { ...(coupe[o.id] ?? {}), [s]: e.target.value.replace(/\D/g, "") } })}
-                    className="w-full min-w-12 rounded border-2 px-1 py-1.5 text-center font-bold"
-                  />
-                </td>
-              ))}
-            </tr>
+            <Fragment key={o.id}>
+              {/* Ce qu'on demande de couper (plan de coupe, sinon commande). */}
+              <tr className="text-[11px] text-slate-500">
+                <td className="pr-1">à couper</td>
+                {ctx.sizes.map((s) => (
+                  <td key={s} className="text-center font-bold text-slate-700">
+                    {o.demande[s] ?? 0}
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="pr-1 font-bold">{o.of}</td>
+                {ctx.sizes.map((s) => (
+                  <td key={s} className="px-0.5">
+                    <input
+                      inputMode="numeric"
+                      value={coupe[o.id]?.[s] ?? ""}
+                      onChange={(e) =>
+                        setCoupe({
+                          ...coupe,
+                          [o.id]: {
+                            ...(coupe[o.id] ?? {}),
+                            [s]: e.target.value.replace(/\D/g, ""),
+                          },
+                        })
+                      }
+                      className="w-full min-w-12 rounded border-2 px-1 py-1.5 text-center font-bold"
+                    />
+                  </td>
+                ))}
+              </tr>
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -527,7 +647,19 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
                     <input
                       inputMode="decimal"
                       value={rl[r.code]?.[k] ?? ""}
-                      onChange={(e) => setRl({ ...rl, [r.code]: { ...(rl[r.code] ?? { consomme: "", chute: "", reste: "" }), [k]: e.target.value.replace(/[^\d.,]/g, "") } })}
+                      onChange={(e) =>
+                        setRl({
+                          ...rl,
+                          [r.code]: {
+                            ...(rl[r.code] ?? {
+                              consomme: "",
+                              chute: "",
+                              reste: "",
+                            }),
+                            [k]: e.target.value.replace(/[^\d.,]/g, ""),
+                          },
+                        })
+                      }
                       className="w-full min-w-14 rounded border-2 px-1 py-1.5 text-center font-bold"
                     />
                   </td>
@@ -546,11 +678,20 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
           disabled={pending}
           onClick={() =>
             start(async () => {
-              const pieces = Object.fromEntries(Object.entries(coupe).map(([of, t]) => [of, Object.fromEntries(Object.entries(t).map(([s, q]) => [s, ent(q)]))]));
-              const rouleaux = Object.entries(rl).map(([code, x]) => ({ code, consomme: ent(x.consomme), chute: ent(x.chute), reste: ent(x.reste) }));
+              const pieces = Object.fromEntries(
+                Object.entries(coupe).map(([of, t]) => [of, Object.fromEntries(Object.entries(t).map(([s, q]) => [s, ent(q)]))]),
+              );
+              const rouleaux = Object.entries(rl).map(([code, x]) => ({
+                code,
+                consomme: ent(x.consomme),
+                chute: ent(x.chute),
+                reste: ent(x.reste),
+              }));
               const r = await A.envoyerRapport(cle, c.id, pieces, rouleaux, note);
               if (!r.ok) return void setMsg({ erreur: r.error });
-              setMsg({ ok: "Rapport envoyé. L'usine le valide et vous prévient." });
+              setMsg({
+                ok: "Rapport envoyé. L'usine le valide et vous prévient.",
+              });
               router.refresh();
             })
           }
@@ -568,7 +709,11 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
 
 /* ─────────── tissu reçu ─────────── */
 
-const ETAT_TISSU: Record<string, string> = { recu: "✓ Reçu", ecart: "⚠ Écart signalé", manquant: "⚠ Pas reçu" };
+const ETAT_TISSU: Record<string, string> = {
+  recu: "✓ Reçu",
+  ecart: "⚠ Écart signalé",
+  manquant: "⚠ Pas reçu",
+};
 
 function OngletTissu({ cle, tissu }: { cle: string; tissu: EnvoiTissu[] }) {
   const router = useRouter();
@@ -581,7 +726,9 @@ function OngletTissu({ cle, tissu }: { cle: string; tissu: EnvoiTissu[] }) {
     start(async () => {
       const r = await A.confirmerTissu(cle, ids, etat, metrage, note);
       if (!r.ok) return void setMsg({ erreur: r.error });
-      setMsg({ ok: etat === "recu" ? "Merci, réception confirmée." : "Signalé : l'usine est prévenue." });
+      setMsg({
+        ok: etat === "recu" ? "Merci, réception confirmée." : "Signalé : l'usine est prévenue.",
+      });
       setChoix([]);
       router.refresh();
     });
@@ -594,11 +741,22 @@ function OngletTissu({ cle, tissu }: { cle: string; tissu: EnvoiTissu[] }) {
         return (
           <section key={b} className="overflow-hidden rounded-2xl border bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 px-4 py-2">
-              <div className="font-black">
-                {b.startsWith("BST") ? `Bon ${b}` : `Envoi du ${dateFr(b)}`} <span className="text-sm font-normal text-slate-500">· {ls.length} rouleau(x)</span>
+              <div>
+                <div className="font-black">
+                  {b.startsWith("BST") ? `Bon ${b}` : `Envoi du ${dateFr(b)}`}{" "}
+                  <span className="text-sm font-normal text-slate-500">· {ls.length} rouleau(x)</span>
+                </div>
+                {/* La commande et le modèle pour lesquels ce tissu est parti. */}
+                <div className="text-sm font-semibold text-slate-700">
+                  {[...new Map(ls.filter((t) => t.of).map((t) => [t.of, `${t.of} · ${t.modele}`])).values()].join(" — ") || "Commande non précisée"}
+                </div>
               </div>
               {libres.length > 0 && (
-                <button disabled={pending} onClick={() => envoyer(libres, "recu", null, "")} className="rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-bold text-white">
+                <button
+                  disabled={pending}
+                  onClick={() => envoyer(libres, "recu", null, "")}
+                  className="rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-bold text-white"
+                >
                   ✓ Tout bien reçu
                 </button>
               )}
@@ -617,9 +775,7 @@ function OngletTissu({ cle, tissu }: { cle: string; tissu: EnvoiTissu[] }) {
                         />
                       )}
                       <b>{t.rouleau || "Tissu au mètre"}</b>
-                      <div className="text-[11px] text-slate-500">
-                        {[t.tissu, t.couleur, t.bain && `bain ${t.bain}`, t.of].filter(Boolean).join(" · ")}
-                      </div>
+                      <div className="text-[11px] text-slate-500">{[t.tissu, t.couleur, t.bain && `bain ${t.bain}`, t.of].filter(Boolean).join(" · ")}</div>
                     </td>
                     <td className="whitespace-nowrap px-2 text-right font-bold">
                       {nb.format(t.metrage)} {t.unite}
@@ -665,7 +821,11 @@ function OngletTissu({ cle, tissu }: { cle: string; tissu: EnvoiTissu[] }) {
         );
       })}
       {choix.length > 0 && (
-        <button disabled={pending} onClick={() => envoyer(choix, "recu", null, "")} className="sticky bottom-3 w-full rounded-xl bg-emerald-700 py-3 font-bold text-white shadow-lg">
+        <button
+          disabled={pending}
+          onClick={() => envoyer(choix, "recu", null, "")}
+          className="sticky bottom-3 w-full rounded-xl bg-emerald-700 py-3 font-bold text-white shadow-lg"
+        >
           ✓ Confirmer {choix.length} rouleau(x) reçus
         </button>
       )}
@@ -705,9 +865,16 @@ function OngletMessages({ cle, vue }: { cle: string; vue: VueSt }) {
             </option>
           ))}
         </select>
-        <textarea value={texte} onChange={(e) => setTexte(e.target.value)} rows={3} placeholder="Ex. : il manque les étiquettes de composition" className="mt-2 w-full rounded-lg border px-3 py-2 text-sm" />
+        <textarea
+          value={texte}
+          onChange={(e) => setTexte(e.target.value)}
+          rows={3}
+          placeholder="Ex. : il manque les étiquettes de composition"
+          className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+        />
         <label className="mt-1 block text-sm">
-          📷 Photo (facultatif) <input type="file" accept="image/*" capture="environment" onChange={(e) => setPhoto(e.target.files?.[0] ?? null)} className="text-xs" />
+          📷 Photo (facultatif){" "}
+          <input type="file" accept="image/*" capture="environment" onChange={(e) => setPhoto(e.target.files?.[0] ?? null)} className="text-xs" />
         </label>
         <div className="mt-2">
           <Message {...msg} />
@@ -744,13 +911,17 @@ function OngletMessages({ cle, vue }: { cle: string; vue: VueSt }) {
         ) : (
           <ul className="space-y-2 text-sm">
             {vue.messages.map((m) => (
-                <li key={m.id} className={`max-w-[85%] rounded-xl px-3 py-2 ${m.interne ? "bg-slate-100" : "ml-auto bg-emerald-50"}`}>
-                  <div className="text-[10px] text-slate-500">
-                    {m.interne ? `DBS Fashion · ${m.auteur}` : m.auteur} · {new Date(m.le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
-                    {m.commande && ` · ${m.commande}`}
-                  </div>
-                  <div className="whitespace-pre-wrap">{m.texte}</div>
-                </li>
+              <li key={m.id} className={`max-w-[85%] rounded-xl px-3 py-2 ${m.interne ? "bg-slate-100" : "ml-auto bg-emerald-50"}`}>
+                <div className="text-[10px] text-slate-500">
+                  {m.interne ? `DBS Fashion · ${m.auteur}` : m.auteur} ·{" "}
+                  {new Date(m.le).toLocaleString("fr-FR", {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  })}
+                  {m.commande && ` · ${m.commande}`}
+                </div>
+                <div className="whitespace-pre-wrap">{m.texte}</div>
+              </li>
             ))}
           </ul>
         )}

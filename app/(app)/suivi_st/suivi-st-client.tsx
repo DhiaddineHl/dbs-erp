@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -8,11 +8,12 @@ import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import * as A from "@/lib/actions/suivi-soustraitants";
+import { BarresAvancement, JournalJours } from "@/components/shared/avancement-atelier";
 import type { suiviSt, RapportBureau } from "@/lib/services/suivi-soustraitants";
 
 type Vue = Awaited<ReturnType<typeof suiviSt>>;
 type Motif = { value: string; label: string };
-type Onglet = "valider" | "avancement" | "tissu" | "fiabilite" | "reglages";
+type Onglet = "valider" | "avancement" | "charge" | "tissu" | "fiabilite" | "reglages";
 
 const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 const eur = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
@@ -27,6 +28,7 @@ export function SuiviStClient({ vue, motifsCoupe, peutValider, peutRegler }: { v
   const onglets: [Onglet, string][] = [
     ["valider", `À valider (${vue.aValider.length + rapportsAValider.length})`],
     ["avancement", `Avancement déclaré${alertes ? ` · ⚠ ${alertes}` : ""}`],
+    ["charge", "Charge des ateliers"],
     ["tissu", `Tissu chez les ateliers${vue.ecarts.length ? ` · ⚠ ${vue.ecarts.length}` : ""}`],
     ["fiabilite", "Fiabilité"],
     ...(peutRegler ? ([["reglages", "Réglages"]] as [Onglet, string][]) : []),
@@ -127,69 +129,49 @@ export function SuiviStClient({ vue, motifsCoupe, peutValider, peutRegler }: { v
           </SectionPanel>
         </>
       )}
-      {onglet === "avancement" && (
-        <SectionPanel title="Ce que les ateliers déclarent (le soir)" flush>
+      {onglet === "avancement" && <Avancement lignes={vue.lignes} />}
+      {onglet === "charge" && (
+        <SectionPanel title="Charge des ateliers — quand lancer la commande suivante ?" flush>
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b bg-muted/40 text-[10.5px] uppercase text-muted-foreground">
-                <th className="px-3 py-2 text-left">OF</th>
                 <th className="px-3 py-2 text-left">Atelier</th>
-                <th className="px-3 py-2 text-right">Qté / coupé</th>
-                <th className="px-3 py-2 text-right">Lancé</th>
-                <th className="px-3 py-2 text-right">Produit</th>
-                <th className="px-3 py-2 text-right">Emballé</th>
-                <th className="px-3 py-2 text-right">Reçu (BR)</th>
-                <th className="px-3 py-2 text-left">À livrer / fin estimée</th>
-                <th className="px-3 py-2 text-right">Dû (façon)</th>
-                <th className="px-3 py-2 text-left">Alertes</th>
+                <th className="px-3 py-2 text-right">Commandes en cours</th>
+                <th className="px-3 py-2 text-right">Reste à produire</th>
+                <th className="px-3 py-2 text-right">Rythme (14 j)</th>
+                <th className="px-3 py-2 text-left">Libre vers le</th>
+                <th className="px-3 py-2 text-left">Dernière saisie</th>
               </tr>
             </thead>
             <tbody>
-              {vue.lignes.length === 0 && (
+              {vue.charges.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-6 text-center text-muted-foreground">
-                    Aucune commande chez un atelier qui a son portail (Portails extérieurs → Sous-traitant).
+                  <td colSpan={6} className="py-6 text-center text-muted-foreground">
+                    Aucun atelier avec un portail ouvert.
                   </td>
                 </tr>
               )}
-              {vue.lignes.map((l) => (
-                <tr key={l.commandeId} className="border-b align-top">
+              {vue.charges.map((c) => (
+                <tr key={c.atelier} className="border-b">
+                  <td className="px-3 py-2 font-bold">{c.atelier}</td>
+                  <td className="px-3 py-2 text-right">{c.enCours}</td>
+                  <td className="px-3 py-2 text-right">{nb.format(c.reste)} pcs</td>
+                  <td className="px-3 py-2 text-right">{c.rythme == null ? "—" : `${nb.format(c.rythme)} pcs / jour`}</td>
                   <td className="px-3 py-2">
-                    <b>{l.of}</b> · {l.modele}
-                    <div className="text-muted-foreground">
-                      {l.client} · {l.couleur}
-                    </div>
+                    {c.libreLe ? (
+                      <StatusBadge tone={c.libreLe <= vue.aujourdhui ? "success" : "info"}>{c.libreLe <= vue.aujourdhui ? "libre maintenant" : dateFr(c.libreLe)}</StatusBadge>
+                    ) : (
+                      <span className="text-muted-foreground">pas assez de saisies</span>
+                    )}
                   </td>
-                  <td className="px-3 py-2">{l.atelier}</td>
-                  <td className="px-3 py-2 text-right">
-                    {l.qte} / {l.coupe || "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right">{l.derniere?.lance ?? "—"}</td>
-                  <td className="px-3 py-2 text-right font-bold">{l.derniere?.produit ?? "—"}</td>
-                  <td className="px-3 py-2 text-right">{l.derniere?.emballe ?? "—"}</td>
-                  <td className="px-3 py-2 text-right">{l.recuValide}</td>
-                  <td className="px-3 py-2">
-                    {dateFr(l.aLivrerLe)} / <span className={l.enRetard ? "font-bold text-red-700" : ""}>{dateFr(l.finEstimee)}</span>
-                  </td>
-                  <td className="px-3 py-2 text-right">{l.montantDu ? eur.format(l.montantDu) : ""}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1">
-                      {l.sansNouvelle && <StatusBadge tone="warning">Sans nouvelle{l.derniere ? ` depuis le ${dateFr(l.derniere.jour)}` : ""}</StatusBadge>}
-                      {l.enRetard && <StatusBadge tone="danger">Fin estimée après la date à livrer</StatusBadge>}
-                      {(l.derniere?.alertes ?? []).map((a, i) => (
-                        <StatusBadge key={i} tone="warning">
-                          {a}
-                        </StatusBadge>
-                      ))}
-                    </div>
-                  </td>
+                  <td className="px-3 py-2">{dateFr(c.derniereSaisie)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p className="px-3 py-2 text-[11px] text-muted-foreground">
-            Déclarations de l&apos;atelier : elles ne comptent PAS comme production. La production avance quand une livraison est reçue et validée (BR). « Dû » = 1er
-            choix reçus × prix de façon.
+            Rythme = pièces produites par jour ouvré (lundi → samedi) sur les 14 derniers jours, d&apos;après les saisies du soir. « Libre vers le » = quand il aura fini
+            ses commandes en cours à ce rythme : c&apos;est la date à partir de laquelle on peut lui lancer la suivante (à confirmer avec lui).
           </p>
         </SectionPanel>
       )}
@@ -394,6 +376,117 @@ function Reglages({ initial }: { initial: { montrerClient: boolean; delai: numbe
           Enregistrer
         </Button>
       </div>
+    </SectionPanel>
+  );
+}
+
+type Ligne = Vue["lignes"][number];
+
+function Avancement({ lignes }: { lignes: Ligne[] }) {
+  const [ouvert, setOuvert] = useState<number | null>(null);
+  const [voirLivrees, setVoirLivrees] = useState(false);
+  const enCours = lignes.filter((l) => !l.avancement.livree);
+  const livrees = lignes.filter((l) => l.avancement.livree);
+  const vues = voirLivrees ? [...enCours, ...livrees] : enCours;
+  return (
+    <SectionPanel
+      title={`Avancement chez les ateliers — ${enCours.length} en cours`}
+      flush
+      actions={
+        livrees.length > 0 && (
+          <label className="flex items-center gap-1 text-[11px] font-semibold">
+            <input type="checkbox" checked={voirLivrees} onChange={(e) => setVoirLivrees(e.target.checked)} /> voir les livrées ({livrees.length})
+          </label>
+        )
+      }
+    >
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b bg-muted/40 text-[10.5px] uppercase text-muted-foreground">
+            <th className="px-3 py-2 text-left">OF</th>
+            <th className="px-3 py-2 text-left">Atelier</th>
+            <th className="px-3 py-2 text-right">Commandé</th>
+            <th className="px-3 py-2 text-right">Coupé</th>
+            <th className="px-3 py-2 text-right">Lancé</th>
+            <th className="px-3 py-2 text-left">Produit / commandé</th>
+            <th className="px-3 py-2 text-right">Livré (reçu)</th>
+            <th className="px-3 py-2 text-left">À livrer / fin estimée</th>
+            <th className="px-3 py-2 text-right">Dû (façon)</th>
+            <th className="px-3 py-2 text-left">Alertes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {vues.length === 0 && (
+            <tr>
+              <td colSpan={10} className="py-6 text-center text-muted-foreground">
+                Aucune commande en cours chez un atelier qui a son portail (Portails extérieurs → Sous-traitant).
+              </td>
+            </tr>
+          )}
+          {vues.map((l) => {
+            const a = l.avancement;
+            const pct = a.qte > 0 ? Math.min(100, Math.round((a.produit / a.qte) * 100)) : 0;
+            return (
+              <Fragment key={l.commandeId}>
+                <tr className={`cursor-pointer border-b align-top hover:bg-muted/30 ${a.livree ? "opacity-60" : ""}`} onClick={() => setOuvert(ouvert === l.commandeId ? null : l.commandeId)}>
+                  <td className="px-3 py-2">
+                    {ouvert === l.commandeId ? "▾" : "▸"} <b>{l.of}</b> · {l.modele}
+                    <div className="text-muted-foreground">
+                      {l.client} · {l.couleur}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">{l.atelier}</td>
+                  <td className="px-3 py-2 text-right">{nb.format(a.qte)}</td>
+                  <td className="px-3 py-2 text-right">{a.coupe ? nb.format(a.coupe) : "—"}</td>
+                  <td className="px-3 py-2 text-right">{l.derniere ? nb.format(a.lance) : "—"}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-20 overflow-hidden rounded-full bg-muted">
+                        <span className="block h-full bg-emerald-600" style={{ width: `${pct}%` }} />
+                      </span>
+                      <b>{nb.format(a.produit)}</b> <span className="text-muted-foreground">({pct} %)</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {nb.format(a.recu)}
+                    {a.livree ? <div className="text-emerald-700">✅ livrée</div> : a.recu > 0 && <div className="text-muted-foreground">reste {nb.format(a.reste)}</div>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {dateFr(l.aLivrerLe)} / <span className={l.enRetard ? "font-bold text-red-700" : ""}>{dateFr(l.finEstimee)}</span>
+                  </td>
+                  <td className="px-3 py-2 text-right">{l.montantDu ? eur.format(l.montantDu) : ""}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      {l.sansNouvelle && <StatusBadge tone="warning">Sans nouvelle{l.derniere ? ` depuis le ${dateFr(l.derniere.jour)}` : ""}</StatusBadge>}
+                      {l.enRetard && <StatusBadge tone="danger">Fin estimée après la date à livrer</StatusBadge>}
+                      {(l.derniere?.alertes ?? []).map((x, i) => (
+                        <StatusBadge key={i} tone="warning">
+                          {x}
+                        </StatusBadge>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+                {ouvert === l.commandeId && (
+                  <tr className="border-b bg-muted/20">
+                    <td colSpan={10} className="px-4 py-3">
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+                        <BarresAvancement a={a} />
+                        <JournalJours journal={a.journal} />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="px-3 py-2 text-[11px] text-muted-foreground">
+        Cliquez une ligne pour le jour par jour (coupé, lancé, produit, livré). Lancé / produit sont des DÉCLARATIONS de l&apos;atelier : elles ne comptent pas comme
+        production ; la production avance quand une livraison est reçue et validée (BR). Une commande passe en « livrée » quand tout est reçu, ou quand la dernière
+        livraison reçue n&apos;annonçait pas de suite. « Dû » = 1er choix reçus × prix de façon.
+      </p>
     </SectionPanel>
   );
 }

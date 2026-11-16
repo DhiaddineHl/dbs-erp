@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as A from "@/lib/actions/portail-client";
 import type { CommandeClient, PasseportClient, VueClient } from "@/lib/services/portail-client";
@@ -66,21 +66,46 @@ export function EcranPin({ cle, nom }: { cle: string; nom: string }) {
   );
 }
 
-type Onglet = "commandes" | "tissu" | "questions";
+type Onglet = "commandes" | "prevision" | "tissu" | "questions";
+
+/** Recherche souple : référence, OF, modèle, couleur, saison (sans accents ni casse). */
+const plat = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const correspond = (c: CommandeClient, q: string) =>
+  !q.trim() || plat(`${c.reference} ${c.of} ${c.modele} ${c.couleur} ${c.saison}`).includes(plat(q.trim()));
 
 export function PortailClient({ cle, vue }: { cle: string; vue: VueClient }) {
+  const router = useRouter();
+  /* En direct : la page se recharge toute seule chaque minute tant qu'elle
+   * est affichée (et dès qu'on y revient), sans rien perdre de la saisie. */
+  useEffect(() => {
+    const rafraichir = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    const t = setInterval(rafraichir, 60_000);
+    document.addEventListener("visibilitychange", rafraichir);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", rafraichir);
+    };
+  }, [router]);
   const [onglet, setOnglet] = useState<Onglet>("commandes");
   const [questionSur, setQuestionSur] = useState<number | null>(null);
-  const enCours = vue.commandes.filter((c) => c.feu.ton !== "bleu");
-  const expediees = vue.commandes.filter((c) => c.feu.ton === "bleu");
+  const [recherche, setRecherche] = useState("");
+  const [voirArchives, setVoirArchives] = useState(false);
+  /* En cours / archives : tout ce qui est parti, livré ou rangé chez nous
+   * passe aux archives. La recherche porte sur les deux. */
+  const enCours = vue.commandes.filter((c) => !c.archivee && correspond(c, recherche));
+  const archives = vue.commandes.filter((c) => c.archivee && correspond(c, recherche));
+  const nbEnCours = vue.commandes.filter((c) => !c.archivee).length;
   return (
     <div className="min-h-screen bg-[#F7F6F2] text-slate-900">
       <Entete titre={vue.client} sous={`Suivi de vos commandes · ${vue.contact}`} />
       <nav className="sticky top-0 z-10 border-b bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl gap-1 px-2">
+        <div className="mx-auto flex max-w-3xl gap-1 overflow-x-auto px-2">
           {(
             [
-              ["commandes", `Commandes (${enCours.length})`],
+              ["commandes", `Commandes (${nbEnCours})`],
+              ["prevision", "Prévision d'export"],
               ["tissu", "Mon tissu"],
               ["questions", `Questions${vue.questions.length ? ` (${vue.questions.length})` : ""}`],
             ] as const
@@ -88,7 +113,7 @@ export function PortailClient({ cle, vue }: { cle: string; vue: VueClient }) {
             <button
               key={k}
               onClick={() => setOnglet(k)}
-              className={`border-b-2 px-3 py-3 text-sm font-bold ${onglet === k ? "border-[#C9A227] text-[#0F1F3D]" : "border-transparent text-slate-500"}`}
+              className={`whitespace-nowrap border-b-2 px-3 py-3 text-sm font-bold ${onglet === k ? "border-[#C9A227] text-[#0F1F3D]" : "border-transparent text-slate-500"}`}
             >
               {l}
             </button>
@@ -98,26 +123,41 @@ export function PortailClient({ cle, vue }: { cle: string; vue: VueClient }) {
       <main className="mx-auto max-w-3xl space-y-4 px-3 py-4">
         {onglet === "commandes" && (
           <>
-            {enCours.length === 0 && <Vide texte="Aucune commande en cours." />}
+            <input
+              type="search"
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              placeholder="🔍 Rechercher une référence, un modèle, une couleur…"
+              className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-base shadow-sm outline-none focus:border-[#C9A227]"
+            />
+            {enCours.length === 0 && <Vide texte={recherche ? "Aucune commande en cours ne correspond." : "Aucune commande en cours."} />}
             {enCours.map((c) => (
               <CarteCommande key={c.id} cle={cle} c={c} onQuestion={() => (setQuestionSur(c.id), setOnglet("questions"))} />
             ))}
-            {expediees.length > 0 && (
-              <details className="rounded-2xl bg-white p-3 shadow-sm">
-                <summary className="cursor-pointer font-bold">Expédiées ces 90 derniers jours ({expediees.length})</summary>
-                <div className="mt-3 space-y-3">
-                  {expediees.map((c) => (
-                    <CarteCommande key={c.id} cle={cle} c={c} onQuestion={() => (setQuestionSur(c.id), setOnglet("questions"))} />
-                  ))}
-                </div>
-              </details>
+            {archives.length > 0 && (
+              <section className="rounded-2xl bg-white p-3 shadow-sm">
+                {/* Ouvertes d'office quand une recherche y trouve quelque chose. */}
+                <button onClick={() => setVoirArchives(!voirArchives)} className="flex w-full items-center justify-between font-bold">
+                  <span>🗄 Archives — parties ou livrées ({archives.length})</span>
+                  <span className="text-slate-500">{voirArchives || recherche ? "▾" : "▸"}</span>
+                </button>
+                {(voirArchives || !!recherche) && (
+                  <div className="mt-3 space-y-3">
+                    {archives.map((c) => (
+                      <CarteCommande key={c.id} cle={cle} c={c} onQuestion={() => (setQuestionSur(c.id), setOnglet("questions"))} />
+                    ))}
+                  </div>
+                )}
+              </section>
             )}
           </>
         )}
+        {onglet === "prevision" && <Prevision vue={vue} />}
         {onglet === "tissu" && <MonTissu cle={cle} vue={vue} />}
         {onglet === "questions" && <Questions cle={cle} vue={vue} commandeInitiale={questionSur} />}
         <p className="pb-6 text-center text-[11px] text-slate-500">
-          Avancement mis à jour le {dateFr(vue.aujourdhui)} · un point par jour · DBS Fashion
+          Avancement en direct · à jour le {dateFr(vue.aujourdhui)} à{" "}
+          {new Date(vue.misAJour).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · DBS Fashion
         </p>
       </main>
     </div>
@@ -500,5 +540,98 @@ function Questions({ cle, vue, commandeInitiale }: { cle: string; vue: VueClient
         </button>
       </div>
     </section>
+  );
+}
+
+/* ─────────── prévision d'export (publiée chaque week-end) ─────────── */
+
+const ETAT_PREV: Record<string, { label: string; cls: string }> = {
+  prete: { label: "Prête à partir", cls: "bg-emerald-100 text-emerald-900" },
+  emballage: { label: "En emballage", cls: "bg-sky-100 text-sky-900" },
+  production: { label: "En production", cls: "bg-slate-100 text-slate-700" },
+};
+const CHGT: Record<string, { label: string; cls: string }> = {
+  nouvelle: { label: "Nouvelle", cls: "bg-sky-100 text-sky-900" },
+  avancee: { label: "Avancée", cls: "bg-emerald-100 text-emerald-900" },
+  reportee: { label: "Reportée", cls: "bg-amber-100 text-amber-900" },
+  quantite: { label: "Quantité modifiée", cls: "bg-amber-100 text-amber-900" },
+  retiree: { label: "Reportée après ces 2 semaines", cls: "bg-red-100 text-red-900" },
+};
+const ajoute = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+function Prevision({ vue }: { vue: VueClient }) {
+  const p = vue.prevision;
+  if (!p) return <Vide texte="La prévision d'export est publiée chaque week-end : elle apparaîtra ici." />;
+  const semaines = [0, 1].map((i) => ({ debut: ajoute(p.debut, 7 * i), fin: ajoute(p.debut, 7 * i + 6) }));
+  const retirees = p.lignes.filter((l) => l.changement === "retiree");
+  const publie = new Date(p.publieLe).toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "2-digit" });
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-[#0F1F3D] px-4 py-3 text-white">
+        <div className="text-sm font-bold">
+          Prévision d&apos;export du {dateFr(p.debut)} au {dateFr(p.fin)}
+        </div>
+        <div className="text-xs text-white/70">Publiée le {publie} · la prochaine arrive le week-end prochain</div>
+        {p.commentaire && <div className="mt-2 rounded-lg bg-white/10 px-3 py-2 text-sm">💬 {p.commentaire}</div>}
+      </div>
+      {semaines.map((s, i) => {
+        const ls = p.lignes.filter((l) => l.changement !== "retiree" && l.date >= s.debut && l.date <= s.fin);
+        const pieces = ls.reduce((n, l) => n + l.qte, 0);
+        return (
+          <section key={s.debut} className="overflow-hidden rounded-2xl bg-white shadow-sm">
+            <div className="flex items-baseline justify-between border-b px-4 py-2">
+              <div className="font-black">
+                {i === 0 ? (s.debut <= vue.aujourdhui ? "Cette semaine" : "Semaine prochaine") : "La semaine d'après"} <span className="text-sm font-normal text-slate-500">· du {dateFr(s.debut)} au {dateFr(s.fin)}</span>
+              </div>
+              {pieces > 0 && <div className="text-sm font-bold">{nb.format(pieces)} pcs</div>}
+            </div>
+            {ls.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-slate-500">Aucun départ prévu.</div>
+            ) : (
+              <ul className="divide-y">
+                {ls.map((l) => (
+                  <li key={`${l.of}-${l.date}`} className="px-4 py-2.5">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <div>
+                        <span className="font-bold">{l.modele}</span> <span className="text-xs text-slate-500">{l.of}</span>
+                        <div className="text-xs text-slate-600">{[l.reference, l.couleur].filter(Boolean).join(" · ")}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black">{dateFr(l.date)}</div>
+                        <div className="text-xs">
+                          <b>{nb.format(l.qte)}</b> / {nb.format(l.qteCommande)} pcs
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-1 text-[11px] font-semibold">
+                      {ETAT_PREV[l.etat] && <span className={`rounded-full px-2 py-0.5 ${ETAT_PREV[l.etat].cls}`}>{ETAT_PREV[l.etat].label}</span>}
+                      {CHGT[l.changement] && (
+                        <span className={`rounded-full px-2 py-0.5 ${CHGT[l.changement].cls}`}>
+                          {CHGT[l.changement].label}
+                          {l.dateAvant && ` (prévue le ${dateFr(l.dateAvant)})`}
+                          {l.changement === "quantite" && l.qteAvant != null && ` (${nb.format(l.qteAvant)} pcs avant)`}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+      {retirees.length > 0 && (
+        <section className="rounded-2xl border-2 border-red-200 bg-white px-4 py-3 shadow-sm">
+          <div className="font-bold text-red-900">Annoncées la semaine dernière, reportées au-delà de ces 2 semaines</div>
+          <ul className="mt-1 text-sm">
+            {retirees.map((l) => (
+              <li key={l.of}>
+                {l.modele} <span className="text-xs text-slate-500">{l.of}</span> — était prévue le {dateFr(l.dateAvant)}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
   );
 }

@@ -36,8 +36,9 @@ test("date de fin estimée au rythme récent", () => {
     { jour: "2026-11-12", produit: 100 },
     { jour: "2026-11-14", produit: 200 },
   ];
-  // 50 / jour, reste 300 → 6 jours
-  assert.equal(st.dateFinEstimee(h, 500, "2026-11-15"), "2026-11-20");
+  // du mar. 10 au sam. 14 : 4 jours ouvrés, 50 / jour ; reste 300 → 6 jours
+  // ouvrés après le samedi 14 (le dimanche 15 ne compte pas) → samedi 21
+  assert.equal(st.dateFinEstimee(h, 500, "2026-11-15"), "2026-11-21");
   assert.equal(st.dateFinEstimee(h.slice(0, 1), 500, "2026-11-15"), null);
   assert.equal(st.dateFinEstimee([{ jour: "2026-11-10", produit: 10 }, { jour: "2026-11-12", produit: 10 }], 500, "2026-11-15"), null);
 });
@@ -106,6 +107,62 @@ test("rapport de coupe : consommé + chute + reste ≈ reçu", () => {
   assert.equal(st.controleRouleauRapport({ consomme: 80, chute: 5, reste: 15 }, 100), null);
   assert.match(st.controleRouleauRapport({ consomme: 50, chute: 5, reste: 15 }, 100)!, /reçus/);
   assert.match(st.controleRouleauRapport({ consomme: -1, chute: 0, reste: 0 }, 100)!, /positifs/);
+});
+
+test("jours ouvrés : le dimanche ne compte pas", () => {
+  assert.equal(st.joursOuvresEntre("2026-11-14", "2026-11-16"), 1); // dim. 15 sauté
+  assert.equal(st.ajouterJoursOuvres("2026-11-14", 1), "2026-11-16");
+  assert.equal(st.ajouterJoursOuvres("2026-11-16", 2.2), "2026-11-19");
+});
+
+test("journal jour par jour : coupe, lancé, produit, livré", () => {
+  const j = st.journalJourParJour({
+    coupe: [
+      { date: "2026-11-10", qte: 300 },
+      { date: "2026-11-11", qte: 200 },
+    ],
+    declarations: [
+      { jour: "2026-11-11", lance: 100, produit: 40 },
+      { jour: "2026-11-12", lance: 250, produit: 120 },
+    ],
+    livraisons: [{ date: "2026-11-12", pieces: 100 }],
+  });
+  assert.deepEqual(
+    j.map((x) => [x.jour, x.coupe, x.coupeCumul, x.lance, x.lanceCumul, x.produit, x.produitCumul, x.livre]),
+    [
+      ["2026-11-12", 0, 500, 150, 250, 80, 120, 100],
+      ["2026-11-11", 200, 500, 100, 100, 40, 40, 0],
+      ["2026-11-10", 300, 300, 0, 0, 0, 0, 0],
+    ],
+  );
+});
+
+test("livrée : tout reçu, ou fin annoncée ; partielle = en cours", () => {
+  assert.equal(st.etatLivraison({ attendu: 500, recu: 500, archivee: false, derniereRecue: { motif: "" } }).livree, true);
+  assert.equal(st.etatLivraison({ attendu: 500, recu: 200, archivee: false, derniereRecue: { motif: "partielle" } }).livree, false);
+  assert.deepEqual(st.etatLivraison({ attendu: 500, recu: 490, archivee: false, derniereRecue: { motif: "manquant" } }), { livree: true, reste: 10 });
+  assert.equal(st.etatLivraison({ attendu: 500, recu: 0, archivee: false, derniereRecue: null }).livree, false);
+  assert.equal(st.etatLivraison({ attendu: 500, recu: 0, archivee: true, derniereRecue: null }).livree, true);
+});
+
+test("charge de l'atelier : rythme et date de lancement possible", () => {
+  const h = [
+    [
+      { jour: "2026-10-30", produit: 100 },
+      { jour: "2026-11-14", produit: 460 },
+    ],
+    // reprise d'historique : 900 d'un coup à la première saisie ne compte pas
+    [
+      { jour: "2026-11-10", produit: 900 },
+      { jour: "2026-11-14", produit: 948 },
+    ],
+  ];
+  // 01/11 (dim.) → 15/11 : 12 jours ouvrés ; (360 + 48) / 12 = 34
+  assert.equal(st.rythmeAtelier(h, "2026-11-15", 14), 34);
+  assert.equal(st.rythmeAtelier([], "2026-11-15"), null);
+  assert.equal(st.dateLibre(68, 34, "2026-11-16"), "2026-11-18");
+  assert.equal(st.dateLibre(0, null, "2026-11-16"), "2026-11-16");
+  assert.equal(st.dateLibre(100, null, "2026-11-16"), null);
 });
 
 /* Cloisonnement : le portail sous-traitant ne lit jamais le prix de vente, la

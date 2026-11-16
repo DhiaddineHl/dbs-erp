@@ -6,10 +6,9 @@
  *   1. LISTE FERMÉE : ce module ne reçoit et ne rend que des champs choisis
  *      un par un. Aucun nom de sous-traitant, de chaîne ou d'ouvrière, aucun
  *      prix, aucune marge n'y entre (un test le vérifie).
- *   2. MÊME RYTHME POUR TOUTES LES COMMANDES : un point par jour, les mêmes
- *      étapes, que la commande soit faite chez nous ou ailleurs. Une
- *      commande ne doit pas « bouger à l'heure » quand une autre bouge une
- *      fois par jour : la différence se verrait. */
+ *   2. MÊMES ÉTAPES POUR TOUTES LES COMMANDES, que la commande soit faite
+ *      chez nous ou ailleurs. L'avancement est montré EN DIRECT (choix du
+ *      16/11) : il suit l'avancement réel au moment de la visite. */
 
 export type EtatEtape = "fait" | "en_cours" | "a_venir";
 export type Etape = { cle: string; label: string; etat: EtatEtape; detail: string; date: string };

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, gte, inArray, isNotNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, ne, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { br, client, commande, faconnier, portailAcces, stDeclaration, stLivraison, stRapportCoupe, stReceptionTissu, tissuMouvement, tissuRouleau } from "@/lib/db/schema";
 import * as st from "@/lib/domain/soustraitant";
@@ -9,7 +9,7 @@ import { getPlan } from "@/lib/services/plan-coupe";
 import { attenduDeLOf, validerFiche } from "@/lib/services/coupe";
 import { messageBureau, type Moi } from "@/lib/services/messagerie";
 import { journal } from "@/lib/services/portail-acces";
-import { reglagesSt } from "@/lib/services/portail-soustraitant";
+import { avancementCommandes, reglagesSt, type Avancement } from "@/lib/services/portail-soustraitant";
 import * as pc from "@/lib/domain/plan-coupe";
 
 /* SUIVI DES SOUS-TRAITANTS — côté bureau.
@@ -70,6 +70,20 @@ export type LigneSuivi = {
   finEstimee: string | null;
   enRetard: boolean;
   montantDu: number;
+  /** Coupé / lancé / produit / reçu, jour par jour ; livrée ou en cours. */
+  avancement: Avancement;
+};
+/** Charge d'un atelier : quand pourra-t-on lui lancer une nouvelle commande ? */
+export type ChargeAtelier = {
+  atelier: string;
+  enCours: number;
+  /** Pièces encore à produire sur ses commandes en cours. */
+  reste: number;
+  /** Pièces produites par jour ouvré (14 derniers jours, d'après ses saisies). */
+  rythme: number | null;
+  /** À son rythme, il aura fini son travail en cours le… */
+  libreLe: string | null;
+  derniereSaisie: string;
 };
 export type RapportBureau = {
   id: number;
@@ -138,24 +152,27 @@ export async function suiviSt() {
         .select({
           id: commande.id, of: commande.ofNumber, modele: commande.modele, couleur: commande.couleur, qte: commande.qte, coupe: commande.coupeQte,
           dateExport: commande.dateExport, exportPrev: commande.exportPrev, prixFacon: commande.prixFacon, client: client.nom, atelier: faconnier.nom,
+          archived: commande.archived,
         })
         .from(commande)
         .innerJoin(faconnier, eq(commande.faconnierId, faconnier.id))
         .leftJoin(client, eq(commande.clientId, client.id))
-        .where(and(inArray(commande.faconnierId, idsAteliers), eq(commande.archived, false)))
+        // En cours + rangées depuis 30 jours (leur production compte encore dans le rythme).
+        .where(and(inArray(commande.faconnierId, idsAteliers), or(eq(commande.archived, false), gte(commande.updatedAt, new Date(Date.now() - 30 * 86_400_000)))))
         .orderBy(asc(commande.dateExport))
     : [];
   const ids = cmds.map((c) => c.id);
-  const [decls, recus, aValider, recentes, rapports, ecarts] = await Promise.all([
-    ids.length ? db.select().from(stDeclaration).where(inArray(stDeclaration.commandeId, ids)).orderBy(asc(stDeclaration.id)) : Promise.resolve([]),
+  const [decls, recus, aValider, recentes, rapports, ecarts, avancements] = await Promise.all([
+    ids.length ? db.select().from(stDeclaration).where(inArray(stDeclaration.commandeId, ids)).orderBy(asc(stDeclaration.jour), asc(stDeclaration.id)) : Promise.resolve([]),
     ids.length ? db.select({ commandeId: br.commandeId, qteOk: br.qteOk }).from(br).where(inArray(br.commandeId, ids)) : Promise.resolve([]),
     livraisons({ statut: "annoncee" }),
     livraisons({ depuis: new Date(Date.now() - 90 * 86_400_000) }),
     listRapports(),
     ecartsTissu(),
+    avancementCommandes(ids, aujourdhui),
   ]);
 
-  const lignes: LigneSuivi[] = cmds.map((c) => {
+  const toutes: (LigneSuivi & { archivee: boolean })[] = cmds.map((c) => {
     const d = decls.filter((x) => x.commandeId === c.id);
     const der = d.at(-1);
     const parJour = new Map<string, number>();
@@ -163,24 +180,47 @@ export async function suiviSt() {
     const total = c.coupe > 0 ? c.coupe : c.qte;
     const exportPrevu = jourIso(c.exportPrev) || jourIso(c.dateExport);
     const aLivrerLe = st.dateALivrer(exportPrevu || null, reglages.delai);
-    const finEstimee = st.dateFinEstimee([...parJour].map(([jour, produit]) => ({ jour, produit })), total, aujourdhui);
+    const av = avancements.get(c.id)!;
+    const finEstimee = av.finEstimee;
     const recuValide = recus.filter((r) => r.commandeId === c.id).reduce((s, r) => s + (r.qteOk || 0), 0);
     const premierRecu = recentes.filter((l) => l.commandeId === c.id && l.statut === "recue").reduce((s, l) => s + st.totalLignes(l.recues).premier, 0);
     return {
       commandeId: c.id, of: c.of, modele: c.modele, couleur: c.couleur, client: c.client ?? "", atelier: c.atelier, qte: c.qte, coupe: c.coupe, recuValide, exportPrevu, aLivrerLe,
       derniere: der ? { jour: jourIso(der.jour), lance: der.lance, produit: der.produit, emballe: der.emballe, alertes: der.alertes, par: der.par } : null,
-      sansNouvelle: recuValide < c.qte && st.sansNouvelle(der ? jourIso(der.jour) : null, aujourdhui),
+      sansNouvelle: !av.livree && st.sansNouvelle(der ? jourIso(der.jour) : null, aujourdhui),
       finEstimee,
       enRetard: !!(aLivrerLe && finEstimee && finEstimee > aLivrerLe),
       montantDu: st.montantDu(premierRecu, c.prixFacon),
+      avancement: av,
+      archivee: c.archived,
     };
   });
+  // Affichées : les commandes pas encore rangées (en cours, puis livrées).
+  const lignes: LigneSuivi[] = toutes.filter((l) => !l.archivee).sort((a, b) => Number(a.avancement.livree) - Number(b.avancement.livree));
+
+  /* Charge par atelier → date à partir de laquelle lancer la suivante. */
+  const charges: ChargeAtelier[] = [...new Set(toutes.map((l) => l.atelier))]
+    .map((atelier) => {
+      const siennes = toutes.filter((l) => l.atelier === atelier);
+      const enCours = siennes.filter((l) => !l.avancement.livree);
+      const reste = enCours.reduce((s2, l) => s2 + Math.max(0, l.avancement.cible - Math.max(l.avancement.produit, l.avancement.recu)), 0);
+      const rythme = st.rythmeAtelier(siennes.map((l) => l.avancement.historique), aujourdhui, 14);
+      return {
+        atelier,
+        enCours: enCours.length,
+        reste,
+        rythme,
+        libreLe: st.dateLibre(reste, rythme, aujourdhui),
+        derniereSaisie: siennes.map((l) => l.derniere?.jour ?? "").sort().at(-1) ?? "",
+      };
+    })
+    .sort((a, b) => (a.libreLe ?? "9999").localeCompare(b.libreLe ?? "9999"));
 
   const parAtelier = new Map<string, { annonce: st.Ligne[]; recu: st.Ligne[] }[]>();
   for (const l of recentes.filter((x) => x.statut === "recue")) parAtelier.set(l.atelier, [...(parAtelier.get(l.atelier) ?? []), { annonce: l.lignes, recu: l.recues }]);
   const fiabilite: FiabiliteAtelier[] = [...parAtelier].map(([atelier, ls]) => ({ atelier, ...st.fiabilite(ls) }));
 
-  return { aujourdhui, reglages, lignes, aValider, recentes: recentes.filter((l) => l.statut !== "annoncee").slice(0, 60), rapports, ecarts, fiabilite };
+  return { aujourdhui, reglages, lignes, charges, aValider, recentes: recentes.filter((l) => l.statut !== "annoncee").slice(0, 60), rapports, ecarts, fiabilite };
 }
 
 /* ═══════════ réception d'une livraison annoncée ═══════════ */

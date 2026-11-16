@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull, ne, or, gte } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { bl, blLigne, client, commande, commandeTds, portailPoint, qcInspection, tissuLot, tissuMouvement, tissuRouleau } from "@/lib/db/schema";
+import { bl, blLigne, client, commande, commandeTds, exportPrevision, exportPrevisionLigne, qcInspection, tissuLot, tissuMouvement, tissuRouleau } from "@/lib/db/schema";
 import * as pt from "@/lib/domain/portail";
 import * as rl from "@/lib/domain/rouleau";
 import { normaliserNom, todayISO } from "@/lib/domain/commande";
@@ -54,6 +54,29 @@ export type CommandeClient = {
   expeditions: ExpeditionClient[];
   /** Tissu encore à envoyer pour pouvoir lancer (m), 0 si rien. */
   tissuManquant: number;
+  /** Partie, livrée ou rangée chez nous : va dans « Archives ». */
+  archivee: boolean;
+};
+
+/** La prévision d'export publiée (photo du week-end), pour CE client. */
+export type PrevisionClient = {
+  debut: string;
+  fin: string;
+  publieLe: string;
+  commentaire: string;
+  lignes: {
+    of: string;
+    modele: string;
+    reference: string;
+    couleur: string;
+    date: string;
+    qte: number;
+    qteCommande: number;
+    etat: string;
+    changement: string;
+    dateAvant: string;
+    qteAvant: number | null;
+  }[];
 };
 
 export type LotClient = {
@@ -79,21 +102,25 @@ export type VueClient = {
   client: string;
   contact: string;
   aujourdhui: string;
+  /** Heure exacte du calcul (l'avancement est en direct). */
+  misAJour: string;
   commandes: CommandeClient[];
   lots: LotClient[];
   reliquats: ReliquatClient[];
   questions: Awaited<ReturnType<typeof filPortail>>;
+  prevision: PrevisionClient | null;
 };
 
 const iso = (d: string | Date | null | undefined) => (d == null ? "" : typeof d === "string" ? d : d.toISOString().slice(0, 10));
 const r2 = (n: number) => Math.round(n * 100) / 100 + 0;
-const JOURS_APRES_EXPEDITION = 90;
+const JOURS_ARCHIVES = 365;
 
-/** Les commandes d'un client que le portail montre : en cours, ou expédiées
- * depuis moins de 90 jours. Regroupées par commande porteuse (une découpe
+/** Les commandes d'un client que le portail montre : en cours, et ses
+ * archives (parties, livrées ou rangées) des 12 derniers mois. Regroupées par commande porteuse (une découpe
  * interne n'apparaît pas : le client voit SA commande). */
 async function commandesDuClient(clientId: number) {
-  const limite = new Date(Date.now() - JOURS_APRES_EXPEDITION * 86_400_000).toISOString().slice(0, 10);
+  const depuis = new Date(Date.now() - JOURS_ARCHIVES * 86_400_000);
+  const limite = depuis.toISOString().slice(0, 10);
   const rows = await db
     .select({
       id: commande.id,
@@ -116,7 +143,7 @@ async function commandesDuClient(clientId: number) {
       archived: commande.archived,
     })
     .from(commande)
-    .where(and(eq(commande.clientId, clientId), or(eq(commande.archived, false), gte(commande.dateExportReel, limite))))
+    .where(and(eq(commande.clientId, clientId), or(eq(commande.archived, false), gte(commande.dateExportReel, limite), gte(commande.updatedAt, depuis))))
     .orderBy(asc(commande.dateExport), asc(commande.id));
   const parId = new Map(rows.map((r) => [r.id, r]));
   const groupes = new Map<number, typeof rows>();
@@ -234,6 +261,7 @@ export async function vueClient(acces: { clientId: number | null; nom: string; c
         })),
       expeditions: [...parExpedition.values()],
       tissuManquant: r2(manquant.get(tete.id) ?? 0),
+      archivee: !!expedieLe || membres.every((m) => m.archived),
     });
   }
 
@@ -264,33 +292,41 @@ export async function vueClient(acces: { clientId: number | null; nom: string; c
     .filter((g) => normaliserNom(g.client) === cleClient)
     .flatMap((g) => g.lots.map((l) => ({ identifiant: l.identifiant, reference: l.reference, couleur: l.couleur, disponible: r2(l.disponible), unite: l.unite })));
 
-  /* UN POINT PAR JOUR : la frise (étapes, avancement, feu) est figée à la
-   * première consultation du jour, pour toutes les commandes du client. Les
-   * envois, expéditions et messages restent en direct : ce sont des
-   * événements, pas un rythme de production. */
-  const point = await pointDuJour(acces.clientId, aujourdhui, commandes);
-  for (const cmd of commandes) {
-    const p = point[String(cmd.id)];
-    if (p) Object.assign(cmd, p);
-  }
-
-  return { client: c.nom, contact: acces.nom, aujourdhui, commandes, lots: lotsClient, reliquats, questions };
+  /* EN DIRECT (demande du 16/11) : la frise reflète l'avancement réel au
+   * moment où le client ouvre la page — coupe, production, entrées au
+   * magasin, contrôles, expéditions. L'ancien « point par jour » (frise figée
+   * à la première visite) est abandonné : le client voulait voir les pièces
+   * avancer tout de suite. La table portail_point reste en base (historique
+   * des points déjà pris) mais n'est plus écrite. */
+  return { client: c.nom, contact: acces.nom, aujourdhui, misAJour: new Date().toISOString(), commandes, lots: lotsClient, reliquats, questions, prevision: await previsionDuClient(acces.clientId, aujourdhui) };
 }
 
-type Point = Pick<CommandeClient, "etapes" | "avancement" | "feu">;
-
-async function pointDuJour(clientId: number, jour: string, commandes: CommandeClient[]): Promise<Record<string, Point>> {
-  const [deja] = await db.select({ d: portailPoint.donnees }).from(portailPoint).where(and(eq(portailPoint.clientId, clientId), eq(portailPoint.jour, jour)));
-  const figes = (deja?.d ?? {}) as Record<string, Point>;
-  const neufs: Record<string, Point> = {};
-  for (const c of commandes) if (!figes[String(c.id)]) neufs[String(c.id)] = { etapes: c.etapes, avancement: c.avancement, feu: c.feu };
-  if (!deja) {
-    await db.insert(portailPoint).values({ clientId, jour, donnees: neufs }).onConflictDoNothing();
-  } else if (Object.keys(neufs).length) {
-    // Une commande apparue dans la journée prend son point à ce moment-là.
-    await db.update(portailPoint).set({ donnees: { ...figes, ...neufs } }).where(and(eq(portailPoint.clientId, clientId), eq(portailPoint.jour, jour)));
-  }
-  return { ...neufs, ...figes };
+/** La dernière prévision d'export publiée qui couvre encore aujourd'hui (ou
+ * à venir), réduite aux lignes de CE client. Photo figée : rien ne bouge
+ * jusqu'à la publication suivante. */
+async function previsionDuClient(clientId: number, aujourdhui: string): Promise<PrevisionClient | null> {
+  const [p] = await db
+    .select()
+    .from(exportPrevision)
+    .where(gte(exportPrevision.fin, aujourdhui))
+    .orderBy(desc(exportPrevision.debut), desc(exportPrevision.version))
+    .limit(1);
+  if (!p) return null;
+  const lignes = await db
+    .select()
+    .from(exportPrevisionLigne)
+    .where(and(eq(exportPrevisionLigne.previsionId, p.id), eq(exportPrevisionLigne.clientId, clientId)))
+    .orderBy(asc(exportPrevisionLigne.date), asc(exportPrevisionLigne.of));
+  return {
+    debut: iso(p.debut),
+    fin: iso(p.fin),
+    publieLe: p.publieLe.toISOString(),
+    commentaire: p.commentaires?.[String(clientId)] ?? "",
+    lignes: lignes.map((l) => ({
+      of: l.of, modele: l.modele, reference: l.reference, couleur: l.couleur, date: iso(l.date), qte: l.qte, qteCommande: l.qteCommande,
+      etat: l.etat, changement: l.changement, dateAvant: iso(l.dateAvant), qteAvant: l.qteAvant,
+    })),
+  };
 }
 
 /* ═══════════ le passeport d'une commande ═══════════ */

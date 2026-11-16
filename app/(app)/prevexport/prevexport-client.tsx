@@ -40,9 +40,12 @@ function trierParExport(lot: LignePrevision[], sens: 1 | -1): LignePrevision[] {
 export function PrevExportClient({
   lignes,
   peutSaisir,
+  publication,
 }: {
   lignes: LignePrevision[];
   peutSaisir: boolean;
+  /** Panneau « publier la prévision aux clients » (rendu côté serveur). */
+  publication?: React.ReactNode;
 }) {
   const [q, setQ] = useState("");
   const [urgence, setUrgence] = useState("");
@@ -99,6 +102,8 @@ export function PrevExportClient({
         <Kpi label="Sous 7 jours" valeur={String(stats.imminent)} tone="warning" />
         <Kpi label="Pièces à finir" valeur={nb.format(stats.pieces)} tone="brand" sub="hors stock magasin" />
       </Tuiles>
+
+      {publication}
 
       <SectionPanel
         title="Échéancier"

@@ -15,7 +15,7 @@ export async function avancementDeclare(ids: number[]): Promise<Map<number, { pr
   const out = new Map<number, { produit: number; emballe: number }>();
   if (!ids.length) return out;
   const [decls, cmds] = await Promise.all([
-    db.select().from(stDeclaration).where(inArray(stDeclaration.commandeId, ids)).orderBy(asc(stDeclaration.id)),
+    db.select().from(stDeclaration).where(inArray(stDeclaration.commandeId, ids)).orderBy(asc(stDeclaration.jour), asc(stDeclaration.id)),
     db.select({ id: commande.id, qte: commande.qte }).from(commande).where(inArray(commande.id, ids)),
   ]);
   const qte = new Map(cmds.map((c) => [c.id, c.qte]));

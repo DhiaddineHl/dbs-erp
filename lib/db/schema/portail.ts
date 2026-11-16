@@ -200,3 +200,54 @@ export const stRapportCoupe = pgTable(
   },
   (t) => [index("st_rapport_coupe_statut_idx").on(t.statut)],
 );
+
+/* ═══════════ PRÉVISION D'EXPORT PUBLIÉE AUX CLIENTS ═══════════
+ *
+ * Chaque week-end, vous publiez la prévision des deux semaines à venir : une
+ * PHOTO figée (ce que le client lit ne bouge plus jusqu'à la publication
+ * suivante). Republier la même période crée une version de plus : l'ancienne
+ * reste en base, rien n'est écrasé. */
+export const exportPrevision = pgTable(
+  "export_prevision",
+  {
+    id: serial().primaryKey(),
+    /** Lundi de la première semaine couverte. */
+    debut: date().notNull(),
+    /** Dimanche de la dernière semaine couverte. */
+    fin: date().notNull(),
+    version: integer().notNull().default(1),
+    /** Mot libre par client : { "<clientId>": "transport groupé vendredi" }. */
+    commentaires: jsonb().$type<Record<string, string>>().notNull().default({}),
+    publieLe: timestamp().notNull().defaultNow(),
+    publiePar: text().notNull().default(""),
+  },
+  (t) => [unique("export_prevision_periode_version").on(t.debut, t.version)],
+);
+
+export const exportPrevisionLigne = pgTable(
+  "export_prevision_ligne",
+  {
+    id: serial().primaryKey(),
+    previsionId: integer()
+      .notNull()
+      .references(() => exportPrevision.id, { onDelete: "cascade" }),
+    clientId: integer().references(() => client.id, { onDelete: "set null" }),
+    /** Commande telle que le client la connaît (la tête du groupe). */
+    commandeId: integer().references(() => commande.id, { onDelete: "set null" }),
+    of: text().notNull().default(""),
+    modele: text().notNull().default(""),
+    reference: text().notNull().default(""),
+    couleur: text().notNull().default(""),
+    /** Date d'export prévue (null pour une ligne « retirée » de la prévision). */
+    date: date(),
+    qte: integer().notNull().default(0),
+    qteCommande: integer().notNull().default(0),
+    /** prete | emballage | production */
+    etat: text().notNull().default(""),
+    /** nouvelle | inchangee | avancee | reportee | quantite | retiree */
+    changement: text().notNull().default(""),
+    dateAvant: date(),
+    qteAvant: integer(),
+  },
+  (t) => [index("export_prevision_ligne_prev_idx").on(t.previsionId), index("export_prevision_ligne_client_idx").on(t.clientId)],
+);
