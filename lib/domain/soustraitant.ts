@@ -323,7 +323,7 @@ export function controleRouleauRapport(r: { consomme: number; chute: number; res
   if (![r.consomme, r.chute, r.reste].every((x) => Number.isFinite(x) && x >= 0)) return "Mètres positifs attendus.";
   const somme = r.consomme + r.chute + r.reste;
   if (recu > 0 && Math.abs(somme - recu) > Math.max(0.5, recu * 0.01)) {
-    return `Consommé + chute + reste = ${Math.round(somme * 100) / 100} m pour ${Math.round(recu * 100) / 100} m reçus.`;
+    return `Consommé + chute + reste = ${Math.round(somme * 100) / 100} m pour ${Math.round(recu * 100) / 100} m encore chez vous.`;
   }
   return null;
 }

@@ -61,8 +61,33 @@ export const coupeFiche = pgTable(
     annulePar: text().notNull().default(""),
     annuleLe: timestamp(),
     motifAnnulation: text().notNull().default(""),
+    /** Constats du coupeur (ou de l'atelier) pour le « Résultat de coupe »
+     * client : laize utile, 2e choix par OF × taille, défauts et manquants
+     * par rouleau. Figés avec la fiche. */
+    constats: jsonb()
+      .$type<{ laize: number | null; second: Record<string, Record<string, number>>; rouleaux: { code: string; defaut: string; manquant: number }[] }>()
+      .notNull()
+      .default({ laize: null, second: {}, rouleaux: [] }),
   },
   (t) => [index("coupe_fiche_commande_idx").on(t.commandeId)],
+);
+
+/** « RÉSULTAT DE COUPE » au format client, GÉNÉRÉ AUTOMATIQUEMENT à la
+ * validation de la fiche (photo figée des chiffres). Une nouvelle génération
+ * ajoute une version ; rien n'est écrasé. */
+export const resultatCoupe = pgTable(
+  "resultat_coupe",
+  {
+    id: serial().primaryKey(),
+    ficheId: integer()
+      .notNull()
+      .references(() => coupeFiche.id, { onDelete: "cascade" }),
+    version: integer().notNull().default(1),
+    donnees: jsonb().$type<Record<string, unknown>>().notNull(),
+    createdBy: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  (t) => [unique("resultat_coupe_version").on(t.ficheId, t.version)],
 );
 
 /** Un lâcher de coupe, éventuellement par taille. Avec une fiche : une ligne
@@ -150,6 +175,8 @@ export const magasinMouvement = pgTable(
     origine: text().notNull().default("interne"),
     brId: integer().references(() => br.id, { onDelete: "cascade" }),
     note: text().notNull().default(""),
+    /** Rangement par taille ({ "S": 40, "M": 60 }) ; vide = non ventilé. */
+    tailles: jsonb().$type<Record<string, number>>().notNull().default({}),
     createdAt: timestamp().notNull().defaultNow(),
   },
   (t) => [index("magasin_commande_idx").on(t.commandeId)],
@@ -192,6 +219,8 @@ export const blLigne = pgTable(
     couleur: text().notNull().default(""),
     qteLivree: integer().notNull().default(0),
     prixUnitaire: doublePrecision().notNull().default(0),
+    /** Pièces livrées par taille ; vide = non ventilé. */
+    tailles: jsonb().$type<Record<string, number>>().notNull().default({}),
   },
   (t) => [index("bl_ligne_bl_idx").on(t.blId)],
 );

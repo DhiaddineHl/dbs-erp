@@ -4,6 +4,7 @@ import { NAV_STRUCTURE, entreeAutorisee } from "@/lib/nav";
 import { ORIGINES_MOUVEMENT, ROLES_SAISIE_MAGASIN, listesReception } from "@/lib/domain/aval";
 import { todayISO } from "@/lib/domain/commande";
 import { listBr, listCommandesAval, listMouvements } from "@/lib/services/aval";
+import { taillesRapides } from "@/lib/services/stock-taille";
 import { getRoleModules } from "@/lib/services/permissions";
 import { MagasinMobile, type SaisieJour } from "./magasin-mobile";
 
@@ -54,6 +55,8 @@ export default async function MagasinMobilePage() {
   ]);
   const jour = todayISO();
   const listes = listesReception(commandes);
+  // Tailles proposées à l'entrée (après contrôle et finition, on range par taille).
+  const tailles = await taillesRapides(listes.internes.map((c) => c.id));
 
   const saisies: SaisieJour[] = [
     ...brs
@@ -102,7 +105,7 @@ export default async function MagasinMobilePage() {
     <MagasinMobile
       utilisateur={user.name}
       jour={jour}
-      internes={listes.internes.map((c) => ({ ...leger(c), aEntrer: c.aEntrer }))}
+      internes={listes.internes.map((c) => ({ ...leger(c), aEntrer: c.aEntrer, tailles: tailles.get(c.id) ?? [] }))}
       faconniers={listes.faconniers.map((f) => ({
         faconnier: f.faconnier,
         commandes: f.commandes.map((c) => ({ ...leger(c), reste: c.reste })),

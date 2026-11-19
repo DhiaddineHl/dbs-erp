@@ -19,6 +19,8 @@ import {
 import * as av from "@/lib/domain/aval";
 import * as biz from "@/lib/domain/commande";
 import { conditionEntreeStock, productionGpaoParCommande, recalculerProduit } from "@/lib/services/avancement";
+import * as sk from "@/lib/domain/stock-taille";
+import { stocksParTaille, taillesDeLaCommande } from "@/lib/services/stock-taille";
 
 /* ─────────── recalcul des compteurs ───────────
  * Les compteurs de la commande sont la somme de ses mouvements. Toute écriture
@@ -372,6 +374,8 @@ export type BlLigneRow = {
   qteLivree: number;
   prixUnitaire: number;
   montant: number;
+  /** Pièces livrées par taille (vide = non ventilé). */
+  tailles: Record<string, number>;
 };
 
 export type BlRow = {
@@ -405,7 +409,7 @@ export async function listBl(): Promise<BlRow[]> {
     const ls = (parBl.get(b.id) ?? []).map((l) => ({
       id: l.id, commandeId: l.commandeId, of: l.of, modele: l.modele, refArticle: l.refArticle,
       couleur: l.couleur, qteLivree: l.qteLivree, prixUnitaire: l.prixUnitaire,
-      montant: Math.round(l.qteLivree * l.prixUnitaire * 100) / 100,
+      montant: Math.round(l.qteLivree * l.prixUnitaire * 100) / 100, tailles: l.tailles ?? {},
     }));
     return {
       id: b.id, numero: b.numero, date: b.date, clientNom: b.clientNom,
@@ -486,7 +490,14 @@ export async function creerBr(v: {
   qteNc: number;
   controle: string;
   note: string;
+  /** Conformes rangés par taille (vide = non ventilé). */
+  tailles?: sk.Ventilation;
 }) {
+  const { tailles, ...valeurs } = v;
+  const ventil = tailles && sk.estVentilee(tailles) ? tailles : {};
+  if (sk.estVentilee(ventil) && sk.totalVentilation(ventil) !== v.qteOk) {
+    throw new Error(`Les tailles font ${sk.totalVentilation(ventil)} pièces pour ${v.qteOk} conformes.`);
+  }
   const numero = await prochainNumero("BR");
   return db.transaction(async (tx) => {
     const [c] = await tx.select().from(commande).where(eq(commande.id, v.commandeId));
@@ -497,14 +508,14 @@ export async function creerBr(v: {
 
     const [row] = await tx
       .insert(br)
-      .values({ ...v, numero, faconnier: f?.nom ?? "" })
+      .values({ ...valeurs, numero, faconnier: f?.nom ?? "" })
       .returning({ id: br.id });
 
     // Les pièces conformes entrent au stock produits finis dans la foulée.
     if (v.qteOk > 0) {
       await tx.insert(magasinMouvement).values({
         commandeId: v.commandeId, date: v.date, qte: v.qteOk, origine: "br", brId: row.id,
-        note: `Réception ${numero}`,
+        note: `Réception ${numero}`, tailles: ventil,
       });
     }
     await recalculerCommande(tx, v.commandeId);
@@ -557,9 +568,10 @@ export async function supprimerCoupe(id: number) {
 
 /* ─────────── magasin ─────────── */
 
-export async function receptionMagasin(v: { commandeId: number; date: string; qte: number; note: string }) {
+export async function receptionMagasin(v: { commandeId: number; date: string; qte: number; note: string; tailles?: sk.Ventilation }) {
   return db.transaction(async (tx) => {
-    await tx.insert(magasinMouvement).values({ ...v, origine: "interne" });
+    // Rangée par taille à l'entrée (après contrôle et finition) ; vide = non ventilé.
+    await tx.insert(magasinMouvement).values({ ...v, tailles: v.tailles ?? {}, origine: "interne" });
     await recalculerCommande(tx, v.commandeId);
   });
 }
@@ -627,7 +639,7 @@ export async function creerBl(v: {
   suivi?: string;
   adresseLivraison: string;
   note: string;
-  lignes: { commandeId: number; qteLivree: number }[];
+  lignes: { commandeId: number; qteLivree: number; tailles?: Record<string, unknown> }[];
 }) {
   const numero = await prochainNumero("BL");
   return db.transaction(async (tx) => {
@@ -653,6 +665,7 @@ export async function creerBl(v: {
           blId: entete.id, commandeId: c.id, of: c.ofNumber, modele: c.modele,
           refArticle: c.refArticle, couleur: c.couleur,
           qteLivree: l.qteLivree, prixUnitaire: c.prixVente ?? 0,
+          tailles: {} as sk.Ventilation,
         };
       });
     if (!lignes.length) throw new Error("Sélectionnez au moins une commande");
@@ -666,6 +679,20 @@ export async function creerBl(v: {
       if (l.qteLivree > stock) {
         throw new Error(`${c.ofNumber} : ${l.qteLivree} pcs demandées mais seulement ${stock} en stock au magasin.`);
       }
+    }
+    /* Tailles livrées : saisies (contrôlées face au stock de chaque taille),
+     * sinon reprises toutes seules quand on expédie TOUT le stock ventilé.
+     * Sinon la ligne reste non ventilée — rien n'est deviné. */
+    const stocks = await stocksParTaille(lignes.map((l) => l.commandeId!), tx);
+    for (const l of lignes) {
+      const saisie = v.lignes.find((x) => x.commandeId === l.commandeId)?.tailles;
+      const stock = stocks.get(l.commandeId!) ?? { parTaille: {}, nonVentile: 0, total: 0 };
+      const ventil = saisie ? sk.lireVentilation(saisie, await taillesDeLaCommande(l.commandeId!), l.qteLivree) : {};
+      if (sk.estVentilee(ventil)) {
+        const refus = sk.refusSortie(stock, ventil);
+        if (refus) throw new Error(`${l.of} : ${refus}`);
+        l.tailles = ventil;
+      } else l.tailles = sk.ventilationAuto(stock, l.qteLivree) ?? {};
     }
     await tx.insert(blLigne).values(lignes);
 

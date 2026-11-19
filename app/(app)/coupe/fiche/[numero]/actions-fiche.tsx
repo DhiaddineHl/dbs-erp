@@ -9,20 +9,24 @@ import { annulerFicheCoupe, genererPvCoupe } from "@/lib/actions/coupe";
 
 const dateHeure = (iso: string) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
-/* Étape 6 : le PV client (généré, régénéré en nouvelle version), et
- * l'annulation motivée de la fiche. */
+/* Étape 6 : le PV client (généré, régénéré en nouvelle version), le
+ * « Résultat de coupe » au format des clients (Excel), et l'annulation
+ * motivée de la fiche. */
 export function ActionsFiche({
   id,
   numero,
   annulee,
   peutSaisir,
   pvs,
+  resultats = [],
 }: {
   id: number;
   numero: string;
   annulee: boolean;
   peutSaisir: boolean;
   pvs: { numero: string; version: number; createdBy: string; createdAt: string }[];
+  /** Résultats de coupe client générés automatiquement (le plus récent d'abord). */
+  resultats?: { version: number; par: string; le: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -64,6 +68,17 @@ export function ActionsFiche({
           🖨 {p.numero} v{p.version}
         </Link>
       ))}
+      {!annulee && (
+        // Le « Résultat de coupe » au format des clients (Excel à renvoyer signé).
+        <a
+          href={`/coupe/fiche/${encodeURIComponent(numero)}/pv-client`}
+          className="rounded-md border border-emerald-600 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+          title="Fichier Excel « Résultat de coupe » : modèle, quantités par taille, 2e choix, emploi tissu, stock après coupe"
+        >
+          📊 Résultat de coupe (Excel client)
+          {resultats[0] ? ` — généré automatiquement le ${dateHeure(resultats[0].le)}` : ""}
+        </a>
+      )}
       {peutSaisir && !annulee && (
         <button disabled={pending} onClick={annuler} className="ml-auto text-xs font-semibold text-[var(--danger-d)] hover:underline">
           Annuler cette fiche…

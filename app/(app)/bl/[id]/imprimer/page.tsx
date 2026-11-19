@@ -81,7 +81,18 @@ export default async function BlImprimerPage({ params }: { params: Promise<{ id:
           {b.lignes.map((l) => (
             <tr key={l.id} className="border-b border-neutral-200">
               <td className="py-1.5 pl-1 font-semibold">{l.of}</td>
-              <td className="py-1.5">{l.modele}</td>
+              <td className="py-1.5">
+                {l.modele}
+                {/* Le détail par taille, quand on le connaît (colisage). */}
+                {Object.keys(l.tailles ?? {}).length > 0 && (
+                  <div className="text-[10px] text-neutral-600">
+                    {Object.entries(l.tailles)
+                      .filter(([, n]) => n > 0)
+                      .map(([t, n]) => `${t} : ${n}`)
+                      .join(" · ")}
+                  </div>
+                )}
+              </td>
               <td className="py-1.5">{l.refArticle || "—"}</td>
               <td className="py-1.5">{l.couleur || "—"}</td>
               <td className="py-1.5 pr-1 text-right font-bold tabular-nums">{nb.format(l.qteLivree)}</td>

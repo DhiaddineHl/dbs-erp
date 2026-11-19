@@ -48,6 +48,11 @@ export function AssistantCoupe({ ctx }: { ctx: ContexteCoupe }) {
   const [type, setType] = useState(ctx.porteur.sousTraitee ? "soustraite" : "interne");
   const [matiereRang, setMatiereRang] = useState(plan.matieres[0]?.rang ?? 0);
   const [conso, setConso] = useState<Record<string, { consomme: string; chute: string }>>({});
+  /* Constats pour le « Résultat de coupe » du client (généré tout seul à la
+     validation) : laize utile, 2e choix à la coupe, défaut / manquant par rouleau. */
+  const [laize, setLaize] = useState("");
+  const [second, setSecond] = useState<Record<number, Record<string, string>>>({});
+  const [defauts, setDefauts] = useState<Record<string, { defaut: string; manquant: string }>>({});
   /* Paquets : l'application PROPOSE, la coupe décide (morceaux, et pièces de
      chaque paquet taille par taille). */
   const [morceauxTxt, setMorceauxTxt] = useState(ctx.paquets.morceaux.join(", "));
@@ -93,6 +98,11 @@ export function AssistantCoupe({ ctx }: { ctx: ContexteCoupe }) {
         note,
         matiereRang,
         consommations: ctx.rouleaux.map((x) => ({ code: x.code, consomme: metre(conso[x.code]?.consomme ?? ""), chute: metre(conso[x.code]?.chute ?? "") })),
+        constats: {
+          laize: laize ? Number(laize.replace(",", ".")) : null,
+          second: Object.fromEntries(ctx.membres.map((m) => [String(m.id), Object.fromEntries(sizes.map((t) => [t, entier(second[m.id]?.[t] ?? "")]))])),
+          rouleaux: Object.entries(defauts).map(([code, x]) => ({ code, defaut: x.defaut, manquant: metre(x.manquant) })),
+        },
         paquets: avecPaquets
           ? {
               morceaux,
@@ -306,6 +316,79 @@ export function AssistantCoupe({ ctx }: { ctx: ContexteCoupe }) {
           <Info l="Réel (rouleaux)" v={`${nb.format(bilan.reel)} m`} />
           <Info l="Écart" v={bilan.ecart != null ? `${signe(bilan.ecart)} m` : "—"} />
           <Info l="Écart %" v={bilan.pct != null ? `${signe(bilan.pct)} %` : "—"} />
+        </div>
+      </SectionPanel>
+
+      {/* 4 bis — constats pour le client */}
+      <SectionPanel title="4 bis · Pour le « Résultat de coupe » du client (généré tout seul à la validation)">
+        <div className="space-y-3 text-xs">
+          <label className="flex items-center gap-2">
+            <span className="font-semibold">Laize utile constatée</span>
+            <Input value={laize} onChange={(e) => setLaize(e.target.value.replace(/[^\d.,]/g, ""))} placeholder="1,48" inputMode="decimal" className="h-8 w-24 bg-card text-center" />
+            <span className="text-muted-foreground">m (vide = laize du magasin tissu)</span>
+          </label>
+          <div className="overflow-x-auto">
+            <div className="mb-1 font-semibold">2e choix à la coupe (pièces défectueuses), par taille</div>
+            <table className="text-xs">
+              <thead>
+                <tr className="text-[10.5px] uppercase text-muted-foreground">
+                  <th className="pr-2 text-left">OF</th>
+                  {sizes.map((t) => (
+                    <th key={t} className="px-1">
+                      {t}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ctx.membres.map((m) => (
+                  <tr key={m.id}>
+                    <td className="pr-2 font-semibold">{m.of}</td>
+                    {sizes.map((t) => (
+                      <td key={t} className="px-0.5 py-0.5">
+                        <Input
+                          value={second[m.id]?.[t] ?? ""}
+                          onChange={(e) => setSecond((x) => ({ ...x, [m.id]: { ...(x[m.id] ?? {}), [t]: e.target.value.replace(/\D/g, "") } }))}
+                          inputMode="numeric"
+                          aria-label={`2e choix ${m.of} ${t}`}
+                          className="h-8 w-16 bg-card text-center"
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {ctx.rouleaux.length > 0 && (
+            <div>
+              <div className="mb-1 font-semibold">Défaut tissu ou manquant sur un rouleau</div>
+              <div className="space-y-1">
+                {ctx.rouleaux.map((r) => (
+                  <div key={r.code} className="flex items-center gap-2">
+                    <span className="w-32 font-mono font-bold">{r.code}</span>
+                    <Input
+                      value={defauts[r.code]?.defaut ?? ""}
+                      onChange={(e) => setDefauts((x) => ({ ...x, [r.code]: { manquant: x[r.code]?.manquant ?? "", defaut: e.target.value } }))}
+                      placeholder="défaut (ex. trou à 12 m, nuance)"
+                      className="h-8 max-w-sm flex-1 bg-card"
+                    />
+                    <Input
+                      value={defauts[r.code]?.manquant ?? ""}
+                      onChange={(e) => setDefauts((x) => ({ ...x, [r.code]: { defaut: x[r.code]?.defaut ?? "", manquant: e.target.value.replace(/[^\d.,]/g, "") } }))}
+                      placeholder="manquant (m)"
+                      inputMode="decimal"
+                      className="h-8 w-28 bg-card text-center"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Tout est facultatif. À la validation, le « Résultat de coupe » au format du client (Excel) est généré tout seul avec ces constats, les quantités
+            coupées et la consommation des rouleaux.
+          </p>
         </div>
       </SectionPanel>
 

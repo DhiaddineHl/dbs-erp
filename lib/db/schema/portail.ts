@@ -190,6 +190,11 @@ export const stRapportCoupe = pgTable(
     coupe: jsonb().$type<Record<string, Record<string, number>>>().notNull().default({}),
     /** Par rouleau : consommé, chute, reste (le reste = retour attendu). */
     rouleaux: jsonb().$type<{ code: string; consomme: number; chute: number; reste: number }[]>().notNull().default([]),
+    /** Constats pour le « Résultat de coupe » client (laize, 2e choix, défauts). */
+    constats: jsonb()
+      .$type<{ laize: number | null; second: Record<string, Record<string, number>>; rouleaux: { code: string; defaut: string; manquant: number }[] }>()
+      .notNull()
+      .default({ laize: null, second: {}, rouleaux: [] }),
     note: text().notNull().default(""),
     par: text().notNull().default(""),
     createdAt: timestamp().notNull().defaultNow(),

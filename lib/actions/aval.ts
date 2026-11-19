@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { assertUser, userRole } from "@/lib/auth/server";
 import * as av from "@/lib/domain/aval";
 import * as svc from "@/lib/services/aval";
+import * as sk from "@/lib/domain/stock-taille";
+import { taillesDeLaCommande } from "@/lib/services/stock-taille";
 import { journaliser } from "@/lib/services/activite";
 
 export type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -66,6 +68,8 @@ export async function creerBr(v: {
   note?: string;
   /** Passe outre les avertissements non bloquants (surproduction déclarée). */
   forcer?: boolean;
+  /** Conformes rangés par taille (vide = non ventilé). */
+  tailles?: Record<string, unknown>;
 }): Promise<Result<{ numero: string; alertes: av.AlerteReception[] }>> {
   try {
     await exigerAval();
@@ -94,9 +98,10 @@ export async function creerBr(v: {
       return { ok: false, error: alertes.find((a) => a.niveau === "warn")!.message };
     }
 
+    const tailles = qteOk > 0 ? sk.lireVentilation(v.tailles, await taillesDeLaCommande(v.commandeId), qteOk) : {};
     const r = await svc.creerBr({
       commandeId: v.commandeId, date: v.date, qteRecue, qteOk, qteNc,
-      controle: n.controle, note: v.note ?? "",
+      controle: n.controle, note: v.note ?? "", tailles,
     });
     await journaliser("creation", "Réception ST", `${r.numero} — ${qteOk} conformes, ${qteNc} NC`);
     revalider();
@@ -161,12 +166,15 @@ export async function receptionMagasin(v: {
   date: string;
   qte: string | number;
   note?: string;
+  /** Rangement par taille (après contrôle et finition) ; vide = non ventilé. */
+  tailles?: Record<string, unknown>;
 }): Promise<Result> {
   try {
     await exigerAval();
     const qte = entier(v.qte);
     if (qte <= 0) return { ok: false, error: "La quantité reçue doit être supérieure à zéro" };
-    await svc.receptionMagasin({ commandeId: v.commandeId, date: v.date, qte, note: v.note ?? "" });
+    const tailles = sk.lireVentilation(v.tailles, await taillesDeLaCommande(v.commandeId), qte);
+    await svc.receptionMagasin({ commandeId: v.commandeId, date: v.date, qte, note: v.note ?? "", tailles });
     await journaliser("creation", "Magasin produits finis", `entrée production interne — commande ${v.commandeId} · ${qte} pcs${v.note ? ` · ${v.note}` : ""}`);
     revalider();
     return ok();
@@ -219,7 +227,7 @@ export async function creerBl(v: {
   suivi?: string;
   adresseLivraison?: string;
   note?: string;
-  lignes: { commandeId: number; qteLivree: number }[];
+  lignes: { commandeId: number; qteLivree: number; tailles?: Record<string, unknown> }[];
 }): Promise<Result<{ id: number; numero: string }>> {
   try {
     await exigerAval();

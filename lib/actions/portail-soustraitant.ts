@@ -4,6 +4,7 @@ import * as acc from "@/lib/services/portail-acces";
 import * as svc from "@/lib/services/portail-soustraitant";
 import { enregistrerFichier } from "@/lib/services/fichiers";
 import type { Cumuls, Ligne } from "@/lib/domain/soustraitant";
+import type { ConstatsCoupe } from "@/lib/domain/pv-client";
 
 /* Actions du PORTAIL SOUS-TRAITANT — sans compte. Chaque appel revérifie la
  * clé du lien ET le PIN mémorisé sur le téléphone, puis que la commande est
@@ -71,9 +72,10 @@ export async function envoyerRapport(
   coupe: Record<string, Record<string, number>>,
   rouleaux: { code: string; consomme: number; chute: number; reste: number }[],
   note: string,
+  constats?: Partial<ConstatsCoupe>,
 ): Promise<Result> {
   try {
-    await svc.envoyerRapport(await acces(cle), commandeId, coupe, rouleaux, note);
+    await svc.envoyerRapport(await acces(cle), commandeId, coupe, rouleaux, note, constats);
     return { ok: true };
   } catch (e) {
     return fail(e);

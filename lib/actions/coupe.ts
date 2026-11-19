@@ -7,6 +7,7 @@ import * as cp from "@/lib/domain/coupe";
 import { journaliser } from "@/lib/services/activite";
 import { setSetting } from "@/lib/services/permissions";
 import * as svc from "@/lib/services/coupe";
+import { enregistrerResultat } from "@/lib/services/pv-client";
 
 /* Module Coupe — écritures. Mêmes droits que l'ancienne saisie des lâchers
  * (production et magasin, voir lib/actions/aval → exigerAval). */
@@ -29,6 +30,8 @@ export async function validerFicheCoupe(input: svc.SaisieFiche): Promise<Result<
   try {
     const a = await exigerCoupe();
     const res = await svc.validerFiche(input, a.name);
+    // Le « Résultat de coupe » client se génère tout seul, figé à cet instant.
+    await enregistrerResultat(res.numero, a.name).catch(() => null);
     await journaliser("validation", "Coupe", `Fiche de coupe ${res.numero} validée`);
     revalider();
     return { ok: true, ...res };

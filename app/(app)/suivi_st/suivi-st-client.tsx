@@ -296,6 +296,31 @@ function Rapport({ r, motifs, peutValider }: { r: RapportBureau; motifs: Motif[]
           {reste > 0 && <div className="mt-1 font-semibold text-amber-800">Reste à rendre : {nb.format(reste)} m</div>}
         </div>
       )}
+      {(r.constats?.laize || Object.keys(r.constats?.second ?? {}).length > 0 || (r.constats?.rouleaux ?? []).length > 0) && (
+        <div className="mt-1 rounded bg-amber-50 px-2 py-1">
+          {r.constats.laize ? <span className="mr-3">Laize constatée <b>{nb.format(r.constats.laize)} m</b></span> : null}
+          {Object.keys(r.constats.second).length > 0 && (
+            <span className="mr-3">
+              2e choix :{" "}
+              <b>
+                {Object.entries(
+                  Object.values(r.constats.second).reduce<Record<string, number>>((acc, t) => {
+                    for (const [k, n] of Object.entries(t)) acc[k] = (acc[k] ?? 0) + n;
+                    return acc;
+                  }, {}),
+                )
+                  .map(([k, n]) => `${k}×${n}`)
+                  .join(" ")}
+              </b>
+            </span>
+          )}
+          {r.constats.rouleaux.map((x) => (
+            <span key={x.code} className="mr-3">
+              {x.code} : {[x.defaut, x.manquant ? `manque ${nb.format(x.manquant)} m` : ""].filter(Boolean).join(" · ")}
+            </span>
+          ))}
+        </div>
+      )}
       {r.note && <div className="mt-1 italic">« {r.note} »</div>}
       {peutValider && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -315,7 +340,10 @@ function Rapport({ r, motifs, peutValider }: { r: RapportBureau; motifs: Motif[]
               start(async () => {
                 const res = await A.validerRapport(r.id, motif, precision);
                 if (!res.ok) return void toast.error(res.error);
-                toast.success(`Fiche de coupe ${res.numero} créée`);
+                toast.success(`Fiche de coupe ${res.numero} créée`, {
+                  duration: 15_000,
+                  action: { label: "📊 Résultat de coupe (Excel)", onClick: () => window.open(`/coupe/fiche/${encodeURIComponent(res.numero)}/pv-client`, "_blank") },
+                });
                 router.refresh();
               })
             }

@@ -4,10 +4,11 @@ import { db } from "@/lib/db";
 import { br, client, commande, faconnier, stDeclaration, stLivraison, stRapportCoupe, stReceptionTissu, tissuLot, tissuMouvement, tissuRouleau } from "@/lib/db/schema";
 import * as st from "@/lib/domain/soustraitant";
 import * as cp from "@/lib/domain/coupe";
+import * as pv from "@/lib/domain/pv-client";
 import { todayISO } from "@/lib/domain/commande";
 import { getSetting } from "@/lib/services/permissions";
 import { getPlan } from "@/lib/services/plan-coupe";
-import { attenduDeLOf, demandeDeCoupe, lignesCoupeValides, porteurDe } from "@/lib/services/coupe";
+import { attenduDeLOf, contexteCoupe, demandeDeCoupe, lignesCoupeValides, porteurDe } from "@/lib/services/coupe";
 import { filPortail, messageExterieur } from "@/lib/services/messagerie";
 import { journal, type Acces } from "@/lib/services/portail-acces";
 
@@ -436,7 +437,22 @@ export async function contexteRapport(a: Acces, commandeId: number) {
   );
   const ids = new Set(groupe.map((g) => g.id));
   const rouleaux = (await tissuEnvoye(a.faconnierId!)).filter((e) => e.rouleau && e.commandeId != null && ids.has(e.commandeId));
-  return { porteurId, sizes: plan.sizes, ofs, rouleaux: rouleaux.map((r) => ({ code: r.rouleau, tissu: r.tissu, couleur: r.couleur, recu: r.metrageConstate ?? r.metrage, unite: r.unite })) };
+  /* Ce qu'il reste chez l'atelier sur chaque rouleau : le sorti non encore
+   * déclaré (un 2e rapport ne repart pas du métrage d'origine), moins le
+   * manque qu'il a signalé à la réception. */
+  const enCoupe = new Map(((await contexteCoupe(porteurId))?.rouleaux ?? []).map((r) => [r.code, r.enCoupe]));
+  return {
+    porteurId,
+    sizes: plan.sizes,
+    ofs,
+    rouleaux: rouleaux
+      .map((r) => {
+        const dehors = enCoupe.get(r.rouleau) ?? r.metrage;
+        const manque = r.metrageConstate != null ? Math.max(0, r.metrage - r.metrageConstate) : 0;
+        return { code: r.rouleau, tissu: r.tissu, couleur: r.couleur, recu: r2(Math.max(0, dehors - manque)), unite: r.unite };
+      })
+      .filter((r) => r.recu > 0.001),
+  };
 }
 
 /** Le rapport de coupe part chez vous ; validé, il devient une fiche de coupe. */
@@ -446,6 +462,7 @@ export async function envoyerRapport(
   coupe: Record<string, Record<string, number>>,
   rouleaux: { code: string; consomme: number; chute: number; reste: number }[],
   note: string,
+  constatsBruts?: Partial<pv.ConstatsCoupe>,
 ) {
   const ctx = await contexteRapport(a, commandeId);
   const ofs = new Set(ctx.ofs.map((o) => String(o.id)));
@@ -472,12 +489,19 @@ export async function envoyerRapport(
     if (e) throw new Error(`${r.code} : ${e}`);
     rs.push(v);
   }
+  // Laize constatée, 2e choix à la coupe, défauts / manquants par rouleau.
+  const constats = pv.normaliserConstats(constatsBruts, {
+    ofs: ctx.ofs.map((o) => String(o.id)),
+    tailles: ctx.sizes,
+    coupe: propre,
+    rouleaux: ctx.rouleaux.map((r) => r.code),
+  });
   const [en] = await db
     .select({ id: stRapportCoupe.id })
     .from(stRapportCoupe)
     .where(and(eq(stRapportCoupe.commandeId, ctx.porteurId), eq(stRapportCoupe.faconnierId, a.faconnierId!), eq(stRapportCoupe.statut, "annonce")));
   if (en) throw new Error("Un rapport de coupe attend déjà d'être validé pour cette commande.");
-  await db.insert(stRapportCoupe).values({ accesId: a.id, faconnierId: a.faconnierId!, commandeId: ctx.porteurId, coupe: propre, rouleaux: rs, note: (note ?? "").trim().slice(0, 500), par: signature(a) });
+  await db.insert(stRapportCoupe).values({ accesId: a.id, faconnierId: a.faconnierId!, commandeId: ctx.porteurId, coupe: propre, rouleaux: rs, constats, note: (note ?? "").trim().slice(0, 500), par: signature(a) });
   const reste = rs.reduce((s, r) => s + r.reste, 0);
   const texte = `✂ Rapport de coupe : ${total} pièces coupées${rs.length ? ` sur ${rs.length} rouleau(x)` : ""}${reste > 0 ? `, reste ${r2(reste)} m à rendre` : ""}. À valider.`;
   await journal(a.id, "coupe_rapport", ctx.porteurId, texte);

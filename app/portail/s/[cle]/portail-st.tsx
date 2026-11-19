@@ -545,6 +545,11 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
   const [ctx, setCtx] = useState<ContexteRapport | null>(null);
   const [coupe, setCoupe] = useState<Record<string, Record<string, string>>>({});
   const [rl, setRl] = useState<Record<string, { consomme: string; chute: string; reste: string }>>({});
+  /* Constats pour le « Résultat de coupe » du client : laize utile, 2e choix
+   * à la coupe, défaut et manquant par rouleau. */
+  const [laize, setLaize] = useState("");
+  const [second, setSecond] = useState<Record<string, Record<string, string>>>({});
+  const [defauts, setDefauts] = useState<Record<string, { defaut: string; manquant: string }>>({});
   const [note, setNote] = useState("");
   const [msg, setMsg] = useState<{ erreur?: string; ok?: string }>({});
   const [pending, start] = useTransition();
@@ -575,7 +580,8 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
   return (
     <div className="border-t bg-slate-50 p-4 text-sm">
       <p className="mb-2 text-slate-600">
-        Pièces coupées par taille, puis pour chaque rouleau : mètres utilisés, chute, et ce qu&apos;il en reste (à nous rendre).
+        Pièces coupées par taille (et dont 2e choix), la laize constatée, puis pour chaque rouleau : mètres utilisés, chute, ce qu&apos;il en reste (à
+        nous rendre), et un défaut ou un manquant s&apos;il y en a. Le « Résultat de coupe » du client est fait avec.
       </p>
       <table className="w-full">
         <thead>
@@ -619,16 +625,34 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
                   </td>
                 ))}
               </tr>
+              <tr className="text-[11px]">
+                <td className="pr-1 text-amber-800">dont 2e choix</td>
+                {ctx.sizes.map((s) => (
+                  <td key={s} className="px-0.5 pb-1">
+                    <input
+                      inputMode="numeric"
+                      value={second[o.id]?.[s] ?? ""}
+                      onChange={(e) => setSecond({ ...second, [o.id]: { ...(second[o.id] ?? {}), [s]: e.target.value.replace(/\D/g, "") } })}
+                      className="w-full min-w-12 rounded border border-amber-300 bg-amber-50 px-1 py-1 text-center"
+                    />
+                  </td>
+                ))}
+              </tr>
             </Fragment>
           ))}
         </tbody>
       </table>
+      <label className="mt-3 flex items-center gap-2">
+        <span className="font-semibold">Laize utile constatée</span>
+        <input inputMode="decimal" value={laize} onChange={(e) => setLaize(e.target.value.replace(/[^\d.,]/g, ""))} placeholder="1,48" className="w-24 rounded border-2 px-2 py-1.5 text-center font-bold" />
+        <span className="text-slate-500">m</span>
+      </label>
       {ctx.rouleaux.length > 0 && (
         <table className="mt-3 w-full">
           <thead>
             <tr className="text-[10px] uppercase text-slate-500">
               <th className="text-left">Rouleau</th>
-              <th>Reçu</th>
+              <th>Chez vous (m)</th>
               <th>Utilisé</th>
               <th>Chute</th>
               <th>Reste</th>
@@ -669,6 +693,29 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
           </tbody>
         </table>
       )}
+      {ctx.rouleaux.length > 0 && (
+        <div className="mt-2 space-y-1">
+          <div className="text-[11px] font-bold uppercase text-slate-500">Défaut ou manquant sur un rouleau ?</div>
+          {ctx.rouleaux.map((r) => (
+            <div key={r.code} className="flex items-center gap-1">
+              <span className="w-28 shrink-0 text-xs font-bold">{r.code}</span>
+              <input
+                value={defauts[r.code]?.defaut ?? ""}
+                onChange={(e) => setDefauts({ ...defauts, [r.code]: { manquant: defauts[r.code]?.manquant ?? "", defaut: e.target.value } })}
+                placeholder="défaut (ex. trou à 12 m)"
+                className="min-w-0 flex-1 rounded border px-2 py-1 text-xs"
+              />
+              <input
+                inputMode="decimal"
+                value={defauts[r.code]?.manquant ?? ""}
+                onChange={(e) => setDefauts({ ...defauts, [r.code]: { defaut: defauts[r.code]?.defaut ?? "", manquant: e.target.value.replace(/[^\d.,]/g, "") } })}
+                placeholder="manquant m"
+                className="w-24 rounded border px-2 py-1 text-center text-xs"
+              />
+            </div>
+          ))}
+        </div>
+      )}
       <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (facultatif)" className="mt-2 w-full rounded-lg border px-3 py-2" />
       <div className="mt-2">
         <Message erreur={msg.erreur} />
@@ -687,7 +734,11 @@ function FormRapport({ cle, c, fermer }: { cle: string; c: CommandeSt; fermer: (
                 chute: ent(x.chute),
                 reste: ent(x.reste),
               }));
-              const r = await A.envoyerRapport(cle, c.id, pieces, rouleaux, note);
+              const r = await A.envoyerRapport(cle, c.id, pieces, rouleaux, note, {
+                laize: laize ? Number(laize.replace(",", ".")) : null,
+                second: Object.fromEntries(Object.entries(second).map(([of, t]) => [of, Object.fromEntries(Object.entries(t).map(([s2, q]) => [s2, ent(q)]))])),
+                rouleaux: Object.entries(defauts).map(([code, x]) => ({ code, defaut: x.defaut, manquant: ent(x.manquant) })),
+              });
               if (!r.ok) return void setMsg({ erreur: r.error });
               setMsg({
                 ok: "Rapport envoyé. L'usine le valide et vous prévient.",

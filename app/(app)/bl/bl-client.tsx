@@ -12,7 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { STATUTS_BL, type StatutBl } from "@/lib/domain/aval";
-import type { BlRow, CommandeAval } from "@/lib/services/aval";
+import type { BlRow, CommandeAval as CommandeAvalBase } from "@/lib/services/aval";
+import type { StockTaille } from "@/lib/domain/stock-taille";
+
+/** Commande livrable, avec son stock par taille quand on le connaît. */
+type CommandeAval = CommandeAvalBase & { tailles?: string[]; stockTaille?: StockTaille };
 import * as A from "@/lib/actions/aval";
 import { BoutonAction, Kpi, SelectAction, Tuiles } from "../aval/ui";
 
@@ -259,6 +263,8 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
   const [adresse, setAdresse] = useState("");
   const [note, setNote] = useState("");
   const [qtes, setQtes] = useState<Record<number, string>>({});
+  /** Tailles livrées par ligne (facultatif ; pré-rempli quand on livre tout le stock rangé par taille). */
+  const [tl, setTl] = useState<Record<number, Record<string, string>>>({});
   const [pending, start] = useTransition();
 
   // Un BL ne concerne qu'un client : on livre à une adresse à la fois.
@@ -280,11 +286,21 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
       else n[c.id] = String(c.livrable);
       return n;
     });
+    // Tout le stock part et il est rangé par taille : les tailles sont reprises.
+    const st = c.stockTaille;
+    setTl((p) => {
+      const n = { ...p };
+      if (dedans) delete n[c.id];
+      else if (st && st.nonVentile === 0 && Object.keys(st.parTaille).length && st.total === c.livrable)
+        n[c.id] = Object.fromEntries(Object.entries(st.parTaille).map(([t, q]) => [t, String(q)]));
+      return n;
+    });
   };
+  const sommeTl = (id: number) => Object.values(tl[id] ?? {}).reduce((s, x) => s + (Number(x) || 0), 0);
 
   const selection = lignes
     .filter((c) => qtes[c.id] !== undefined)
-    .map((c) => ({ c, qte: Math.max(0, Math.round(Number(qtes[c.id]) || 0)) }));
+    .map((c) => ({ c, qte: sommeTl(c.id) > 0 ? sommeTl(c.id) : Math.max(0, Math.round(Number(qtes[c.id]) || 0)) }));
   const totalQte = selection.reduce((s, l) => s + l.qte, 0);
   const totalHt = selection.reduce((s, l) => s + l.qte * (l.c.prixVente ?? 0), 0);
 
@@ -372,7 +388,8 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
                 {lignes.map((c) => {
                   const coche = qtes[c.id] !== undefined;
                   return (
-                    <tr key={c.id} className={`border-t ${coche ? "bg-primary/5" : ""}`}>
+                    <Fragment key={c.id}>
+                    <tr className={`border-t ${coche ? "bg-primary/5" : ""}`}>
                       <td className="px-2 py-1.5">
                         <label className="flex items-center gap-2">
                           <input type="checkbox" checked={coche} onChange={() => choisir(c)} />
@@ -395,13 +412,36 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
                       <td className="px-2 py-1.5 text-right">
                         <input
                           type="number"
-                          value={qtes[c.id] ?? ""}
-                          disabled={!coche}
+                          value={sommeTl(c.id) > 0 ? String(sommeTl(c.id)) : (qtes[c.id] ?? "")}
+                          disabled={!coche || sommeTl(c.id) > 0}
                           onChange={(e) => setQtes((p) => ({ ...p, [c.id]: e.target.value }))}
                           className="w-24 rounded border border-input bg-card px-1.5 py-1 text-right tabular-nums disabled:opacity-40"
                         />
                       </td>
                     </tr>
+                    {coche && (c.tailles?.length ?? 0) > 0 && (
+                      <tr className="bg-primary/5">
+                        <td colSpan={5} className="px-2 pb-2">
+                          <div className="flex flex-wrap items-end gap-1.5 pl-6">
+                            <span className="pb-1 text-[10px] font-semibold text-muted-foreground">Par taille :</span>
+                            {[...new Set([...(c.tailles ?? []), ...Object.keys(c.stockTaille?.parTaille ?? {})])].map((t) => (
+                              <label key={t} className="flex flex-col items-center text-[10px] font-bold">
+                                {t}
+                                {c.stockTaille?.parTaille[t] != null && <span className="font-normal text-muted-foreground">stock {c.stockTaille.parTaille[t]}</span>}
+                                <input
+                                  inputMode="numeric"
+                                  value={tl[c.id]?.[t] ?? ""}
+                                  onChange={(e) => setTl((p) => ({ ...p, [c.id]: { ...(p[c.id] ?? {}), [t]: e.target.value.replace(/\D/g, "") } }))}
+                                  className="h-7 w-12 rounded border border-input bg-card text-center"
+                                />
+                              </label>
+                            ))}
+                            <span className="pb-1 text-[10px] text-muted-foreground">facultatif — vide : ligne « sans taille »</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -438,7 +478,7 @@ function DialogCreation({ commandes, onFermer }: { commandes: CommandeAval[]; on
                   suivi,
                   adresseLivraison: adresse,
                   note,
-                  lignes: selection.map((l) => ({ commandeId: l.c.id, qteLivree: l.qte })),
+                  lignes: selection.map((l) => ({ commandeId: l.c.id, qteLivree: l.qte, tailles: tl[l.c.id] ?? {} })),
                 });
                 if (!r.ok) {
                   toast.error(r.error);

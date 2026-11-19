@@ -10,6 +10,7 @@ import { attenduDeLOf, validerFiche } from "@/lib/services/coupe";
 import { messageBureau, type Moi } from "@/lib/services/messagerie";
 import { journal } from "@/lib/services/portail-acces";
 import { avancementCommandes, reglagesSt, type Avancement } from "@/lib/services/portail-soustraitant";
+import { enregistrerResultat } from "@/lib/services/pv-client";
 import * as pc from "@/lib/domain/plan-coupe";
 
 /* SUIVI DES SOUS-TRAITANTS — côté bureau.
@@ -96,6 +97,7 @@ export type RapportBureau = {
   par: string;
   coupe: { of: string; parTaille: Record<string, number> }[];
   rouleaux: { code: string; consomme: number; chute: number; reste: number }[];
+  constats: { laize: number | null; second: Record<string, Record<string, number>>; rouleaux: { code: string; defaut: string; manquant: number }[] };
   note: string;
   motifRefus: string;
   ficheId: number | null;
@@ -293,7 +295,7 @@ async function listRapports(): Promise<RapportBureau[]> {
   return rows.map(({ r, atelier, of, modele }) => ({
     id: r.id, atelier, commandeId: r.commandeId, of, modele, statut: r.statut, le: iso(r.createdAt), par: r.par,
     coupe: Object.entries(r.coupe).map(([id, parTaille]) => ({ of: nomOf.get(Number(id)) ?? id, parTaille })),
-    rouleaux: r.rouleaux, note: r.note, motifRefus: r.motifRefus, ficheId: r.ficheId,
+    rouleaux: r.rouleaux, constats: r.constats, note: r.note, motifRefus: r.motifRefus, ficheId: r.ficheId,
   }));
 }
 
@@ -335,9 +337,13 @@ export async function validerRapport(id: number, v: { motif: string; precision: 
       note: `Rapport de coupe de l'atelier (${r.par})${r.note ? ` — ${r.note}` : ""}`,
       matiereRang: plan ? (pc.matierePrincipale(plan)?.rang ?? 0) : 0,
       consommations: r.rouleaux.map((x) => ({ code: x.code, consomme: x.consomme, chute: x.chute })),
+      // Laize, 2e choix, défauts et manquants saisis par l'atelier.
+      constats: r.constats,
     },
     moi.nom,
   );
+  // Le « Résultat de coupe » client se génère tout seul, figé à cet instant.
+  await enregistrerResultat(fiche.numero, moi.nom).catch(() => null);
   const fait = await db
     .update(stRapportCoupe)
     .set({ statut: "valide", traiteLe: new Date(), traitePar: moi.nom, ficheId: fiche.id })

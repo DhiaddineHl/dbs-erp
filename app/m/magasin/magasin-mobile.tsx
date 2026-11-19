@@ -25,7 +25,7 @@ type Base = {
   gpaoExcedent: number;
   entreesInternes: number;
 };
-export type LigneInterne = Base & { aEntrer: number };
+export type LigneInterne = Base & { aEntrer: number; /** Tailles proposées pour ranger l'entrée. */ tailles: string[] };
 export type LigneFaconnier = Base & { reste: number };
 export type SaisieJour = {
   cle: string;
@@ -184,8 +184,12 @@ function SaisieInterne({
   onFait: (titre: string, detail: string) => void;
 }) {
   const router = useRouter();
-  const [qte, setQte] = useState(c.aEntrer);
+  const [qteSaisie, setQte] = useState(c.aEntrer);
   const [date, setDate] = useState(jour);
+  /* Rangement par taille : rempli, il donne la quantité. */
+  const [grille, setGrille] = useState<Record<string, string>>({});
+  const parTaille = Object.values(grille).reduce((s, x) => s + (Number(x) || 0), 0);
+  const qte = parTaille > 0 ? parTaille : qteSaisie;
   const [pending, start] = useTransition();
   const resteCommande = Math.max(0, c.qte - c.entreesInternes);
 
@@ -205,14 +209,37 @@ function SaisieInterne({
       )}
 
       <Compteur
-        titre="Pièces entrées au stock"
+        titre={parTaille > 0 ? "Pièces entrées au stock (somme des tailles)" : "Pièces entrées au stock"}
         valeur={qte}
-        onChange={setQte}
+        onChange={(n) => {
+          if (parTaille === 0) setQte(n);
+        }}
         raccourcis={[
           ...(c.aEntrer > 0 ? [{ label: `GPAO ${nb.format(c.aEntrer)}`, valeur: c.aEntrer }] : []),
           ...(resteCommande > 0 && resteCommande !== c.aEntrer ? [{ label: `Reste cmd ${nb.format(resteCommande)}`, valeur: resteCommande }] : []),
         ]}
       />
+      {c.tailles.length > 0 && (
+        <div className="mb-4 rounded-xl border-2 border-slate-200 bg-white p-3">
+          <div className="mb-2 flex items-baseline justify-between text-sm font-bold">
+            <span>Rangées par taille</span>
+            <span className="text-slate-500">{parTaille > 0 ? `${nb.format(parTaille)} pcs` : "facultatif"}</span>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {c.tailles.map((t) => (
+              <label key={t} className="flex flex-col items-center text-sm font-black">
+                {t}
+                <input
+                  inputMode="numeric"
+                  value={grille[t] ?? ""}
+                  onChange={(e) => setGrille({ ...grille, [t]: e.target.value.replace(/\D/g, "") })}
+                  className="mt-1 h-12 w-full rounded-lg border-2 border-slate-300 text-center text-lg font-bold"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       {c.aEntrer > 0 && qte > c.aEntrer && (
         <Message ton="orange">Plus que ce que la GPAO a sorti ({nb.format(c.aEntrer)} pcs). Vérifiez le comptage.</Message>
       )}
@@ -222,7 +249,7 @@ function SaisieInterne({
         disabled={pending || qte <= 0}
         onClick={() =>
           start(async () => {
-            const r = await A.receptionMagasin({ commandeId: c.id, date, qte, note: "saisie mobile" });
+            const r = await A.receptionMagasin({ commandeId: c.id, date, qte, note: "saisie mobile", tailles: grille });
             if (!r.ok) return void toast.error(r.error);
             router.refresh();
             onFait(`${nb.format(qte)} pcs entrées au stock`, `${c.of} · ${c.modele} — production interne`);

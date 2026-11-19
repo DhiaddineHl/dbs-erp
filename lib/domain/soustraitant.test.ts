@@ -105,7 +105,7 @@ test("fiabilité : annoncé face au compté", () => {
 
 test("rapport de coupe : consommé + chute + reste ≈ reçu", () => {
   assert.equal(st.controleRouleauRapport({ consomme: 80, chute: 5, reste: 15 }, 100), null);
-  assert.match(st.controleRouleauRapport({ consomme: 50, chute: 5, reste: 15 }, 100)!, /reçus/);
+  assert.match(st.controleRouleauRapport({ consomme: 50, chute: 5, reste: 15 }, 100)!, /chez vous/);
   assert.match(st.controleRouleauRapport({ consomme: -1, chute: 0, reste: 0 }, 100)!, /positifs/);
 });
 

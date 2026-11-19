@@ -44,6 +44,8 @@ export async function validerLivraison(numero: string, recues: Ligne[], forcer =
       controle: t.controle,
       note: `Livraison ${numero} (portail)${t.qteNc ? ` — ${t.qteNc} en 2e choix` : ""}`,
       forcer,
+      // Le 1er choix compté entre au stock RANGÉ PAR TAILLE.
+      tailles: Object.fromEntries(r.recues.filter((l) => l.premier > 0).map((l) => [l.taille, l.premier])),
     });
     if (!res.ok) {
       await svc.relacherLivraison(r.livraison.id);

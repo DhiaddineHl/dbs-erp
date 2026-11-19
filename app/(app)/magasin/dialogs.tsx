@@ -6,7 +6,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { aEntrerInterne, CONTROLES_BR, type AlerteReception } from "@/lib/domain/aval";
-import type { BrRow, CommandeAval } from "@/lib/services/aval";
+import type { BrRow, CommandeAval as CommandeAvalBase } from "@/lib/services/aval";
+
+/** Commande vue du magasin : avec ses tailles quand on les connaît. */
+type CommandeAval = CommandeAvalBase & { tailles?: string[] };
 import * as A from "@/lib/actions/aval";
 
 const nb = new Intl.NumberFormat("fr-FR");
@@ -42,6 +45,35 @@ function Contexte({ c }: { c: CommandeAval }) {
   );
 }
 
+/** Rangement par taille : une case par taille. Remplie, elle donne la
+ * quantité (la somme) ; vide, l'entrée reste « non ventilée ». */
+export function GrilleTailles({ tailles, valeurs, onChange, titre }: { tailles: string[]; valeurs: Record<string, string>; onChange: (v: Record<string, string>) => void; titre: string }) {
+  if (!tailles.length) return null;
+  const total = tailles.reduce((s, t) => s + (Number(valeurs[t]) || 0), 0);
+  return (
+    <div className="rounded-lg border px-3 py-2">
+      <div className="mb-1 flex items-baseline justify-between text-[11px] font-semibold text-muted-foreground">
+        <span>{titre}</span>
+        <span>{total > 0 ? `${nb.format(total)} pcs` : "facultatif (sinon : non ventilé)"}</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {tailles.map((t) => (
+          <label key={t} className="flex flex-col items-center text-[11px] font-bold">
+            {t}
+            <input
+              inputMode="numeric"
+              value={valeurs[t] ?? ""}
+              onChange={(e) => onChange({ ...valeurs, [t]: e.target.value.replace(/\D/g, "") })}
+              className="h-8 w-14 rounded-md border border-input bg-card text-center text-xs"
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+const sommeGrille = (v: Record<string, string>) => Object.values(v).reduce((s, x) => s + (Number(x) || 0), 0);
+
 /* ─────────── réception façonnier (BR) ─────────── */
 
 export function DialogReceptionSt({
@@ -62,6 +94,7 @@ export function DialogReceptionSt({
   const [nc, setNc] = useState("");
   const [controle, setControle] = useState("ok");
   const [note, setNote] = useState("");
+  const [grille, setGrille] = useState<Record<string, string>>({});
   const [recus, setRecus] = useState<AlerteReception[]>([]);
   const [pending, start] = useTransition();
 
@@ -94,12 +127,16 @@ export function DialogReceptionSt({
   const alertes = choisie && recue ? recus : [];
   const bloquant = alertes.find((a) => a.niveau === "bloquant");
   const avertissement = alertes.find((a) => a.niveau === "warn");
-  const conformeEffectif = refuse ? 0 : conforme === "" ? Math.max(0, (Number(recue) || 0) - (Number(nc) || 0)) : Number(conforme) || 0;
+  const parTaille = sommeGrille(grille);
+  const conformeEffectif = refuse ? 0 : parTaille > 0 ? parTaille : conforme === "" ? Math.max(0, (Number(recue) || 0) - (Number(nc) || 0)) : Number(conforme) || 0;
 
   const enregistrer = (forcer: boolean) =>
     start(async () => {
       if (!choisie) return;
-      const r = await A.creerBr({ commandeId: choisie.id, date, qteRecue: recue, qteOk: refuse ? "0" : conforme, qteNc: nc, controle, note, forcer });
+      const r = await A.creerBr({
+        commandeId: choisie.id, date, qteRecue: recue, qteOk: refuse ? "0" : parTaille > 0 ? String(parTaille) : conforme, qteNc: nc, controle, note, forcer,
+        tailles: refuse ? {} : grille,
+      });
       if (!r.ok) return void toast.error(r.error);
       toast.success(
         conformeEffectif > 0
@@ -186,6 +223,11 @@ export function DialogReceptionSt({
               className={`${champ} text-right disabled:opacity-60`}
             />
           </Champ>
+          {choisie && !refuse && (choisie.tailles?.length ?? 0) > 0 && (
+            <div className="sm:col-span-2">
+              <GrilleTailles tailles={choisie.tailles!} valeurs={grille} onChange={setGrille} titre="Conformes rangés par taille" />
+            </div>
+          )}
           <Champ label="Observations" large>
             <input value={note} onChange={(e) => setNote(e.target.value)} className={champ} />
           </Champ>
@@ -244,6 +286,10 @@ export function DialogEntreeInterne({ commande: c, onFermer }: { commande: Comma
   const [date, setDate] = useState(auj());
   const [qte, setQte] = useState(aEntrer > 0 ? String(aEntrer) : "");
   const [note, setNote] = useState("");
+  /* Après contrôle et finition, les pièces se rangent PAR TAILLE. */
+  const [grille, setGrille] = useState<Record<string, string>>({});
+  const parTaille = sommeGrille(grille);
+  const qteEffective = parTaille > 0 ? String(parTaille) : qte;
   const [pending, start] = useTransition();
 
   return (
@@ -276,8 +322,13 @@ export function DialogEntreeInterne({ commande: c, onFermer }: { commande: Comma
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={champ} />
           </Champ>
           <Champ label="Quantité entrée *">
-            <input type="number" min={0} value={qte} onChange={(e) => setQte(e.target.value)} className={`${champ} text-right`} />
+            <input type="number" min={0} value={qteEffective} disabled={parTaille > 0} onChange={(e) => setQte(e.target.value)} className={`${champ} text-right disabled:opacity-70`} />
           </Champ>
+          {(c.tailles?.length ?? 0) > 0 && (
+            <div className="sm:col-span-2">
+              <GrilleTailles tailles={c.tailles!} valeurs={grille} onChange={setGrille} titre="Rangées par taille (après contrôle et finition)" />
+            </div>
+          )}
           <Champ label="Observations" large>
             <input value={note} onChange={(e) => setNote(e.target.value)} className={champ} />
           </Champ>
@@ -287,12 +338,12 @@ export function DialogEntreeInterne({ commande: c, onFermer }: { commande: Comma
             Annuler
           </Button>
           <Button
-            disabled={pending || !(Number(qte) > 0)}
+            disabled={pending || !(Number(qteEffective) > 0)}
             onClick={() =>
               start(async () => {
-                const r = await A.receptionMagasin({ commandeId: c.id, date, qte, note });
+                const r = await A.receptionMagasin({ commandeId: c.id, date, qte: qteEffective, note, tailles: grille });
                 if (!r.ok) return void toast.error(r.error);
-                toast.success(`${nb.format(Number(qte))} pcs entrées au stock`);
+                toast.success(`${nb.format(Number(qteEffective))} pcs entrées au stock${parTaille > 0 ? " (rangées par taille)" : ""}`);
                 onFermer();
                 router.refresh();
               })

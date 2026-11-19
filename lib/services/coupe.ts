@@ -6,6 +6,7 @@ import * as biz from "@/lib/domain/commande";
 import * as cp from "@/lib/domain/coupe";
 import * as pc from "@/lib/domain/plan-coupe";
 import * as rl from "@/lib/domain/rouleau";
+import * as pv from "@/lib/domain/pv-client";
 import { getSetting } from "@/lib/services/permissions";
 import { getPlan } from "@/lib/services/plan-coupe";
 import { recalculerCommande } from "@/lib/services/aval";
@@ -267,6 +268,8 @@ export type SaisieFiche = {
   consommations: { code: string; consomme: number; chute: number }[];
   /** Morceaux et quantités des paquets décidés par la coupe (facultatif). */
   paquets?: ChoixPaquets;
+  /** Constats pour le « Résultat de coupe » client (facultatif). */
+  constats?: Partial<pv.ConstatsCoupe>;
 };
 
 export async function validerFiche(v: SaisieFiche, par: string): Promise<{ id: number; numero: string }> {
@@ -297,6 +300,14 @@ export async function validerFiche(v: SaisieFiche, par: string): Promise<{ id: n
     if (refus) throw new Error(refus);
     if (v.motif && !cp.MOTIFS_ECART.some((m) => m.value === v.motif)) throw new Error("Motif d'écart inconnu.");
 
+    // Constats du coupeur (laize, 2e choix, défauts de rouleaux) : contrôlés ici.
+    const constats = pv.normaliserConstats(v.constats, {
+      ofs: g.membres.map((m) => String(m.id)),
+      tailles: sizes,
+      coupe: Object.fromEntries(g.membres.map((m) => [String(m.id), Object.fromEntries(sizes.map((s) => [s, ent(v.coupe?.[m.id]?.[s] ?? 0)]))])),
+      rouleaux: (v.consommations ?? []).map((c) => c.code),
+    });
+
     // Numéro CP-AAAA-NNN (verrou : deux validations simultanées ne prennent pas le même).
     await t.execute(sql`select pg_advisory_xact_lock(hashtext('coupe_fiche'))`);
     const nums = await t.select({ n: coupeFiche.numero }).from(coupeFiche);
@@ -318,6 +329,7 @@ export async function validerFiche(v: SaisieFiche, par: string): Promise<{ id: n
         precisionEcart: (v.precision ?? "").trim().slice(0, 300),
         note: (v.note ?? "").trim().slice(0, 500),
         createdBy: par,
+        constats,
       })
       .returning({ id: coupeFiche.id });
 
@@ -472,6 +484,8 @@ export type DetailFiche = {
   consommation: { tissu: string; couleur: string; lot: string; rouleau: string; consomme: number; chute: number; total: number; unite: string }[];
   bilan: { theorique: number | null; reel: number; ecart: number | null; pct: number | null; consoPiece: number | null; metragePlan: number | null };
   pvs: { numero: string; version: number; createdBy: string; createdAt: string }[];
+  /** Constats du coupeur / de l'atelier (laize, 2e choix, défauts). */
+  constats: pv.ConstatsCoupe;
 };
 
 export async function lireFiche(numero: string, ex: Executeur = db): Promise<DetailFiche | null> {
@@ -573,6 +587,7 @@ export async function lireFiche(numero: string, ex: Executeur = db): Promise<Det
     consommation,
     bilan: { ...cp.bilanConsommation(f.consoPrevuePiece, totaux.coupe, reel), consoPiece: f.consoPrevuePiece, metragePlan: f.metragePlan },
     pvs: pvs.map((x) => ({ numero: x.numero, version: x.version, createdBy: x.createdBy, createdAt: iso(x.createdAt) })),
+    constats: f.constats ?? pv.CONSTATS_VIDES,
   };
 }
 

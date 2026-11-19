@@ -8,6 +8,7 @@ import { requireUser, userRole } from "@/lib/auth/server";
 import * as av from "@/lib/domain/aval";
 import { motifEcartLabel } from "@/lib/domain/coupe";
 import { lireFiche } from "@/lib/services/coupe";
+import { versionsResultat } from "@/lib/services/pv-client";
 import { ActionsFiche } from "./actions-fiche";
 
 const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
@@ -24,6 +25,9 @@ export default async function FicheCoupePage({ params }: { params: Promise<{ num
   if (!f) notFound();
   const peutSaisir = role === "admin" || av.ROLES_SAISIE_MAGASIN.includes(role);
   const plusieurs = f.ofs.length > 1;
+  const resultats = await versionsResultat(f.id);
+  const cst = f.constats;
+  const secondTotal = Object.values(cst.second ?? {}).reduce((a, t) => a + Object.values(t).reduce((x, n) => x + n, 0), 0);
   return (
     <>
       <PageHeader icon={Scissors} title={`Fiche de coupe ${f.numero}`} description={`${f.commande.client} · ${f.ofs.map((o) => o.of).join(" + ")} · ${f.commande.modele}`} />
@@ -41,7 +45,29 @@ export default async function FicheCoupePage({ params }: { params: Promise<{ num
         </span>
       </div>
 
-      <ActionsFiche id={f.id} numero={f.numero} annulee={f.statut === "annulee"} peutSaisir={peutSaisir} pvs={f.pvs} />
+      <ActionsFiche id={f.id} numero={f.numero} annulee={f.statut === "annulee"} peutSaisir={peutSaisir} pvs={f.pvs} resultats={resultats} />
+
+      {(cst.laize || secondTotal > 0 || cst.rouleaux.length > 0) && (
+        <SectionPanel title="Constats de la coupe (repris dans le Résultat de coupe client)">
+          <div className="flex flex-wrap gap-4 text-xs">
+            {cst.laize ? (
+              <span>
+                Laize utile constatée : <b>{nb.format(cst.laize)} m</b>
+              </span>
+            ) : null}
+            {secondTotal > 0 && (
+              <span>
+                2e choix à la coupe : <b>{secondTotal} pièce(s)</b>
+              </span>
+            )}
+            {cst.rouleaux.map((r) => (
+              <span key={r.code}>
+                <b className="font-mono">{r.code}</b> : {[r.defaut, r.manquant ? `manque ${nb.format(r.manquant)} m` : ""].filter(Boolean).join(" · ")}
+              </span>
+            ))}
+          </div>
+        </SectionPanel>
+      )}
 
       <SectionPanel title="Quantités par taille — commandé / plan / coupé / écart" flush>
         <div className="overflow-x-auto">
