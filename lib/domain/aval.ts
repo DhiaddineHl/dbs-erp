@@ -18,19 +18,31 @@ export type AlerteReception = { niveau: "info" | "warn" | "bloquant"; message: s
 
 /** Contrôles de cohérence d'une réception, portés de saveBR().
  *
- * Le plus important : on ne peut pas produire plus de pièces qu'il n'en a été
- * coupé. Le client se contente d'un avertissement contournable ; on le garde
- * comme tel — un lâcher de coupe peut avoir été oublié à la saisie. */
+ * Une réception, c'est des pièces qui ARRIVENT au magasin : on la compare à
+ * ce qui est déjà arrivé, pas à ce qui est « produit ». Le produit d'une
+ * commande peut déjà compter ces pièces (production suivie dans la GPAO,
+ * avancement déclaré) alors qu'elles ne sont pas encore au stock — les
+ * confondre faisait croire, à la réception de 81 pièces d'une commande
+ * produite à 1 420 dont 300 seulement étaient arrivées, à 1 501 pièces
+ * « produites ».
+ *
+ * Le plus important reste : on ne peut pas recevoir plus de pièces qu'il
+ * n'en a été coupé. Avertissement contournable — un lâcher de coupe peut
+ * avoir été oublié à la saisie. */
 export function verifierReception(input: {
   qteCommandee: number;
-  dejaProduit: number;
+  /** Pièces déjà revenues : reçues des façonniers (conformes ET non
+   * conformes) + entrées de production interne. */
+  dejaRecu: number;
+  /** Pièces déjà entrées au stock (toutes origines, sans le rebut). */
+  dejaEntre: number;
   totalCoupe: number;
   qteRecue: number;
   qteOk: number;
   qteNc: number;
 }): AlerteReception[] {
   const alertes: AlerteReception[] = [];
-  const { qteCommandee, dejaProduit, totalCoupe, qteRecue, qteOk, qteNc } = input;
+  const { qteCommandee, dejaRecu, dejaEntre, totalCoupe, qteRecue, qteOk, qteNc } = input;
 
   if (qteOk + qteNc > qteRecue) {
     alertes.push({
@@ -39,20 +51,23 @@ export function verifierReception(input: {
     });
   }
 
-  const reste = qteCommandee - dejaProduit;
-  const ecart = qteRecue - reste;
+  const reste = Math.max(0, qteCommandee - dejaEntre);
+  const ecart = qteOk - reste;
   if (ecart > 0) {
-    alertes.push({ niveau: "info", message: `${ecart} pièce(s) reçues en plus du reste à produire.` });
-  } else if (ecart < 0) {
-    alertes.push({ niveau: "info", message: `Il manquera ${Math.abs(ecart)} pièce(s) après cette réception.` });
+    alertes.push({
+      niveau: "info",
+      message: `${ecart} pièce(s) de plus que la commande : ${dejaEntre} déjà entrées au stock sur ${qteCommandee} commandées.`,
+    });
+  } else if (ecart < 0 && qteOk > 0) {
+    alertes.push({ niveau: "info", message: `Il restera ${Math.abs(ecart)} pièce(s) à recevoir après cette réception.` });
   }
 
-  if (totalCoupe > 0 && dejaProduit + qteOk > totalCoupe) {
+  if (totalCoupe > 0 && dejaRecu + qteRecue > totalCoupe) {
     alertes.push({
       niveau: "warn",
       message:
-        `Vous déclarez ${dejaProduit + qteOk} pièces produites au total alors que ${totalCoupe} seulement ont été coupées. ` +
-        `On ne peut pas produire plus que ce qui est coupé — vérifiez les lâchers de coupe.`,
+        `Avec cette réception, ${dejaRecu + qteRecue} pièces seront revenues au total (${dejaRecu} déjà reçues + ${qteRecue}) ` +
+        `alors que ${totalCoupe} seulement ont été coupées. On ne peut pas recevoir plus que ce qui est coupé — vérifiez les lâchers de coupe.`,
     });
   }
 
@@ -541,7 +556,12 @@ export function repartirProductionGpao(ofs: OfGpao[], directe: Map<number, numbe
   return out;
 }
 
-export const resteFaconnier = (c: Pick<CommandeReceptionnable, "qte" | "produit">) => Math.max(0, c.qte - c.produit);
+/** Reste à RECEVOIR d'un façonnier : commandé − déjà entré au stock. Pas
+ * « commandé − produit » : une commande peut être produite (GPAO, déclaré)
+ * sans être encore arrivée. Sans le chiffre des entrées, on retombe sur le
+ * produit. */
+export const resteFaconnier = (c: Pick<CommandeReceptionnable, "qte" | "produit" | "magasinQte">) =>
+  Math.max(0, c.qte - (c.magasinQte ?? c.produit));
 
 export type ListesReception<T> = {
   /** Production interne : d'abord ce qui attend d'être entré. */

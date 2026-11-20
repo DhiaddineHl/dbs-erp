@@ -379,6 +379,13 @@
       "when": 1794943351831,
       "tag": "0053_stock_par_taille",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1795151048381,
+      "tag": "0054_fiches_modele",
+      "breakpoints": true
     }
   ]
 }

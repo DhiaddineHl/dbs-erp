@@ -139,7 +139,7 @@ function OngletCommandes({ cle, vue, motifs }: { cle: string; vue: VueSt; motifs
 
 /* ─────────── une commande ─────────── */
 
-type Volet = "" | "soir" | "livrer" | "rapport" | "plan" | "jours";
+type Volet = "" | "soir" | "livrer" | "rapport" | "plan" | "jours" | "fiches";
 
 function CarteCommande({ cle, c, motifs, aujourdhui, archivee }: { cle: string; c: CommandeSt; motifs: Motif[]; aujourdhui: string; archivee?: boolean }) {
   const [volet, setVolet] = useState<Volet>("");
@@ -188,6 +188,11 @@ function CarteCommande({ cle, c, motifs, aujourdhui, archivee }: { cle: string; 
           <Bouton actif={volet === "jours"} onClick={() => basculer("jours")}>
             📅 Jour par jour
           </Bouton>
+          {c.fiches.length > 0 && (
+            <Bouton actif={volet === "fiches"} onClick={() => basculer("fiches")}>
+              📄 Fiches ({c.fiches.length})
+            </Bouton>
+          )}
           {!archivee && (
             <>
               <Bouton actif={volet === "soir"} onClick={() => basculer("soir")}>
@@ -211,6 +216,7 @@ function CarteCommande({ cle, c, motifs, aujourdhui, archivee }: { cle: string; 
       {volet === "livrer" && <FormLivraison cle={cle} c={c} motifs={motifs} fermer={() => setVolet("")} />}
       {volet === "rapport" && <FormRapport cle={cle} c={c} fermer={() => setVolet("")} />}
       {volet === "plan" && <PlanCoupe c={c} />}
+      {volet === "fiches" && <FichesAtelier cle={cle} c={c} />}
       {volet === "jours" && (
         <div className="border-t bg-slate-50 p-4">
           <JournalJours journal={c.avancement.journal} />
@@ -977,6 +983,42 @@ function OngletMessages({ cle, vue }: { cle: string; vue: VueSt }) {
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+/* ─────────── fiches du modèle (déposées par la direction technique) ─────────── */
+
+const NATURE_FICHE: Record<string, string> = { fiche_technique: "Fiche technique", fiche_commentaire: "Fiche commentaire", autre: "Document" };
+
+function FichesAtelier({ cle, c }: { cle: string; c: CommandeSt }) {
+  return (
+    <div className="border-t bg-slate-50 p-4">
+      <ul className="space-y-2">
+        {c.fiches.map((f) => {
+          const imprimable = f.mime === "application/pdf" || f.mime.startsWith("image/");
+          return (
+            <li key={f.id} className="rounded-xl border bg-white p-3">
+              <div className="text-[11px] font-bold uppercase text-slate-500">
+                {NATURE_FICHE[f.nature] ?? "Document"} · {new Date(f.le).toLocaleDateString("fr-FR")}
+              </div>
+              <div className="break-all font-semibold">{f.nom}</div>
+              {f.note && <div className="text-xs italic text-slate-600">« {f.note} »</div>}
+              <div className="mt-2 flex gap-2">
+                {imprimable && (
+                  <a href={`/portail/s/${cle}/document/${f.id}`} target="_blank" rel="noreferrer" className="flex-1 rounded-lg bg-[#1F2A1F] py-2 text-center text-sm font-bold text-white">
+                    🖨 Ouvrir / imprimer
+                  </a>
+                )}
+                <a href={`/portail/s/${cle}/document/${f.id}?telecharger=1`} className="rounded-lg border-2 px-3 py-2 text-center text-sm font-bold">
+                  ⬇ Télécharger
+                </a>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2 text-[11px] text-slate-500">La fiche s&apos;ouvre dans un nouvel onglet : utilisez « Imprimer » de votre téléphone ou de votre ordinateur.</p>
     </div>
   );
 }

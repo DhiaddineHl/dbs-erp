@@ -324,6 +324,12 @@ const ColOf = ({ row }: { row: PreparationRow }) => (
 const ColModele = ({ row, second }: { row: PreparationRow; second?: string }) => (
   <td className="px-3 py-2">
     <b>{row.modele}</b>
+    {/* Fiches déposées en direction technique (fiche technique, commentaires). */}
+    {row.documents.length > 0 && (
+      <span className="ml-1.5 rounded bg-brand/10 px-1 text-[10px] font-semibold text-brand" title={row.documents.map((d) => d.nom).join("\n")}>
+        📄 {row.documents.length}
+      </span>
+    )}
     <br />
     <small className="text-muted-foreground">{second ?? row.refArticle}</small>
   </td>

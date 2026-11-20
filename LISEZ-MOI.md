@@ -1,5 +1,5 @@
 # PilotPro — PROJET COMPLET avec toutes les modifications (à jour)
-Généré le 17/11/2026 — basé sur le ZIP « dbs-erp-pilot-pro » que vous m'avez envoyé le 15/11.
+Généré le 20/11/2026 — basé sur le ZIP « dbs-erp-pilot-pro » que vous m'avez envoyé le 15/11.
 
 CE ZIP CONTIENT LE PROJET ENTIER (dossier dbs-erp-main), pas seulement les
 fichiers modifiés : il remplace tout. package-lock.json COMPRIS.
@@ -11,11 +11,182 @@ revanche des corrections faites après le 12/10 : veille de version,
 menu sur grand écran, saisies qui échouaient sans le dire. J'ai GARDÉ vos
 corrections et remis la livraison du 13/10 par-dessus : rien n'est perdu.
 
-Vérifié : `tsc` OK · `eslint` OK · `npm test` 431/431 · `next build` OK ·
-migrations 0 → 0053 (nouvelles depuis le 13/10 : 0047 à 0053, appliquées toutes seules au démarrage) · essai navigateur.
+Vérifié : `tsc` OK · `eslint` OK · `npm test` 442/442 · `next build` OK ·
+migrations 0 → 0054 (nouvelles depuis le 13/10 : 0047 à 0054, appliquées toutes seules au démarrage) · essai navigateur.
 
 ═══════════════════════════════════════════════════════════════
-NOUVEAU (17/11) — Magasin produits finis rangé + stock PAR TAILLE
+NOUVEAU (20/11, 3e envoi) — Réception façonnier : « produit » et « reçu »
+ne sont plus confondus
+═══════════════════════════════════════════════════════════════
+Aucune migration nouvelle.
+
+LE PROBLÈME (votre capture : OF-2026-367, 1 420 commandées, 1 420
+produites, 300 en stock, réception de 81)
+La réception était comparée au « produit » : 1 420 produites + 81 reçues
+= 1 501 > 1 420 coupées → fausse alerte. Or « produit » compte déjà ces
+pièces (production suivie dans les chaînes / GPAO) alors qu'elles ne sont
+pas encore arrivées au magasin. Pour la même raison, une commande
+« produite à 100 % » disparaissait de la liste des commandes à
+réceptionner, même avec des pièces encore chez le façonnier.
+
+CE QUI CHANGE
+  · Une réception se compare à ce qui est DÉJÀ ARRIVÉ :
+      – alerte coupe : déjà reçu (conformes + non conformes) + cette
+        réception ne doit pas dépasser le COUPÉ (toujours signalé, et
+        toujours contournable) ;
+      – information : « Il restera N pièce(s) à recevoir » ou « N pièce(s)
+        de plus que la commande ».
+  · Dans la fenêtre de réception, le bandeau montre : Commandé · Coupé ·
+    Produit (dont chaîne, s'il y en a) · Déjà entré au stock · En stock ·
+    Reste à recevoir.
+  · Les listes « à réceptionner » (bureau, téléphone du magasinier, bouton
+    « Réception » sur la ligne) se basent sur le reste à RECEVOIR
+    (commandé − déjà entré au stock), et non plus sur le reste à produire.
+  · Le coupé utilisé est le coupé valide (les lignes d'une fiche de coupe
+    annulée ne comptent plus).
+  · La validation des livraisons annoncées sur le portail sous-traitant
+    passe par la même règle.
+Le calcul du « produit » lui-même ne change pas (chaînes + réceptions +
+retouches, plafonné à la commande).
+
+Vérifié : tests (dont votre cas exact : 1 420 produites, 300 arrivées,
+81 reçues → aucune alerte, « il restera 1 039 ») ; essai navigateur —
+commande produite à 100 %, à moitié arrivée : elle reste proposée à la
+réception, 81 pièces passent sans alerte et entrent au stock ; 700 de plus
+déclenchent bien l'alerte « 1 491 pièces revenues pour 1 420 coupées ».
+
+
+═══════════════════════════════════════════════════════════════
+LIVRÉ (20/11, 2e envoi) — Messagerie : l'administrateur gère les groupes
+des portails · Archivage : photos et fiches effacées pour libérer l'espace
+═══════════════════════════════════════════════════════════════
+Aucune migration nouvelle.
+
+1) MESSAGERIE — GROUPES DES SOUS-TRAITANTS ET DES CLIENTS
+Les fils créés pour un portail (🌐 Client · … / 🌐 Sous-traitant · …) :
+  · le compte administrateur en est TOUJOURS administrateur — y compris
+    pour les fils créés avant aujourd'hui : il y est rattaché tout seul à
+    sa prochaine ouverture de la messagerie ;
+  · dans « Infos du groupe » (le ⓘ en haut du fil) il peut donc
+    « ➕ Ajouter des membres » et « Retirer » une personne, et renommer
+    le groupe ;
+  · une personne retirée ne voit plus les nouveaux messages ; l'historique
+    reste intact, et on peut la remettre plus tard ;
+  · s'il quitte lui-même un groupe, il n'y est pas remis de force.
+
+2) ARCHIVER UNE COMMANDE LIBÈRE L'ESPACE
+Dès qu'une commande est archivée — à la main (« Archiver »), par « Archiver
+les soldées », ou toute seule quand elle est entièrement facturée — on
+efface DÉFINITIVEMENT :
+  · la photo du modèle ;
+  · les photos du contrôle qualité (inspections, défauts, actions
+    correctives avant / après) ;
+  · les fiches techniques et fiches commentaire du modèle (seulement quand
+    TOUT le groupe d'OF du modèle est archivé). La ligne de la fiche reste
+    à l'historique, marquée « Archivage automatique (fichier supprimé) ».
+Ce qui RESTE : toutes les quantités, les contrôles, les mesures, les
+défauts, les factures, les messages — seuls les fichiers partent.
+Sécurités :
+  · un fichier utilisé ailleurs n'est jamais effacé (la même photo ou la
+    même fiche sur une commande encore en cours, ou envoyée dans la
+    messagerie) ;
+  · le premier archivage fait aussi le ménage des commandes DÉJÀ archivées
+    et des fichiers restés sans usage (photos des commandes livrées
+    décrochées auparavant) ; un fichier déposé depuis moins de 2 jours
+    n'est jamais touché ;
+  · si le stockage ne répond pas, l'archivage se fait quand même ; le
+    ménage sera refait au suivant ;
+  · le journal d'activité note chaque ménage : « 1 photo(s) et 3 fiche(s)
+    retirées · 3 fichier(s) effacé(s) · 3,4 Mo libérés » ;
+  · la fenêtre de confirmation de l'archivage le dit clairement.
+⚠ Désarchiver une commande ne fait PAS revenir ses photos ni ses fiches.
+
+Vérifié : tests ; essai navigateur — archivage d'un OF avec photo, 3 fiches
+dont une partagée avec un OF en cours : 3 fichiers effacés (3,4 Mo), la
+fiche partagée reste lisible sur l'OF en cours, un fichier orphelin de
+3 jours effacé, la fiche archivée ne s'ouvre plus (introuvable, sans
+erreur) ; messagerie — l'administrateur, rétrogradé puis retiré d'anciens
+fils portail, y redevient administrateur, ajoute « Chef DBS » et retire
+« Responsable Prod. ».
+
+
+═══════════════════════════════════════════════════════════════
+LIVRÉ (20/11) — Fiches du modèle en direction technique, vues par l'atelier
+═══════════════════════════════════════════════════════════════
+Migration 0054 (s'applique toute seule au démarrage). Les fichiers vont
+dans le stockage objet déjà utilisé pour les photos du contrôle qualité.
+
+1) EN DIRECTION TECHNIQUE
+Sur chaque modèle (ouvrir la ligne de la commande), une nouvelle section
+« 📄 Fiches du modèle », en tête :
+  · choisir le type — Fiche technique, Fiche commentaire, Autre document —
+    une note facultative (« version du 14/11 »), « visible par l'atelier »
+    (coché par défaut), puis « 📤 Déposer » ;
+  · PDF, photo, Excel ou Word, jusqu'à 25 Mo (un dossier technique de 40
+    pages passe sans problème) ;
+  · chaque fiche : « 🖨 Ouvrir / imprimer » (s'ouvre dans un onglet, avec
+    son vrai nom), « Cacher / Montrer à l'atelier », « Retirer » (elle
+    n'est plus montrée, mais rien n'est effacé) ; qui l'a déposée et quand ;
+  · dans la liste, « 📄 2 » à côté du modèle dit combien de fiches il a ;
+  · la fiche vaut pour tout le groupe d'OF du modèle (porteur et OF
+    rattachés) ;
+  · déposer et retirer : direction technique (mêmes droits que les têtes de
+    série) ; tout est écrit au journal d'activité.
+
+2) CHEZ L'ATELIER (son portail)
+Sur la commande, un bouton « 📄 Fiches (n) » : chaque fiche avec
+« 🖨 Ouvrir / imprimer » et « ⬇ Télécharger ». Il ne voit que les fiches
+« visibles par l'atelier » des commandes qui LUI sont confiées ; sans son PIN,
+le lien ne s'ouvre pas. À chaque nouvelle fiche visible, il reçoit un message
+dans son fil (« 📄 Nouvelle fiche technique pour OF-… »).
+
+Vérifié : tests ; essai navigateur complet — dépôt d'un dossier technique
+de 3,4 Mo (fiche technique, visible) et d'une fiche commentaire interne ;
+ouverture et impression au bureau ; sur le portail de l'atelier, seule la
+fiche visible apparaît et s'ouvre (3,4 Mo, PDF) ; sans PIN : refusé.
+
+
+═══════════════════════════════════════════════════════════════
+LIVRÉ (19/11) — Portail client : « 📊 Performance » et traçabilité
+═══════════════════════════════════════════════════════════════
+Pas de migration.
+
+Le client voit maintenant de quoi nourrir SES statistiques fournisseur,
+calculé sur SES commandes et sur des dates réelles (12 derniers mois).
+
+1) NOUVEL ONGLET « 📊 PERFORMANCE »
+  · Chiffres clés : LIVRÉES À L'HEURE (% et « X sur Y commandes parties »),
+    écart moyen au délai (avance ou retard), CYCLE MOYEN (de la commande au
+    départ), DÉLAI USINE MOYEN (du tissu reçu au départ — le temps qui
+    dépend de nous), % OK dès la 1re tête de série (s'il y a des têtes de
+    série), pièces livrées.
+  · RESPECT DES DÉLAIS : pour chaque commande partie, date d'export
+    contractuelle, date réelle, et le délai (« 2 j d'avance », « le jour
+    prévu », « +2 j », « +5 j de retard »).
+  · CYCLE DE VIE DE CHAQUE COMMANDE : une barre par commande (en cours puis
+    parties), découpée en attente tissu / préparation / fabrication /
+    expédition, avec la moyenne.
+
+2) « 🧭 TRAÇABILITÉ » SUR CHAQUE COMMANDE
+Bouton sur la carte de la commande : le cycle (« en cours depuis 12 jours »,
+« cycle complet : 44 jours »), le délai, puis une FRISE DATÉE de tous les
+faits : commande enregistrée, tissu reçu (référence, couleur, bain, lot),
+têtes de série / pièces pour l'OK envoyées et leur réponse, chaque jour de
+coupe (pièces coupées), contrôles qualité, pièces finies et emballées,
+chaque expédition (BL, transporteur, n° de suivi).
+
+À SAVOIR
+  · Début du cycle = la commande enregistrée dans PilotPro ; si elle a été
+    saisie après coup (reprise d'historique), le premier fait daté connu ;
+    si rien n'est fiable : « début inconnu » (rien n'est inventé).
+  · Toujours aucune trace de la sous-traitance (vérifié dans la page).
+
+Vérifié : tests (cycle, statistiques, libellés), essai navigateur sur
+téléphone (onglet Performance, traçabilité, aucune fuite).
+
+
+═══════════════════════════════════════════════════════════════
+LIVRÉ (17/11) — Magasin produits finis rangé + stock PAR TAILLE
 ═══════════════════════════════════════════════════════════════
 Migration 0053 (s'applique toute seule au démarrage).
 

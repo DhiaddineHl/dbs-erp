@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, gt, inArray, lt, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { commande, conversation, conversationMembre, message, messageLecture, presence, user } from "@/lib/db/schema";
+import { commande, conversation, conversationMembre, message, messageLecture, portailAcces, presence, user } from "@/lib/db/schema";
 import * as ms from "@/lib/domain/messagerie";
 
 /* Messagerie interne — lecture et écriture. Chaque fonction reçoit l'identité
@@ -73,7 +73,32 @@ export type ConversationResume = {
   parti: boolean;
 };
 
+/** Le compte ADMINISTRATEUR de l'application (pas seulement l'admin d'un groupe). */
+async function estAdminAppli(userId: string): Promise<boolean> {
+  const [u] = await db.select({ role: user.role }).from(user).where(eq(user.id, userId));
+  return u?.role === "admin";
+}
+
+/** Les fils des portails (clients, sous-traitants) : l'administrateur de
+ * l'application en est toujours membre ET administrateur — il peut y ajouter
+ * ou retirer des personnes. Rattrape aussi un compte admin créé après le fil. */
+async function rattacherAdminAuxPortails(userId: string) {
+  const fils = await db.select({ id: portailAcces.conversationId }).from(portailAcces);
+  const ids = [...new Set(fils.map((f) => f.id).filter((x): x is number => x != null))];
+  if (!ids.length) return;
+  const deja = await db
+    .select({ c: conversationMembre.conversationId, role: conversationMembre.role, parti: conversationMembre.parti })
+    .from(conversationMembre)
+    .where(and(eq(conversationMembre.userId, userId), inArray(conversationMembre.conversationId, ids)));
+  for (const id of ids) {
+    const m = deja.find((d) => d.c === id);
+    if (!m) await db.insert(conversationMembre).values({ conversationId: id, userId, role: "admin" }).onConflictDoNothing();
+    else if (m.role !== "admin" && !m.parti) await db.update(conversationMembre).set({ role: "admin" }).where(and(eq(conversationMembre.conversationId, id), eq(conversationMembre.userId, userId)));
+  }
+}
+
 export async function listConversations(moi: Moi): Promise<ConversationResume[]> {
+  if (await estAdminAppli(moi.id)) await rattacherAdminAuxPortails(moi.id).catch(() => undefined);
   const mes = await db
     .select({ c: conversation, parti: conversationMembre.parti })
     .from(conversationMembre)
@@ -217,7 +242,8 @@ export async function ouvrirConversation(convId: number, moi: Moi, avant?: numbe
     type: c.type,
     nom: ms.nomConversation(c, membres, moi.id),
     membres,
-    suisAdmin: mb.role === "admin",
+    // Admin du groupe, ou administrateur de l'application.
+    suisAdmin: mb.role === "admin" || (await estAdminAppli(moi.id)),
     parti: mb.parti,
     messages,
     plusAnciens: messages.length === PAGE,
@@ -322,7 +348,7 @@ export async function majGroupe(convId: number, moi: Moi, v: { nom?: string; ajo
   const m = await exigerMembreActif(convId, moi.id);
   const [c] = await db.select().from(conversation).where(eq(conversation.id, convId));
   if (c.type !== "groupe") throw new Error("Ce n'est pas un groupe.");
-  if (m.role !== "admin") throw new Error("Seul un administrateur du groupe peut le modifier.");
+  if (m.role !== "admin" && !(await estAdminAppli(moi.id))) throw new Error("Seul un administrateur du groupe (ou de l'application) peut le modifier.");
   if (v.nom != null) {
     const n = v.nom.trim().slice(0, ms.NOM_GROUPE_MAX);
     if (!n) throw new Error("Donnez un nom au groupe.");
@@ -472,10 +498,19 @@ export async function commandesACiter(q: string) {
  * sans compte rattaché. Tout ce qui s'écrit dans ce fil est lu par lui. */
 
 export async function creerFilPortail(nom: string): Promise<number> {
-  const membres = await db.select({ id: user.id }).from(user).where(inArray(user.role, ["admin", "resp"]));
+  const membres = await db.select({ id: user.id, role: user.role }).from(user).where(inArray(user.role, ["admin", "resp"]));
   const id = await db.transaction(async (t) => {
     const [c] = await t.insert(conversation).values({ type: "groupe", nom: nom.slice(0, ms.NOM_GROUPE_MAX) }).returning({ id: conversation.id });
-    if (membres.length) await t.insert(conversationMembre).values(membres.map((m, i) => ({ conversationId: c.id, userId: m.id, role: i === 0 ? "admin" : "membre" })));
+    // Les administrateurs de l'application gèrent le fil (ajouter / retirer des personnes).
+    if (membres.length)
+      await t.insert(conversationMembre).values(
+        membres.map((m, i) => ({
+          conversationId: c.id,
+          userId: m.id,
+          // Pas de compte administrateur : le premier responsable gère le fil.
+          role: m.role === "admin" || (i === 0 && !membres.some((x) => x.role === "admin")) ? "admin" : "membre",
+        })),
+      );
     return c.id;
   });
   await ecrireMessage(id, null, {

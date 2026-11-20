@@ -252,7 +252,7 @@ export function DialogPurge({ onFermer }: { onFermer: () => void }) {
             </div>
             <div className="rounded-lg bg-muted px-3 py-2 text-[11px] leading-relaxed">
               <b>🗄 Archiver (recommandé)</b> : elles quittent les listes actives mais restent consultables dans
-              Archives, avec leur historique.
+              Archives, avec leur historique. Leurs photos et fiches techniques sont effacées pour libérer de l&apos;espace.
               <br />
               <b>🗑 Supprimer</b> : effacement définitif de tous les modules — irréversible.
             </div>

@@ -1,4 +1,5 @@
 import "server-only";
+import { libererEspaceArchives } from "@/lib/services/menage-fichiers";
 import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { blLigne, br, chaine, client, commande, commandePlan, commandePrixJournal, coupe, faconnier, modele, ofSupprime, tissuMouvement } from "@/lib/db/schema";
@@ -836,6 +837,11 @@ export async function setArchived(ids: number[], archived: boolean) {
     .update(commande)
     .set({ archived, updatedAt: new Date() })
     .where(inArray(commande.id, tous));
+  /* Archiver libère l'espace : photos et fiches techniques des commandes
+   * archivées sont effacées (lib/services/menage-fichiers.ts). Un ménage raté
+   * (stockage injoignable) n'empêche jamais l'archivage : il sera refait au
+   * prochain. */
+  if (archived) await libererEspaceArchives().catch(() => null);
 }
 
 /** Commandes sharing a (client, modèle, référence) key — PilotPro's

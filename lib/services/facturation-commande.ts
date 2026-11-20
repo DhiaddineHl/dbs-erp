@@ -1,4 +1,5 @@
 import "server-only";
+import { libererEspaceArchives } from "@/lib/services/menage-fichiers";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { commande, facture, factureCostLine, factureLigne } from "@/lib/db/schema";
@@ -85,7 +86,7 @@ export async function facturerCommande(
   if (!numero) throw new Error("Numéro de facture manquant");
   const dateFacture = saisie.date || ligneCmd.dateLivraison || biz.todayISO();
 
-  return db.transaction(async (tx) => {
+  const res = await db.transaction(async (tx) => {
     const [existante] = await tx
       .select({ id: facture.id, pieces: facture.pieces, total: facture.total })
       .from(facture)
@@ -179,6 +180,9 @@ export async function facturerCommande(
       reste: Math.max(0, ligneCmd.qte - brouillon.factureQteApres),
     };
   });
+  // Facturée entièrement = archivée : on libère l'espace de ses fichiers.
+  if (res.complete) await libererEspaceArchives().catch(() => null);
+  return res;
 }
 
 /* ─────────── B3 · cohérence du prix façon ─────────── */

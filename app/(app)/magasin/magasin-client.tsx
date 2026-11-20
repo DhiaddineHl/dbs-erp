@@ -492,7 +492,7 @@ function ParFaconnier({
 function actionPrincipale(c: CommandeMagasin): "entrer" | "recevoir" | "preparer" | "bl" | null {
   if (c.etatMagasin === "expedie") return null;
   if (!c.faconnier && aEntrerInterne(c) > 0) return "entrer";
-  if (c.faconnier && c.produit < c.qte && c.stockQte === 0) return "recevoir";
+  if (c.faconnier && c.magasinQte < c.qte && c.stockQte === 0) return "recevoir";
   if (c.stockQte > 0 && !c.magasinPrepare) return "preparer";
   if (c.stockQte > 0 && c.magasinPrepare) return "bl";
   return null;

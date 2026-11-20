@@ -1,5 +1,7 @@
 "use client";
 
+import { FichesModele } from "./fiches-modele";
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -161,6 +163,9 @@ export function FicheDt({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* ── fiches du modèle (fiche technique, fiche commentaire) ── */}
+      <FichesModele commandeId={row.id} of={row.of} documents={row.documents} peutDeposer={droits.tds} />
+
       {/* ── têtes de série ── */}
       <div>
         <BandeauLectureSeule autorise={droits.tds} qui={RESPONSABLE_DOMAINE.tds} />

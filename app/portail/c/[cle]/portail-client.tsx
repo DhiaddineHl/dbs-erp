@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as A from "@/lib/actions/portail-client";
 import type { CommandeClient, PasseportClient, VueClient } from "@/lib/services/portail-client";
+import { libelleEcart } from "@/lib/domain/performance-client";
 
 /* Le portail que voit le client : ses commandes en frise, son tissu, la
  * preuve de ce qu'on en a fait, ses échantillons, et ses questions. */
@@ -66,7 +67,7 @@ export function EcranPin({ cle, nom }: { cle: string; nom: string }) {
   );
 }
 
-type Onglet = "commandes" | "prevision" | "tissu" | "questions";
+type Onglet = "commandes" | "performance" | "prevision" | "tissu" | "questions";
 
 /** Recherche souple : référence, OF, modèle, couleur, saison (sans accents ni casse). */
 const plat = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -105,6 +106,7 @@ export function PortailClient({ cle, vue }: { cle: string; vue: VueClient }) {
           {(
             [
               ["commandes", `Commandes (${nbEnCours})`],
+              ["performance", "📊 Performance"],
               ["prevision", "Prévision d'export"],
               ["tissu", "Mon tissu"],
               ["questions", `Questions${vue.questions.length ? ` (${vue.questions.length})` : ""}`],
@@ -152,6 +154,7 @@ export function PortailClient({ cle, vue }: { cle: string; vue: VueClient }) {
             )}
           </>
         )}
+        {onglet === "performance" && <Performance vue={vue} />}
         {onglet === "prevision" && <Prevision vue={vue} />}
         {onglet === "tissu" && <MonTissu cle={cle} vue={vue} />}
         {onglet === "questions" && <Questions cle={cle} vue={vue} commandeInitiale={questionSur} />}
@@ -172,6 +175,7 @@ function CarteCommande({ cle, c, onQuestion }: { cle: string; c: CommandeClient;
   const router = useRouter();
   const [pending, start] = useTransition();
   const [passeport, setPasseport] = useState<PasseportClient | null>(null);
+  const [traca, setTraca] = useState(false);
   const [message, setMessage] = useState("");
   const [motif, setMotif] = useState<Record<number, string>>({});
   const lancer = (p: Promise<A.Result>, ok: string) =>
@@ -329,6 +333,9 @@ function CarteCommande({ cle, c, onQuestion }: { cle: string; c: CommandeClient;
         >
           🧵 {passeport ? "Masquer le passeport" : "Passeport tissu de la commande"}
         </button>
+        <button onClick={() => setTraca(!traca)} className="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">
+          🧭 {traca ? "Masquer la traçabilité" : "Traçabilité"}
+        </button>
         <button onClick={onQuestion} className="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">
           💬 Poser une question
         </button>
@@ -338,6 +345,7 @@ function CarteCommande({ cle, c, onQuestion }: { cle: string; c: CommandeClient;
           </span>
         )}
       </div>
+      {traca && <Tracabilite c={c} />}
       {message && <div className="border-t bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900">{message}</div>}
     </article>
   );
@@ -632,6 +640,171 @@ function Prevision({ vue }: { vue: VueClient }) {
           </ul>
         </section>
       )}
+    </div>
+  );
+}
+
+/* ─────────── traçabilité d'une commande ─────────── */
+
+function Tracabilite({ c }: { c: CommandeClient }) {
+  const cy = c.cycle;
+  return (
+    <div className="border-t bg-slate-50 px-4 py-3">
+      <div className="mb-2 flex flex-wrap gap-2 text-xs">
+        {cy.total != null && (
+          <span className="rounded-full bg-white px-2 py-1 font-bold shadow-sm">
+            {cy.enCours ? `En cours depuis ${cy.total} jours` : `Cycle complet : ${cy.total} jours`}
+          </span>
+        )}
+        {cy.delaiUsine != null && <span className="rounded-full bg-white px-2 py-1 shadow-sm">Tissu reçu → départ : {cy.delaiUsine} j</span>}
+        {cy.ecartExport != null && <PastilleDelai ecart={cy.ecartExport} />}
+      </div>
+      {c.evenements.length === 0 ? (
+        <p className="text-sm text-slate-500">Pas encore d&apos;événement daté.</p>
+      ) : (
+        <ol className="relative ml-2 border-l-2 border-slate-300">
+          {c.evenements.map((e, i) => (
+            <li key={i} className="mb-2 ml-4">
+              <span className="absolute -left-[7px] mt-1 h-3 w-3 rounded-full border-2 border-white bg-[#0F1F3D]" />
+              <div className="text-[11px] font-bold text-slate-500">{dateFr(e.date)}</div>
+              <div className="text-sm font-semibold">{e.quoi}</div>
+              {e.detail && <div className="text-xs text-slate-600">{e.detail}</div>}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+const TON_DELAI = { vert: "bg-emerald-100 text-emerald-900", orange: "bg-amber-100 text-amber-900", rouge: "bg-red-100 text-red-900", gris: "bg-slate-100 text-slate-600" } as const;
+function PastilleDelai({ ecart }: { ecart: number | null }) {
+  const l = libelleEcart(ecart);
+  return <span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-bold ${TON_DELAI[l.ton]}`}>{l.texte}</span>;
+}
+
+/* ─────────── performance : respect des délais, cycle de vie, points forts ─────────── */
+
+const PHASES = [
+  { cle: "attenteTissu", label: "Attente tissu", cls: "bg-slate-300" },
+  { cle: "avantCoupe", label: "Préparation", cls: "bg-sky-300" },
+  { cle: "fabrication", label: "Fabrication", cls: "bg-[#0F1F3D]" },
+  { cle: "expedition", label: "Expédition", cls: "bg-[#C9A227]" },
+] as const;
+
+function ChiffreFort({ titre, valeur, sous, fort }: { titre: string; valeur: string; sous?: string; fort?: boolean }) {
+  return (
+    <div className={`rounded-2xl px-4 py-3 shadow-sm ${fort ? "bg-[#0F1F3D] text-white" : "bg-white"}`}>
+      <div className={`text-[11px] font-bold uppercase tracking-wide ${fort ? "text-[#C9A227]" : "text-slate-500"}`}>{titre}</div>
+      <div className="text-2xl font-black">{valeur}</div>
+      {sous && <div className={`text-xs ${fort ? "text-white/70" : "text-slate-500"}`}>{sous}</div>}
+    </div>
+  );
+}
+
+const fj = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+
+function Performance({ vue }: { vue: VueClient }) {
+  const p = vue.performance;
+  const parties = vue.commandes.filter((c) => !c.cycle.enCours).sort((a, b) => b.jalons.exportReel.localeCompare(a.jalons.exportReel));
+  const enCours = vue.commandes.filter((c) => c.cycle.enCours && !c.archivee);
+  const max = Math.max(1, ...vue.commandes.map((c) => c.cycle.total ?? 0));
+  if (!parties.length && !enCours.length) return <Vide texte="Les statistiques apparaîtront avec vos premières commandes." />;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <ChiffreFort
+          fort
+          titre="Livrées à l'heure"
+          valeur={p.pctALHeure == null ? "—" : `${p.pctALHeure} %`}
+          sous={p.expediees ? `${p.aLHeure} sur ${p.expediees} commande(s) parties` : "pas encore de départ"}
+        />
+        <ChiffreFort
+          titre="Écart moyen au délai"
+          valeur={p.ecartMoyen == null ? "—" : p.ecartMoyen <= 0 ? `${fj(Math.abs(p.ecartMoyen))} j d'avance` : `+${fj(p.ecartMoyen)} j`}
+          sous="date réelle face à la date contractuelle"
+        />
+        <ChiffreFort titre="Cycle moyen" valeur={p.cycleMoyen == null ? "—" : `${fj(p.cycleMoyen)} j`} sous="de la commande au départ" />
+        <ChiffreFort titre="Délai usine moyen" valeur={p.delaiUsineMoyen == null ? "—" : `${fj(p.delaiUsineMoyen)} j`} sous="du tissu reçu au départ" />
+        {p.pctTdsOk != null && <ChiffreFort titre="OK dès la 1re tête de série" valeur={`${p.pctTdsOk} %`} sous="des commandes" />}
+        <ChiffreFort titre="Pièces livrées" valeur={p.piecesLivrees.toLocaleString("fr-FR")} sous="sur les 12 derniers mois" />
+      </div>
+
+      <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+        <div className="border-b px-4 py-2 font-black">Respect des délais</div>
+        {parties.length === 0 ? (
+          <div className="px-4 py-4 text-sm text-slate-500">Aucune commande partie pour l&apos;instant.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[10px] uppercase text-slate-500">
+                  <th className="px-3 py-2 text-left">Modèle</th>
+                  <th className="px-2 text-right">Export contractuel</th>
+                  <th className="px-2 text-right">Export réel</th>
+                  <th className="px-3 text-right">Délai</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parties.map((c) => (
+                  <tr key={c.id} className="border-t">
+                    <td className="px-3 py-2">
+                      <b>{c.modele}</b> <span className="text-xs text-slate-500">{[c.couleur, c.of].filter(Boolean).join(" · ")}</span>
+                    </td>
+                    <td className="px-2 text-right tabular-nums">{dateFr(c.jalons.exportContractuel)}</td>
+                    <td className="px-2 text-right font-semibold tabular-nums">{dateFr(c.jalons.exportReel)}</td>
+                    <td className="px-3 text-right">
+                      <PastilleDelai ecart={c.cycle.ecartExport} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-2">
+          <span className="font-black">Cycle de vie de chaque commande</span>
+          {p.cycleMoyen != null && <span className="text-sm">moyenne <b>{fj(p.cycleMoyen)} jours</b></span>}
+        </div>
+        <div className="flex flex-wrap gap-3 px-4 pt-2 text-[11px]">
+          {PHASES.map((ph) => (
+            <span key={ph.cle} className="flex items-center gap-1">
+              <span className={`inline-block h-2.5 w-4 rounded ${ph.cls}`} /> {ph.label}
+            </span>
+          ))}
+        </div>
+        <ul className="space-y-2 px-4 py-3">
+          {[...enCours, ...parties].map((c) => {
+            const cy = c.cycle;
+            const total = cy.total ?? 0;
+            const connus = PHASES.reduce((s, ph) => s + (cy[ph.cle] ?? 0), 0);
+            return (
+              <li key={c.id}>
+                <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
+                  <span>
+                    <b className="text-sm">{c.modele}</b> {[c.couleur, c.of].filter(Boolean).join(" · ")}
+                  </span>
+                  <span className="font-bold">{cy.total == null ? "début inconnu" : cy.enCours ? `en cours · ${total} j` : `${total} j`}</span>
+                </div>
+                <div className="mt-1 flex h-3 overflow-hidden rounded-full bg-slate-100" style={{ width: `${Math.max(8, (total / max) * 100)}%` }}>
+                  {connus > 0
+                    ? PHASES.map((ph) =>
+                        (cy[ph.cle] ?? 0) > 0 ? <span key={ph.cle} className={ph.cls} style={{ width: `${((cy[ph.cle] ?? 0) / Math.max(total, connus)) * 100}%` }} title={`${ph.label} : ${cy[ph.cle]} j`} /> : null,
+                      )
+                    : <span className="bg-slate-300" style={{ width: "100%" }} />}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="border-t px-4 py-2 text-[11px] text-slate-500">
+          Calculé sur les dates réelles de vos commandes des 12 derniers mois : commande enregistrée, tissu reçu, coupe, pièces finies, départ. Le détail
+          de chaque commande est dans « 🧭 Traçabilité ».
+        </p>
+      </section>
     </div>
   );
 }

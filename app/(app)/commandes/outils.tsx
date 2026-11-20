@@ -151,6 +151,11 @@ export function DialogDoublons({ peutSupprimer, onFermer }: { peutSupprimer: boo
   const agir = (quoi: "archiver" | "supprimer") =>
     start(async () => {
       const ids = [...retenues];
+      if (
+        quoi === "archiver" &&
+        !confirm(`Archiver ${ids.length} commande(s) ?\n\n⚠ Leurs photos et fiches techniques seront effacées définitivement pour libérer de l'espace (les chiffres restent).`)
+      )
+        return;
       const r = quoi === "archiver" ? await A.archiverCommandes(ids, true) : await A.deleteCommandesAction(ids);
       if (!r.ok) {
         toast.error(r.error);

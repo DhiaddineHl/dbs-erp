@@ -5,6 +5,7 @@ import {
   etatMagasin,
   repartirProductionGpao,
   listesReception,
+  resteFaconnier,
   livraisonComplete,
   ncEnAttente,
   normaliserReception,
@@ -31,8 +32,28 @@ describe("réception façonnier — saisie normalisée", () => {
     });
   });
   it("conforme + NC > reçu reste bloquant", () => {
-    const a = verifierReception({ qteCommandee: 100, dejaProduit: 0, totalCoupe: 0, qteRecue: 50, qteOk: 40, qteNc: 20 });
+    const a = verifierReception({ qteCommandee: 100, dejaRecu: 0, dejaEntre: 0, totalCoupe: 0, qteRecue: 50, qteOk: 40, qteNc: 20 });
     assert.ok(a.some((x) => x.niveau === "bloquant"));
+  });
+});
+
+describe("réception : comparée à ce qui est ARRIVÉ, pas au produit", () => {
+  it("commande produite à 1420 (GPAO) dont 300 seulement arrivées : 81 de plus passent sans alerte", () => {
+    const a = verifierReception({ qteCommandee: 1420, dejaRecu: 300, dejaEntre: 300, totalCoupe: 1420, qteRecue: 81, qteOk: 81, qteNc: 0 });
+    assert.ok(!a.some((x) => x.niveau !== "info"), JSON.stringify(a));
+    assert.ok(a.some((x) => /Il restera 1039 pièce/.test(x.message)));
+  });
+  it("recevoir plus que le coupé reste signalé (NC comprises)", () => {
+    const a = verifierReception({ qteCommandee: 1420, dejaRecu: 1400, dejaEntre: 1390, totalCoupe: 1420, qteRecue: 30, qteOk: 28, qteNc: 2 });
+    assert.ok(a.some((x) => x.niveau === "warn" && /1430 pièces seront revenues/.test(x.message)));
+  });
+  it("au-delà de la commande : information", () => {
+    const a = verifierReception({ qteCommandee: 1000, dejaRecu: 990, dejaEntre: 990, totalCoupe: 0, qteRecue: 20, qteOk: 20, qteNc: 0 });
+    assert.ok(a.some((x) => /10 pièce\(s\) de plus que la commande/.test(x.message)));
+  });
+  it("reste façonnier = commandé − entré au stock (et non − produit)", () => {
+    assert.equal(resteFaconnier({ qte: 1420, produit: 1420, magasinQte: 300 }), 1120);
+    assert.equal(resteFaconnier({ qte: 1000, produit: 700 }), 300);
   });
 });
 

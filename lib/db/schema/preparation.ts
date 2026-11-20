@@ -352,3 +352,32 @@ export const commandeLancementRelations = relations(commandeLancement, ({ one })
 export const commandeJournalRelations = relations(commandeJournal, ({ one }) => ({
   commande: one(commande, { fields: [commandeJournal.commandeId], references: [commande.id] }),
 }));
+
+/** FICHES DU MODÈLE déposées en direction technique : fiche technique, fiche
+ * commentaire (et autres pièces). Le fichier est dans `fichier` (par son
+ * hash). Visibles, si on le veut, par l'atelier sur son portail (consultation
+ * et impression). Retirer une fiche la masque sans l'effacer. */
+export const commandeDocument = pgTable(
+  "commande_document",
+  {
+    id: serial().primaryKey(),
+    commandeId: integer()
+      .notNull()
+      .references(() => commande.id, { onDelete: "cascade" }),
+    /** fiche_technique | fiche_commentaire | autre */
+    nature: text().notNull().default("fiche_technique"),
+    nom: text().notNull().default(""),
+    fichierHash: text().notNull(),
+    mime: text().notNull().default(""),
+    taille: integer().notNull().default(0),
+    note: text().notNull().default(""),
+    /** Montrée à l'atelier (sous-traitant) de la commande, sur son portail. */
+    visibleAtelier: boolean().notNull().default(true),
+    actif: boolean().notNull().default(true),
+    deposePar: text().notNull().default(""),
+    createdAt: timestamp().notNull().defaultNow(),
+    retirePar: text().notNull().default(""),
+    retireLe: timestamp(),
+  },
+  (t) => [index("commande_document_cmd_idx").on(t.commandeId)],
+);

@@ -11,6 +11,7 @@ import { getPlan } from "@/lib/services/plan-coupe";
 import { attenduDeLOf, contexteCoupe, demandeDeCoupe, lignesCoupeValides, porteurDe } from "@/lib/services/coupe";
 import { filPortail, messageExterieur } from "@/lib/services/messagerie";
 import { journal, type Acces } from "@/lib/services/portail-acces";
+import { documentsParCommande } from "@/lib/services/documents-modele";
 
 /* PORTAIL SOUS-TRAITANT — ce que l'atelier voit et ce qu'il DÉCLARE.
  *
@@ -66,6 +67,8 @@ export type CommandeSt = {
   plan: { matiere: string; traces: TraceSt[] }[];
   livraisons: LivraisonSt[];
   porteurId: number;
+  /** Fiches du modèle montrées à l'atelier (consulter, imprimer). */
+  fiches: { id: number; nature: string; nom: string; mime: string; taille: number; note: string; le: string }[];
 };
 export type EnvoiTissu = {
   mouvementId: number;
@@ -205,7 +208,7 @@ export async function vueSt(acces: Acces): Promise<VueSt | null> {
   const ids = rows.map((r) => r.id);
   const aujourdhui = todayISO();
 
-  const [decls, livs, recus, rapports, tissu, messages, avancements] = await Promise.all([
+  const [decls, livs, recus, rapports, tissu, messages, avancements, fiches] = await Promise.all([
     ids.length ? db.select().from(stDeclaration).where(inArray(stDeclaration.commandeId, ids)).orderBy(asc(stDeclaration.jour), asc(stDeclaration.id)) : Promise.resolve([]),
     ids.length ? db.select().from(stLivraison).where(inArray(stLivraison.commandeId, ids)).orderBy(desc(stLivraison.id)) : Promise.resolve([]),
     ids.length
@@ -221,6 +224,7 @@ export async function vueSt(acces: Acces): Promise<VueSt | null> {
     tissuEnvoye(acces.faconnierId),
     acces.conversationId != null ? filPortail(acces.conversationId) : Promise.resolve([]),
     avancementCommandes(ids, aujourdhui),
+    documentsParCommande(ids, { pourAtelier: true }),
   ]);
   const recuParCmd = new Map(recus.map((r) => [Number(r.commandeId), Number(r.ok)]));
 
@@ -269,6 +273,7 @@ export async function vueSt(acces: Acces): Promise<VueSt | null> {
         numero: l.numero, statut: l.statut, annonceeLe: iso(l.annonceeLe), recueLe: iso(l.recueLe), lignes: l.lignes, recues: l.lignesRecues, motif: l.motif, note: l.note,
       })),
       porteurId: porteurId ?? r.id,
+      fiches: (fiches.get(r.id) ?? []).map((d) => ({ id: d.id, nature: d.nature, nom: d.nom, mime: d.mime, taille: d.taille, note: d.note, le: d.le })),
     });
   }
   return {

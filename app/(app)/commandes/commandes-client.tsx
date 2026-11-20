@@ -287,7 +287,7 @@ export function CommandesClient({
   const actionArchiver = () => {
     if (
       !confirm(
-        `Archiver ${cochees.length} commande(s) ?\n(conservées dans les archives, retirées des listes actives)\n\n${resume(cochees)}`,
+        `Archiver ${cochees.length} commande(s) ?\n(conservées dans les archives avec leurs chiffres, retirées des listes actives)\n\n⚠ Pour libérer de l'espace, leurs PHOTOS (modèle, contrôle qualité) et leurs FICHES TECHNIQUES seront effacées définitivement.\n\n${resume(cochees)}`,
       )
     )
       return;

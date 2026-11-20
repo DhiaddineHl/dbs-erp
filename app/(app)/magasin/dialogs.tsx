@@ -25,21 +25,31 @@ export function Champ({ label, children, large }: { label: string; children: Rea
   );
 }
 
+/** Où en est la commande, vu du magasin. « Produit » (chaînes, façonnier)
+ * et « entré au stock » sont deux choses : une commande peut être produite
+ * sans être encore arrivée — c'est l'arrivé qui décide du reste à recevoir. */
 function Contexte({ c }: { c: CommandeAval }) {
-  const reste = Math.max(0, c.qte - c.produit);
+  const reste = Math.max(0, c.qte - c.magasinQte);
   return (
-    <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted px-3 py-2 text-xs sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg bg-muted px-3 py-2 text-xs sm:grid-cols-3">
       <span>
         Commandé <b>{nb.format(c.qte)}</b>
       </span>
       <span>
+        Coupé <b>{nb.format(c.coupeQte)}</b>
+      </span>
+      <span title="Production suivie (chaînes GPAO, réceptions façonnier, retouches) — ce n'est pas ce qui est arrivé au magasin">
         Produit <b>{nb.format(c.produit)}</b>
+        {c.faconnier && c.produitGpao > 0 && <span className="text-muted-foreground"> (dont chaîne {nb.format(c.produitGpao)})</span>}
+      </span>
+      <span>
+        Déjà entré au stock <b>{nb.format(c.magasinQte)}</b>
       </span>
       <span>
         En stock <b>{nb.format(c.stockQte)}</b>
       </span>
       <span>
-        Reste à produire <b className={reste ? "text-[var(--danger-d)]" : ""}>{nb.format(reste)}</b>
+        {c.faconnier ? "Reste à recevoir" : "Reste à entrer"} <b className={reste ? "text-[var(--danger-d)]" : ""}>{nb.format(reste)}</b>
       </span>
     </div>
   );
@@ -98,13 +108,14 @@ export function DialogReceptionSt({
   const [recus, setRecus] = useState<AlerteReception[]>([]);
   const [pending, start] = useTransition();
 
-  /* Seules les commandes sous-traitées et non terminées sont réceptionnables. */
+  /* Seules les commandes sous-traitées pas encore entièrement ARRIVÉES sont
+   * réceptionnables (« produite » ne veut pas dire « reçue »). */
   const faconniers = useMemo(
-    () => [...new Set(commandes.filter((c) => c.faconnier && c.produit < c.qte).map((c) => c.faconnier))].sort(),
+    () => [...new Set(commandes.filter((c) => c.faconnier && c.magasinQte < c.qte).map((c) => c.faconnier))].sort(),
     [commandes],
   );
   const disponibles = useMemo(
-    () => commandes.filter((c) => c.faconnier === faconnier && (c.produit < c.qte || String(c.id) === commandeId)),
+    () => commandes.filter((c) => c.faconnier === faconnier && (c.magasinQte < c.qte || String(c.id) === commandeId)),
     [commandes, faconnier, commandeId],
   );
   const choisie = disponibles.find((c) => String(c.id) === commandeId) ?? null;
@@ -180,7 +191,7 @@ export function DialogReceptionSt({
               <option value="">{faconnier ? "— Choisir —" : "Choisissez d'abord un façonnier"}</option>
               {disponibles.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.of} · {c.modele} (reste {nb.format(Math.max(0, c.qte - c.produit))} pcs)
+                  {c.of} · {c.modele} (reste à recevoir {nb.format(Math.max(0, c.qte - c.magasinQte))} pcs)
                 </option>
               ))}
             </select>

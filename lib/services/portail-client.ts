@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull, ne, or, gte } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { bl, blLigne, client, commande, commandeTds, exportPrevision, exportPrevisionLigne, qcInspection, tissuLot, tissuMouvement, tissuRouleau } from "@/lib/db/schema";
+import { bl, blLigne, client, commande, commandeTds, exportPrevision, exportPrevisionLigne, magasinMouvement, qcInspection, tissuLot, tissuMouvement, tissuRouleau } from "@/lib/db/schema";
 import * as pt from "@/lib/domain/portail";
 import * as rl from "@/lib/domain/rouleau";
 import { normaliserNom, todayISO } from "@/lib/domain/commande";
@@ -9,6 +9,8 @@ import { bilanMatiereCommande, reliquatsTissu, vueMatiereCommandes } from "@/lib
 import { couvertureTissuParCommande, listLots } from "@/lib/services/tissu";
 import { filPortail } from "@/lib/services/messagerie";
 import { avancementDeclare } from "@/lib/services/avancement-declare";
+import { lignesCoupeValides } from "@/lib/services/coupe";
+import * as pf from "@/lib/domain/performance-client";
 
 /* PORTAIL CLIENT — ce que le client voit, et RIEN d'autre.
  *
@@ -56,6 +58,14 @@ export type CommandeClient = {
   tissuManquant: number;
   /** Partie, livrée ou rangée chez nous : va dans « Archives ». */
   archivee: boolean;
+  /** Dates réelles des grandes étapes (cycle de vie, respect des délais). */
+  jalons: pf.Jalons;
+  cycle: pf.Cycle;
+  /** Traçabilité : chaque fait daté, du plus ancien au plus récent. */
+  evenements: pf.Evenement[];
+  premiereTdsOk: boolean | null;
+  controleOk: boolean | null;
+  piecesLivrees: number;
 };
 
 /** La prévision d'export publiée (photo du week-end), pour CE client. */
@@ -109,10 +119,13 @@ export type VueClient = {
   reliquats: ReliquatClient[];
   questions: Awaited<ReturnType<typeof filPortail>>;
   prevision: PrevisionClient | null;
+  /** Statistiques sur ses commandes parties (12 derniers mois). */
+  performance: pf.StatsPerformance;
 };
 
 const iso = (d: string | Date | null | undefined) => (d == null ? "" : typeof d === "string" ? d : d.toISOString().slice(0, 10));
 const r2 = (n: number) => Math.round(n * 100) / 100 + 0;
+const nb = (n: number) => n.toLocaleString("fr-FR");
 const JOURS_ARCHIVES = 365;
 
 /** Les commandes d'un client que le portail montre : en cours, et ses
@@ -141,6 +154,7 @@ async function commandesDuClient(clientId: number) {
       produit: commande.produit,
       magasin: commande.magasinQte,
       archived: commande.archived,
+      creeLe: commande.createdAt,
     })
     .from(commande)
     .where(and(eq(commande.clientId, clientId), or(eq(commande.archived, false), gte(commande.dateExportReel, limite), gte(commande.updatedAt, depuis))))
@@ -162,7 +176,7 @@ export async function vueClient(acces: { clientId: number | null; nom: string; c
   const ids = [...parId.keys()];
   const aujourdhui = todayISO();
 
-  const [couverture, qc, envois, expeditions, matiere, lots, questions, declare] = await Promise.all([
+  const [couverture, qc, envois, expeditions, matiere, lots, questions, declare, coupes, entrees] = await Promise.all([
     couvertureTissuParCommande(),
     ids.length
       ? db
@@ -192,6 +206,13 @@ export async function vueClient(acces: { clientId: number | null; nom: string; c
     listLots(),
     acces.conversationId != null ? filPortail(acces.conversationId) : Promise.resolve([]),
     avancementDeclare(ids),
+    lignesCoupeValides(ids),
+    ids.length
+      ? db
+          .select({ commandeId: magasinMouvement.commandeId, date: magasinMouvement.date, qte: magasinMouvement.qte })
+          .from(magasinMouvement)
+          .where(and(inArray(magasinMouvement.commandeId, ids), ne(magasinMouvement.origine, "rebut")))
+      : Promise.resolve([]),
   ]);
   const manquant = new Map(matiere.commandes.map((m) => [m.id, m.etat.aDemander]));
 
@@ -232,7 +253,68 @@ export async function vueClient(acces: { clientId: number | null; nom: string; c
       x.pieces += e.pieces || 0;
       parExpedition.set(e.numero, x);
     }
+    /* Jalons et traçabilité : uniquement des faits datés, lus sur ses
+     * commandes (coupe, entrées des pièces finies, contrôles, envois, BL). */
+    const cps = coupes.filter((x) => mIds.includes(x.commandeId)).map((x) => iso(x.date)).sort();
+    const ents = entrees.filter((x) => mIds.includes(x.commandeId)).map((x) => iso(x.date)).sort();
+    const lotsCmd = lots.filter((l) => l.affectations.some((a) => a.commandeId != null && mIds.includes(a.commandeId)));
+    /* Début du cycle : la commande enregistrée — ou, si elle a été saisie
+     * après coup (reprise d'historique), le premier fait daté connu. Jamais
+     * une date postérieure au départ. */
+    const debutCycle = (() => {
+      const premiers = [
+        ...membres.map((m) => iso(m.creeLe).slice(0, 10)),
+        tissuRecu,
+        ...envois.filter((e) => mIds.includes(e.commandeId)).map((e) => iso(e.envoi)),
+        ...coupes.filter((x) => mIds.includes(x.commandeId)).map((x) => iso(x.date)),
+      ].filter((d) => /^\d{4}-\d{2}-\d{2}/.test(d)).sort();
+      const d = premiers[0] ?? "";
+      return expedieLe && d > expedieLe ? "" : d;
+    })();
+    const jalons: pf.Jalons = {
+      commande: debutCycle,
+      tissu: tissuRecu,
+      coupeDebut: cps[0] ?? "",
+      coupeFin: cps.at(-1) ?? "",
+      finitionDebut: ents[0] ?? "",
+      finitionFin: ents.at(-1) ?? "",
+      controleFinal: final ? iso(final.date) : "",
+      exportContractuel: iso(tete.exportPrevu),
+      exportReel: expedieLe,
+    };
+    const tdsCmd = envois.filter((e) => mIds.includes(e.commandeId) && e.nature !== "ok").sort((a, b) => a.n - b.n);
+    const premiere = tdsCmd[0];
+    const piecesCoupees = (d: string) => coupes.filter((x) => mIds.includes(x.commandeId) && iso(x.date) === d).reduce((s2, x) => s2 + x.qte, 0);
+    const piecesEntrees = (d: string) => entrees.filter((x) => mIds.includes(x.commandeId) && iso(x.date) === d).reduce((s2, x) => s2 + x.qte, 0);
+    const evenements = pf.trierEvenements([
+      ...membres
+        .map((m) => iso(m.creeLe).slice(0, 10))
+        .sort()
+        .slice(0, 1)
+        .filter((d) => !expedieLe || d <= expedieLe)
+        .map((d) => ({ date: d, quoi: "Commande enregistrée", detail: `${nb(qte)} pièces` })),
+      ...lotsCmd.map((l) => ({ date: l.receptionDate, quoi: "Tissu reçu", detail: [l.reference, l.couleur, l.lotFournisseur && `bain ${l.lotFournisseur}`, `lot ${l.identifiant}`].filter(Boolean).join(" · ") })),
+      ...envois
+        .filter((e) => mIds.includes(e.commandeId))
+        .flatMap((e) => {
+          const quoi = e.nature === "ok" ? `Pièces pour l'OK livraison ${e.n}` : `Tête de série ${e.n}`;
+          return [
+            { date: iso(e.envoi), quoi: `${quoi} envoyée`, detail: [e.transporteur, e.suivi].filter(Boolean).join(" ") },
+            ...(e.verdict !== "attente" ? [{ date: iso(e.retour) || iso(e.envoi), quoi: `${quoi} : ${e.verdict === "ok" ? "OK" : "refusée"}`, detail: e.commentaire }] : []),
+          ];
+        }),
+      ...[...new Set(cps)].map((d) => ({ date: d, quoi: "Coupe", detail: `${nb(piecesCoupees(d))} pièces coupées` })),
+      ...qcs.map((x) => ({ date: iso(x.date), quoi: x.type === "final" ? "Contrôle qualité final" : "Contrôle qualité en cours de fabrication", detail: x.statut === "cloture" ? "clôturé" : "en cours" })),
+      ...[...new Set(ents)].map((d) => ({ date: d, quoi: "Pièces finies et emballées", detail: `${nb(piecesEntrees(d))} pièces` })),
+      ...[...parExpedition.values()].map((e) => ({ date: e.date, quoi: `Expédition ${e.numero}`, detail: [`${nb(e.pieces)} pièces`, e.transporteur, e.suivi].filter(Boolean).join(" · ") })),
+    ]);
     commandes.push({
+      jalons,
+      cycle: pf.cycleCommande(jalons, aujourdhui),
+      evenements,
+      premiereTdsOk: premiere && premiere.verdict !== "attente" ? premiere.verdict === "ok" : null,
+      controleOk: final ? true : null,
+      piecesLivrees: [...parExpedition.values()].reduce((s2, e) => s2 + e.pieces, 0),
       id: tete.id,
       of: tete.of,
       modele: tete.modele,
@@ -298,7 +380,11 @@ export async function vueClient(acces: { clientId: number | null; nom: string; c
    * à la première visite) est abandonné : le client voulait voir les pièces
    * avancer tout de suite. La table portail_point reste en base (historique
    * des points déjà pris) mais n'est plus écrite. */
-  return { client: c.nom, contact: acces.nom, aujourdhui, misAJour: new Date().toISOString(), commandes, lots: lotsClient, reliquats, questions, prevision: await previsionDuClient(acces.clientId, aujourdhui) };
+  const performance = pf.statsPerformance(
+    commandes.map((x) => ({ jalons: x.jalons, pieces: x.piecesLivrees || (x.archivee ? x.qte : 0), premiereTdsOk: x.premiereTdsOk, controleOk: x.controleOk })),
+    aujourdhui,
+  );
+  return { client: c.nom, contact: acces.nom, aujourdhui, misAJour: new Date().toISOString(), performance, commandes, lots: lotsClient, reliquats, questions, prevision: await previsionDuClient(acces.clientId, aujourdhui) };
 }
 
 /** La dernière prévision d'export publiée qui couvre encore aujourd'hui (ou

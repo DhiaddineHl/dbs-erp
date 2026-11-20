@@ -1,4 +1,5 @@
 import "server-only";
+import { libererEspaceArchives } from "@/lib/services/menage-fichiers";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -475,11 +476,17 @@ async function prochainNumero(prefixe: "BR" | "BL", annee = new Date().getFullYe
 export async function contexteReception(commandeId: number) {
   const [c] = await db.select().from(commande).where(eq(commande.id, commandeId));
   if (!c) return null;
-  const [{ totalCoupe }] = await db
-    .select({ totalCoupe: sql<number>`coalesce(sum(${coupe.qte}), 0)::int` })
-    .from(coupe)
-    .where(eq(coupe.commandeId, commandeId));
-  return { qteCommandee: c.qte, dejaProduit: c.produit, totalCoupe };
+  // Pièces déjà revenues : reçues des façonniers (conformes et NC) + entrées internes.
+  const [{ brRecu }] = await db
+    .select({ brRecu: sql<number>`coalesce(sum(${br.qteRecue}), 0)::int` })
+    .from(br)
+    .where(eq(br.commandeId, commandeId));
+  const [{ interne }] = await db
+    .select({ interne: sql<number>`coalesce(sum(${magasinMouvement.qte}), 0)::int` })
+    .from(magasinMouvement)
+    .where(and(eq(magasinMouvement.commandeId, commandeId), eq(magasinMouvement.origine, "interne")));
+  // Le coupé VALIDE (les lignes d'une fiche annulée ne comptent pas), tenu à jour par recalculerCommande.
+  return { qteCommandee: c.qte, dejaRecu: brRecu + interne, dejaEntre: c.magasinQte, totalCoupe: c.coupeQte };
 }
 
 export async function creerBr(v: {
@@ -799,6 +806,7 @@ export async function rapprocherFacturation(appliquer: boolean): Promise<Resulta
       await tx.update(commande).set(patch).where(eq(commande.id, a.commandeId));
     }
   });
+  if (archivees) await libererEspaceArchives().catch(() => null);
 
   return { affectations, archivees };
 }

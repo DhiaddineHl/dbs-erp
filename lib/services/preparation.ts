@@ -1,4 +1,5 @@
 import "server-only";
+import { documentsParCommande, type DocumentModele } from "@/lib/services/documents-modele";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -75,6 +76,9 @@ export type PreparationRow = {
 
   /* tissu — détail par matière (multi-tissus). Vide = mode mono historique. */
   tissuLignes: fx.LigneTissu[];
+
+  /** Fiches du modèle (fiche technique, fiche commentaire…), groupe compris. */
+  documents: DocumentModele[];
 
   /* tds + modélisme */
   tds: fx.Tds[];
@@ -170,7 +174,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
   const ids = rows.map((r) => r.c.id);
   if (!ids.length) return [];
 
-  const [tdsRows, etapeRows, fournRows, parTissu, lancRows] = await Promise.all([
+  const [tdsRows, etapeRows, fournRows, parTissu, lancRows, documents] = await Promise.all([
     db.select().from(commandeTds).where(inArray(commandeTds.commandeId, ids)).orderBy(asc(commandeTds.n)),
     db.select().from(commandeEtape).where(inArray(commandeEtape.commandeId, ids)),
     db
@@ -182,6 +186,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
     // lib/services/tissu.ts) — remplace l'ancien commande_tissu_ligne.
     ligneTissuParCommandes(ids),
     db.select().from(commandeLancement).where(inArray(commandeLancement.commandeId, ids)),
+    documentsParCommande(ids),
   ]);
 
   const versLigneFourniture = (f: (typeof fournRows)[number]): fx.LigneFourniture => ({
@@ -285,6 +290,7 @@ export async function listPreparation(): Promise<PreparationRow[]> {
     const tousFeux = fx.feux(ctx);
 
     return {
+      documents: documents.get(c.id) ?? [],
       id: c.id,
       of: c.ofNumber,
       modele: c.modele,
