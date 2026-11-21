@@ -7,6 +7,9 @@
  *  - Facturation reference (CLIENTS_DB / FACONNIERS) + 86 invoices (FACTURES_BASE)
  *  - GPAO defaults (1 modèle, 1 chaîne, 22 ouvrières)
  *  - Role-permission matrix defaults, prixFacon setting, default user accounts.
+ *
+ * Demo data (référentiel fictif, commandes, grand livre, flux aval) only with
+ * `--demo` (`npm run db:seed:demo`) — never on `npm start`.
  */
 import { randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
@@ -484,13 +487,21 @@ async function main() {
   await seedUsers();
   await seedFacturation();
   await seedGpao();
-  await seedReferentiel();
-  await seedCommandes();
   await seedBaremes();
   await seedFinance();
-  await seedGrandLivre();
-  await seedAval();
   await seedAtelier();
+  /* Données de démonstration (clients/façonniers fictifs, commandes, grand
+   * livre, flux aval fabriqué à partir des commandes). Jamais au démarrage :
+   * `npm start` tourne à chaque redéploiement et les réinjectait dans la base
+   * de production. Uniquement à la main, sur une base de développement :
+   * `npm run db:seed:demo`. */
+  if (process.argv.includes("--demo")) {
+    console.log("Données de démonstration…");
+    await seedReferentiel();
+    await seedCommandes();
+    await seedGrandLivre();
+    await seedAval();
+  }
   console.log("Done.");
   await pool.end();
 }

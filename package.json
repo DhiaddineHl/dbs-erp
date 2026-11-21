@@ -17,6 +17,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "node --import tsx scripts/seed.ts",
+    "db:seed:demo": "node --import tsx scripts/seed.ts --demo",
     "import:pilotpro": "node --import tsx scripts/import-pilotpro.ts",
     "import:auto": "node --import tsx scripts/import-pilotpro.ts --auto",
     "test": "node --import tsx --test \"lib/**/*.test.ts\"",
