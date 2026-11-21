@@ -1,4 +1,4 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { listOuvrieres, listPersonnel, nomsSaisis } from "@/lib/services/atelier";
 import { getChaines } from "@/lib/services/gpao";
 import { PersonnelClient } from "./personnel-client";
@@ -6,7 +6,7 @@ import { PersonnelClient } from "./personnel-client";
 const ATELIER = ["admin", "resp", "chef"];
 
 export default async function PersonnelPage() {
-  const user = await requireUser();
+  const user = await exigerModule("personnel");
   const role = userRole(user);
   const [personnes, ouvrieres, saisies, chaines] = await Promise.all([
     listPersonnel(),

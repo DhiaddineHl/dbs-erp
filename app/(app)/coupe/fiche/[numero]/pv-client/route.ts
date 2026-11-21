@@ -1,4 +1,4 @@
-import { getUser } from "@/lib/auth/server";
+import { getUser, utilisateurAvecModule } from "@/lib/auth/server";
 import { resultatAEnvoyer } from "@/lib/services/pv-client";
 import { excelPvClient } from "@/lib/coupe/pv-client-excel";
 
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: Promise<{ numero: string }> }) {
   if (!(await getUser())) return new Response("Non authentifié", { status: 401 });
+  if (!(await utilisateurAvecModule("coupe"))) return new Response("Accès refusé", { status: 403 });
   const numero = decodeURIComponent((await params).numero);
   const v = Number(new URL(req.url).searchParams.get("v")) || undefined;
   // La version FIGÉE générée à la validation (ou celle demandée).

@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { bonRetourFournitures } from "@/lib/services/fournitures";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
 
 /* Bon de retour des restes de fournitures au client. */
 export default async function BonRetourFournituresPage({ params }: { params: Promise<{ numero: string }> }) {
-  await requireUser();
+  await exigerModule("magfour");
   const { numero } = await params;
   const b = await bonRetourFournitures(decodeURIComponent(numero));
   if (!b) notFound();

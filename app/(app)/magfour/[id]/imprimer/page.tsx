@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { getPreparation, journalDe } from "@/lib/services/preparation";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 
@@ -23,7 +23,7 @@ function dateHeure(iso: string | Date) {
  * n'est pas encore reçu — pour que le magasinier n'ait pas à recompter à la
  * main avant de dire si la commande peut partir en production. */
 export default async function BonReceptionFournituresPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  await exigerModule("magfour");
   const { id } = await params;
   const commandeId = Number(id);
   if (!Number.isInteger(commandeId)) notFound();

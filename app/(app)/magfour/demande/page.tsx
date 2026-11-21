@@ -1,11 +1,11 @@
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { manques } from "@/lib/domain/fournitures";
 import { lignesEnManque } from "@/lib/services/fournitures";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
 
 /* Demande de complément de fournitures au client (lignes « fourni client »). */
 export default async function DemandeFournituresPage({ searchParams }: { searchParams: Promise<{ client?: string }> }) {
-  await requireUser();
+  await exigerModule("magfour");
   const { client = "" } = await searchParams;
   const { demandes } = manques(await lignesEnManque());
   const d = demandes.find((x) => x.client.toLowerCase() === client.toLowerCase());

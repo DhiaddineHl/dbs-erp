@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import GpaoApp from "./gpao-app";
 import type { GpaoState, Journee } from "./store";
 import { getChaines, getJournees, getModeles, listCommandesInternes } from "@/lib/services/gpao";
@@ -13,6 +14,7 @@ import { SEUIL_ALERTE_DEFAUT, TV_ROTATION_DEFAUT } from "./store";
 /* Shared GPAO state lives in Postgres now — load it server-side so every user
  * sees the same journées, chaînes and modèles. */
 export default async function GpaoProdPage() {
+  await exigerModule("gpao_prod");
   const [modeles, chaines, journees, clients, personnes, operations, seuilAlerte, tvRotSec, commandesInternes, fusions, suiviPaquets, taillePaquet, carnets] =
     await Promise.all([
       getModeles(),

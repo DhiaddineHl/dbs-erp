@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { inventaireTissu } from "@/lib/services/preparation";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 
@@ -20,7 +20,7 @@ const CONTROLE: Record<string, string> = {
  * cocher chaque ligne à la main et signer. Comme les autres documents, c'est
  * une page normale : l'impression du navigateur produit le PDF. */
 export default async function InventaireTissuPage() {
-  await requireUser();
+  await exigerModule("magtissu");
   const lignes = await inventaireTissu();
 
   const totPrevu = lignes.reduce((s, l) => s + l.metragePrevu, 0);

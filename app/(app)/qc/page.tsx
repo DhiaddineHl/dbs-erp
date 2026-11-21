@@ -1,4 +1,4 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import {
   listActionsRegistre,
   listBaremes,
@@ -16,7 +16,7 @@ export default async function QcPage({
 }: {
   searchParams: Promise<{ onglet?: string; origine?: string }>;
 }) {
-  const user = await requireUser();
+  const user = await exigerModule("qc");
   const role = userRole(user);
   const sp = await searchParams;
   const [inspections, baremes, checklists, commandes, actions] = await Promise.all([

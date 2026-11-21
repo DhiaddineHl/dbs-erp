@@ -70,7 +70,11 @@ export async function getPermMatrix(): Promise<PermMatrix> {
 /** Module → allowed map for a single role (used by nav + guards). */
 export async function getRoleModules(role: string): Promise<Record<string, boolean>> {
   const matrix = await getPermMatrix();
-  return matrix[role] ?? defaultModuleAccess("analyst");
+  const m = { ...(matrix[role] ?? defaultModuleAccess("analyst")) };
+  // Paramètres (comptes, rôles, droits) : l'administrateur seul — le menu ne
+  // le propose donc jamais à un autre rôle, quoi que dise la matrice.
+  if (role !== "admin") m.parametres = false;
+  return m;
 }
 
 /** First page a role can actually land on: the same order and filter the

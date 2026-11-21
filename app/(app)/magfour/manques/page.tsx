@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { BellRing } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { manques as calculerManques } from "@/lib/domain/fournitures";
@@ -7,6 +8,7 @@ import { NavMagfour } from "../nav-magfour";
 import { ManquesClient } from "./manques-client";
 
 export default async function ManquesPage() {
+  await exigerModule("magfour");
   const [peutSaisir, lignes, r] = await Promise.all([droitFournitures(), lignesEnManque(), relances()]);
   const { demandes, achats } = calculerManques(lignes);
   return (

@@ -1,4 +1,4 @@
-import { getUser, userRole } from "@/lib/auth/server";
+import { getUser, userRole, utilisateurAvecModule } from "@/lib/auth/server";
 import { peutModifier } from "@/lib/domain/feux";
 import { MIMES_MESSAGERIE, mimeDe } from "@/lib/domain/messagerie";
 import { DOCUMENT_MAX } from "@/lib/domain/documents-modele";
@@ -12,6 +12,7 @@ import { journaliser } from "@/lib/services/activite";
 export async function POST(req: Request) {
   const u = await getUser();
   if (!u) return Response.json({ error: "Non authentifié" }, { status: 401 });
+  if (!(await utilisateurAvecModule("dt"))) return Response.json({ error: "Accès refusé : Direction technique." }, { status: 403 });
   if (!peutModifier("tds", userRole(u))) return Response.json({ error: "Réservé à la direction technique." }, { status: 403 });
   try {
     const fd = await req.formData();

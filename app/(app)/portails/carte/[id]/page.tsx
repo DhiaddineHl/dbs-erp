@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { client, faconnier, portailAcces } from "@/lib/db/schema";
 import { qrSvg } from "@/lib/atelier/qr";
@@ -10,7 +10,7 @@ import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 /* Carte imprimable d'un accès : le QR, le nom de la personne et la marche à
  * suivre. Le PIN n'y figure JAMAIS (il se donne à part). */
 export default async function CartePortail({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("portails");
   if (!["admin", "resp"].includes(userRole(user))) notFound();
   const { id } = await params;
   const [a] = await db.select().from(portailAcces).where(eq(portailAcces.id, Number(id)));

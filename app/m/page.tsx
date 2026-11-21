@@ -63,7 +63,7 @@ export default async function AccueilMobile() {
         )}
 
         <Link
-          href="/cockpit"
+          href="/"
           className="mt-6 block rounded-2xl bg-white px-4 py-4 text-center text-base font-bold text-slate-700 shadow-sm"
         >
           🖥 Application complète

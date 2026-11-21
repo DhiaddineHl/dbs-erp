@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { statutLabel } from "@/lib/domain/rouleau";
 import { getUser, userRole } from "@/lib/auth/server";
+import { moduleOuvert } from "@/lib/auth/acces";
 import { peutModifier } from "@/lib/domain/feux";
 import { getRoleModules } from "@/lib/services/permissions";
 import { listLots } from "@/lib/services/tissu";
@@ -20,6 +21,7 @@ export default async function LotMobilePage({ params }: { params: Promise<{ id: 
   if (!user) redirect(`/login?suite=${encodeURIComponent(`/m/tissu/${id}`)}`);
   const role = userRole(user);
   const modules = await getRoleModules(role);
+  if (!moduleOuvert("magtissu", modules, role)) redirect("/sans-acces?module=magtissu");
   const peutSaisir = peutModifier("tissu", role) || modules.magtissu === true;
   const lot = (await listLots()).find((l) => l.id === Number(id));
   if (!lot) notFound();

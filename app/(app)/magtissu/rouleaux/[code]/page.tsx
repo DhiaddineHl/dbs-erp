@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { peutModifier } from "@/lib/domain/feux";
 import { lireScan, statutLabel } from "@/lib/domain/rouleau";
 import { getRoleModules } from "@/lib/services/permissions";
@@ -21,7 +21,7 @@ const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 1
  * mouvements, historique complet (avec annulation motivée) et les mêmes
  * gestes qu'au téléphone. */
 export default async function FicheRouleauPage({ params }: { params: Promise<{ code: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("magtissu");
   const role = userRole(user);
   const brut = decodeURIComponent((await params).code);
   const fiche = await getRouleau(lireScan(brut)?.code ?? brut);

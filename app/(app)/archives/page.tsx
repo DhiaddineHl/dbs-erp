@@ -1,11 +1,11 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { listArchives } from "@/lib/services/aval";
 import { ArchivesClient } from "./archives-client";
 
 const PRODUCTION = ["admin", "resp", "chef", "magasin"];
 
 export default async function ArchivesPage() {
-  const user = await requireUser();
+  const user = await exigerModule("archives");
   const role = userRole(user);
   const archives = await listArchives();
 

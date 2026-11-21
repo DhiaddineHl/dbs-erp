@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser } from "@/lib/auth/server";
+import { assertModule } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["messagerie"] as const;
+
 import * as svc from "@/lib/services/messagerie";
 
 /* Messagerie interne — actions. Tout compte connecté peut écrire ; les
@@ -11,7 +14,7 @@ export type Result<T = unknown> = ({ ok: true } & T) | { ok: false; error: strin
 const fail = (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : "Erreur" });
 
 async function moi(): Promise<svc.Moi> {
-  const u = await assertUser();
+  const u = await assertModule(...MODULES);
   return { id: u.id, nom: u.name as string };
 }
 

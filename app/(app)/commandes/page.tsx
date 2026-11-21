@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { Package, Euro, BarChart3, TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
@@ -32,6 +33,7 @@ const GABARIT_EXEMPLES = [
 ];
 
 export default async function CommandesPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  await exigerModule("commandes");
   const { q = "" } = await searchParams;
   /* Les archivées sont chargées avec le reste : l'écran sait les masquer, et
    * la case « Inclure les archivées » doit répondre sans aller-retour. */

@@ -1,4 +1,4 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { listCommandesInternes } from "@/lib/services/gpao";
 import * as svc from "@/lib/services/paquets";
 import * as pq from "@/lib/domain/paquet";
@@ -14,7 +14,7 @@ import { PaquetsClient } from "./paquets-client";
  * paquets de celui-là, pas les milliers des autres. */
 
 export default async function PaquetsPage({ searchParams }: { searchParams: Promise<{ of?: string; onglet?: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("paquets");
   const role = userRole(user);
   const sp = await searchParams;
   const [actif, roles, ofs, gabarits, commandesInternes, sansPaquets] = await Promise.all([

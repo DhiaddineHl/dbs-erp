@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { qrSvg } from "@/lib/atelier/qr";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { basePortail } from "@/lib/services/portail";
@@ -9,7 +9,7 @@ import { basePortail } from "@/lib/services/portail";
  * un compte PilotPro autorisé — le téléphone reste connecté après la première
  * fois. L'adresse suit le réglage « Adresse du portail » de l'écran QR rendement. */
 export default async function QrMagasinPage() {
-  await requireUser();
+  await exigerModule("magasin");
   const base = await basePortail();
   const url = `${base.replace(/\/+$/, "")}/m/magasin`;
   const svg = await qrSvg(url, 320);

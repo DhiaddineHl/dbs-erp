@@ -11,11 +11,136 @@ revanche des corrections faites après le 12/10 : veille de version,
 menu sur grand écran, saisies qui échouaient sans le dire. J'ai GARDÉ vos
 corrections et remis la livraison du 13/10 par-dessus : rien n'est perdu.
 
-Vérifié : `tsc` OK · `eslint` OK · `npm test` 442/442 · `next build` OK ·
+Vérifié : `tsc` OK · `eslint` OK · `npm test` 447/447 · `next build` OK ·
 migrations 0 → 0054 (nouvelles depuis le 13/10 : 0047 à 0054, appliquées toutes seules au démarrage) · essai navigateur.
 
 ═══════════════════════════════════════════════════════════════
-NOUVEAU (20/11, 3e envoi) — Réception façonnier : « produit » et « reçu »
+NOUVEAU (20/11, 5e envoi) — Clients et sous-traitants : peuvent-ils entrer
+dans l'application par leur lien ? Contrôle et fermeture d'une vraie faille
+═══════════════════════════════════════════════════════════════
+Aucune migration nouvelle.
+
+⚠ FAILLE GRAVE TROUVÉE ET FERMÉE : L'INSCRIPTION LIBRE
+N'importe qui connaissant l'adresse du site (un client, un sous-traitant,
+un inconnu) pouvait se CRÉER UN COMPTE tout seul, par un simple appel
+technique (/api/auth/sign-up/email), sans passer par vous. Le compte
+recevait le rôle « Analyste » et entrait dans l'application. Je l'ai
+vérifié : le compte se créait bien.
+→ C'est fermé : seul l'administrateur crée des comptes (Paramètres →
+  Utilisateurs, inchangé).
+→ À FAIRE : ouvrez Paramètres → Utilisateurs et supprimez tout compte que
+  vous ne connaissez pas (surtout en rôle « Analyste »).
+
+CE QUI ÉTAIT DÉJÀ SOLIDE (contrôlé)
+  · Le lien d'un portail ne donne AUCUN accès à l'application : sans compte,
+    toute page, tout export, tout fichier renvoie à la connexion.
+  · La clé du lien : 32 caractères tirés au hasard — impossible à deviner.
+    Une clé inventée → page introuvable.
+  · Le PIN : 6 chiffres, 5 essais puis blocage 15 minutes ; mémorisé sur le
+    téléphone 30 jours par un témoin signé ; un nouveau PIN déconnecte tous
+    les téléphones ; « Désactiver » ou « Nouvelle clé » coupe le lien.
+  · Chaque action d'un portail revérifie la clé ET le PIN, puis que la
+    commande appartient bien à CE client / CET atelier : un client ne voit
+    jamais les commandes d'un autre, un atelier jamais celles d'un autre
+    atelier, et la clé d'un atelier ne marche pas sur le portail client.
+  · Les fichiers de l'atelier (fiches techniques) : refusés sans PIN.
+  · Le portail client ne nomme jamais vos sous-traitants (test existant).
+
+CE QUI EST RENFORCÉ
+  1) Inscription libre fermée (voir plus haut).
+  2) Mots de passe : 5 essais par minute au plus ; au-delà la connexion
+     attend (contre ceux qui essaient des mots de passe en boucle).
+  3) En-têtes de sécurité sur toutes les pages : l'application ne peut pas
+     être affichée cachée dans un autre site ; l'adresse d'une page (qui
+     contient la clé d'un portail) n'est jamais transmise aux autres sites ;
+     caméra autorisée pour le scan des QR, ni micro ni position.
+  4) Le témoin « PIN déjà donné » n'a plus de secret de repli écrit dans le
+     code : sans la clé secrète du serveur, le portail reste fermé.
+  5) La trace de déconnexion n'accepte plus d'appel sans compte.
+  6) Tests automatiques : inscription fermée, limite des essais, en-têtes,
+     et « chaque action de portail vérifie clé + PIN » — un oubli futur fait
+     échouer les tests.
+
+CONSEIL
+Donnez un PIN à chaque accès client aussi (il est obligatoire pour les
+sous-traitants, facultatif pour les clients) : un lien transféré par
+erreur ne suffit alors plus pour entrer.
+
+Vérifié : tests (447) ; essais réels depuis l'extérieur — inscription
+refusée (aucun compte créé) ; 6e mauvais mot de passe en une minute
+bloqué ; sans compte, /cockpit, /commandes, fichiers, export stock,
+messagerie → connexion ; clé inventée → introuvable ; lien atelier sans
+PIN → demande le code, sa fiche technique → refusée ; mauvais PIN →
+« 4 essais restants » ; avec le bon PIN, l'atelier voit son espace mais
+/cockpit le renvoie à la connexion, et sa clé ne marche pas sur le portail
+client ; l'administrateur crée toujours des comptes normalement.
+
+
+═══════════════════════════════════════════════════════════════
+LIVRÉ (20/11, 4e envoi) — SÉCURITÉ DES RÔLES : une case décochée ferme
+vraiment la porte
+═══════════════════════════════════════════════════════════════
+Aucune migration nouvelle. Aucun réglage à refaire : vos cases actuelles
+dans Paramètres → Rôles s'appliquent telles quelles, mais pour de vrai.
+
+CE QUI N'ALLAIT PAS
+  · Les cases de Paramètres → Rôles ne décidaient que du MENU. Une page
+    décochée disparaissait du menu, mais restait ouverte à qui y arrivait
+    autrement : son adresse tapée ou mise en favori, un lien… et surtout le
+    bouton « 🖥 Application complète » de l'accueil téléphone, qui menait
+    TOUJOURS au Cockpit, quel que soit le rôle. C'est très probablement par
+    là que votre équipier a vu le Cockpit.
+  · Les actions du serveur (enregistrer, modifier, supprimer, exporter)
+    vérifiaient souvent seulement « connecté », parfois le rôle, jamais la
+    case du module.
+  · Décocher « Magasin produits finis » ne fermait rien tant que la case
+    « Réception ST » (ancien module fusionné dans le magasin) restait cochée.
+
+CE QUI CHANGE
+  1) Chaque page vérifie sa case : les ~70 pages du bureau (y compris les
+     pages d'impression : BL, BR, étiquettes, rapports QC, plans de coupe…),
+     les écrans du téléphone (tissu, paquets, saisie production, produits
+     finis). Case décochée → page « Accès refusé — « Cockpit » n'est pas
+     ouvert à votre rôle », sans aucun chiffre affiché.
+  2) Chaque export et fichier vérifie sa case : état de stock Excel,
+     résultat de coupe client, fiches du modèle, envoi de fiches, messagerie.
+  3) Chaque action du serveur vérifie sa case EN PLUS des droits déjà en
+     place (rôles du magasin, de la comptabilité, du contrôle qualité…).
+     Même en connaissant l'astuce technique pour appeler une action depuis
+     une autre page, c'est refusé.
+  4) Le bouton « Application complète » du téléphone mène à la première
+     page autorisée du compte, plus au Cockpit.
+  5) Une case = une porte. La case « Réception ST » (fusionnée dans le
+     magasin) disparaît de la matrice : c'est « Magasin produits finis » qui
+     décide.
+  6) Paramètres (comptes, rôles, droits) et Journal d'activité :
+     l'administrateur seul, quoi que dise la matrice.
+  7) Messagerie décochée : plus de notifications de messages non plus.
+  8) L'administrateur garde tout, toujours.
+
+GARDE-FOU POUR L'AVENIR
+Un test automatique parcourt TOUTES les pages, exports et fichiers
+d'actions : si une page nouvelle est ajoutée sans vérifier sa case, le
+projet refuse de passer les tests.
+
+À SAVOIR
+  · Décocher un module ferme maintenant aussi ses actions : vérifiez dans
+    Paramètres → Rôles qu'aucun rôle n'a une case décochée par erreur sur un
+    module dont il a besoin (avant, cette erreur passait inaperçue).
+  · Après un changement de cases, la personne concernée doit simplement
+    recharger la page ; aucune déconnexion n'est nécessaire.
+
+Vérifié : tests (446) ; essai navigateur avec un compte « Chef de chaîne »
+à qui l'on a décoché Cockpit, Commandes, Factures, Magasin, Messagerie :
+menu sans ces entrées ; /cockpit, /commandes, /factures, /magasin et
+l'écran téléphone du magasin → « Accès refusé » ; export Excel du stock et
+messagerie → refusés ; « Application complète » → sa première page
+autorisée ; Paramètres → renvoyé ailleurs. Le Responsable Prod. ouvre
+toujours ses 34 écrans sans erreur ; l'administrateur garde tout.
+
+
+═══════════════════════════════════════════════════════════════
+LIVRÉ (20/11, 3e envoi) — Réception façonnier : « produit » et « reçu »
 ne sont plus confondus
 ═══════════════════════════════════════════════════════════════
 Aucune migration nouvelle.

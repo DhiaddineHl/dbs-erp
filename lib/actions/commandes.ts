@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { revaliderCarnet } from "@/lib/revalidation";
 import * as XLSX from "xlsx";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["commandes", "clients", "facon", "planning"] as const;
+
 import * as biz from "@/lib/domain/commande";
 import * as svc from "@/lib/services/commandes";
 import * as gpao from "@/lib/services/gpao";
@@ -183,7 +186,7 @@ async function preparerSousCommandes(parentOf: string, brouillons: BrouillonSous
  * les deux découpes. */
 export async function ajouterSousCommandes(parentId: number, brouillonsJson: string): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const brouillons = parseSousCommandes(brouillonsJson);
     if (!brouillons.length) return { ok: false, error: "Aucune sous-commande à ajouter" };
 
@@ -244,7 +247,7 @@ export type GroupeRegroupable = {
  * trancher : quantités, dates d'export et métrage déjà reçu. */
 export async function listerRegroupements(): Promise<Retour<GroupeRegroupable[]>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const rows = await svc.listCommandes();
     const groupes = biz.proposerRegroupements(rows);
     return {
@@ -279,7 +282,7 @@ export async function listerRegroupements(): Promise<Retour<GroupeRegroupable[]>
  * pas : la production, la livraison et la facturation, qui restent par OF. */
 export async function regrouperCommandes(porteurId: number, ids: number[]): Promise<Retour<number>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const n = await svc.regrouperSous(porteurId, ids);
     const porteur = await svc.getCommande(porteurId);
     await journaliser(
@@ -300,7 +303,7 @@ export async function regrouperCommandes(porteurId: number, ids: number[]): Prom
 /** Rend leur autonomie à des sous-commandes. */
 export async function delierCommandes(ids: number[]): Promise<Retour<number>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     if (!ids.length) return { ok: false, error: "Aucune sous-commande sélectionnée" };
     const n = await svc.delierSous(ids);
     await journaliser("modification", "Commandes", `${n} sous-commande(s) déliée(s)`);
@@ -318,7 +321,7 @@ export async function delierCommandes(ids: number[]): Promise<Retour<number>> {
 
 export async function createCommande(d: Data): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const tailles = parseTailles(d.tailles);
     const qteTailles = tailles.reduce((s, t) => s + t.qte, 0);
     /* Règle DBS, appliquée ici et pas seulement dans le formulaire : une
@@ -381,7 +384,7 @@ export async function createCommande(d: Data): Promise<Result> {
 /** Inline-grid patch. Keys are the CommandeRow display keys. */
 export async function updateCommandeRow(id: number, patch: Data): Promise<Result> {
   try {
-    const user = await assertUser();
+    const user = await assertModule(...MODULES);
     const out: Parameters<typeof svc.updateCommande>[1] = {};
 
     for (const [k, raw] of Object.entries(patch)) {
@@ -531,7 +534,7 @@ async function verifierFamille(id: number, out: Parameters<typeof svc.updateComm
 
 export async function deleteCommandesAction(ids: number[]): Promise<Result> {
   try {
-    const user = await assertUser();
+    const user = await assertModule(...MODULES);
     /* Le contrôle est ici, pas seulement dans l'écran : une action serveur est
      * appelable directement, un bouton masqué ne protège rien. */
     if (!PEUT_SUPPRIMER.includes(userRole(user)))
@@ -553,7 +556,7 @@ export async function deleteCommandesAction(ids: number[]): Promise<Result> {
  * Remettre « Automatique » rend la commande à son statut dérivé. */
 export async function marquerLivrees(ids: number[]): Promise<Result> {
   try {
-    const user = await assertUser();
+    const user = await assertModule(...MODULES);
     if (!ids.length) return { ok: false, error: "Aucune commande sélectionnée" };
     for (const id of ids) await svc.updateCommande(id, { statutManuel: "livree" }, auteurDe(user));
     await purgerPhotosSilencieux();
@@ -572,7 +575,7 @@ const PEUT_SUPPRIMER = ["admin", "resp"];
 
 export async function peutSupprimerCommandes(): Promise<boolean> {
   try {
-    const user = await assertUser();
+    const user = await assertModule(...MODULES);
     return PEUT_SUPPRIMER.includes(userRole(user));
   } catch {
     return false;
@@ -581,7 +584,7 @@ export async function peutSupprimerCommandes(): Promise<boolean> {
 
 export async function archiverCommandes(ids: number[], archived: boolean): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await svc.setArchived(ids, archived);
     if (archived) await purgerPhotosSilencieux();
     await journaliser("modification", "Commandes", `${ids.length} commande(s) ${archived ? "archivée(s)" : "désarchivée(s)"}`);
@@ -595,7 +598,7 @@ export async function archiverCommandes(ids: number[], archived: boolean): Promi
 
 export async function importCommandes(formData: FormData): Promise<ImportResult> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const raw = await parseUpload(formData);
     if (!raw.length) return { ok: false, error: "Fichier vide ou illisible" };
 
@@ -646,7 +649,7 @@ export async function importCommandes(formData: FormData): Promise<ImportResult>
  * qu'une fois. */
 export async function televerserPhotoCommande(formData: FormData): Promise<Retour<{ hash: string }>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const id = Number(formData.get("commandeId"));
     if (!Number.isFinite(id) || id <= 0) return { ok: false, error: "Commande inconnue" };
     const f = formData.get("photo");
@@ -663,7 +666,7 @@ export async function televerserPhotoCommande(formData: FormData): Promise<Retou
 
 export async function retirerPhotoCommande(id: number): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await svc.retirerPhoto(id);
     revaliderCarnet();
     return ok;
@@ -703,7 +706,7 @@ export type MouvementPrix = {
  * discussion de marge impossible. */
 export async function historiquePrix(commandeId: number): Promise<Retour<MouvementPrix[]>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const rows = await svc.historiquePrix(commandeId);
     return {
       ok: true,
@@ -749,7 +752,7 @@ export type GroupeDoublon = {
  * montrer, avec de quoi trancher (produit, facturé, date). */
 export async function listerDoublons(): Promise<Retour<GroupeDoublon[]>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const groupes = await svc.detecterDoublons();
     return {
       ok: true,
@@ -780,7 +783,7 @@ export async function listerDoublons(): Promise<Retour<GroupeDoublon[]>> {
 
 export async function planifierExport(ids: number[], date: string): Promise<Retour<number>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     if (!ids.length) return { ok: false, error: "Aucune commande sélectionnée" };
     const iso = parseDate(date);
     if (date.trim() && !iso) return { ok: false, error: "Date illisible" };
@@ -802,7 +805,7 @@ export async function planifierExport(ids: number[], date: string): Promise<Reto
 
 export async function createClient(d: Data): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const nom = (d.nom ?? "").trim();
     if (!nom) return { ok: false, error: "La raison sociale est obligatoire" };
     // resolveClientId creates the row (with key + code) when the name is new.
@@ -826,7 +829,7 @@ export async function createClient(d: Data): Promise<Result> {
 
 export async function updateClientRow(id: number, patch: Data): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const allowed = ["code", "nom", "marque", "contact", "email", "tel", "ville", "pays", "tva", "adresse"] as const;
     const out: Record<string, string> = {};
     for (const k of allowed) if (k in patch) out[k] = patch[k] ?? "";
@@ -840,7 +843,7 @@ export async function updateClientRow(id: number, patch: Data): Promise<Result> 
 
 export async function deleteClientsAction(ids: number[]): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await svc.deleteClients(ids);
     revalidatePath("/clients");
     return ok;
@@ -851,7 +854,7 @@ export async function deleteClientsAction(ids: number[]): Promise<Result> {
 
 export async function importClients(formData: FormData): Promise<ImportResult> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const raw = await parseUpload(formData);
     if (!raw.length) return { ok: false, error: "Fichier vide ou illisible" };
     let n = 0;
@@ -883,7 +886,7 @@ export async function importClients(formData: FormData): Promise<ImportResult> {
 
 export async function createFaconnier(d: Data): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const nom = (d.nom ?? "").trim();
     if (!nom) return { ok: false, error: "Le nom est obligatoire" };
     const id = await svc.resolveFaconnierId(nom);
@@ -903,7 +906,7 @@ export async function createFaconnier(d: Data): Promise<Result> {
 
 export async function updateFaconnierRow(id: number, patch: Data): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const out: Record<string, unknown> = {};
     for (const k of ["nom", "specialite", "contact", "tel"] as const) {
       if (k in patch) out[k] = patch[k] ?? "";
@@ -919,7 +922,7 @@ export async function updateFaconnierRow(id: number, patch: Data): Promise<Resul
 
 export async function deleteFaconniersAction(ids: number[]): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await svc.deleteFaconniers(ids);
     revalidatePath("/facon");
     return ok;
@@ -930,7 +933,7 @@ export async function deleteFaconniersAction(ids: number[]): Promise<Result> {
 
 export async function importFaconniers(formData: FormData): Promise<ImportResult> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const raw = await parseUpload(formData);
     if (!raw.length) return { ok: false, error: "Fichier vide ou illisible" };
     let n = 0;

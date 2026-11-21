@@ -4,7 +4,7 @@ import { Scissors } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import * as av from "@/lib/domain/aval";
 import { motifEcartLabel } from "@/lib/domain/coupe";
 import { lireFiche } from "@/lib/services/coupe";
@@ -19,7 +19,7 @@ const dateHeure = (iso: string) => (iso ? new Date(iso).toLocaleString("fr-FR", 
 /* Fiche de coupe validée : figée. On la consulte, on génère (ou régénère)
  * son PV client, ou on l'annule avec un motif — jamais on ne la réécrit. */
 export default async function FicheCoupePage({ params }: { params: Promise<{ numero: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("coupe");
   const role = userRole(user);
   const f = await lireFiche(decodeURIComponent((await params).numero));
   if (!f) notFound();

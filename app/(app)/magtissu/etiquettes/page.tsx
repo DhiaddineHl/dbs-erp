@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { qrSvg } from "@/lib/atelier/qr";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { basePortail } from "@/lib/services/portail";
@@ -11,7 +11,7 @@ const nb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
  * Le QR ouvre la fiche mobile du lot : on le scanne à la sortie vers la coupe
  * pour enregistrer la consommation sans chercher le lot à l'écran. */
 export default async function EtiquettesPage({ searchParams }: { searchParams: Promise<{ ids?: string }> }) {
-  await requireUser();
+  await exigerModule("magtissu");
   const { ids = "" } = await searchParams;
   const voulus = new Set(ids.split(",").map(Number).filter(Number.isInteger));
   const [lots, base] = await Promise.all([listLots(), basePortail()]);

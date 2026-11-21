@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/shared/page-header";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { droitsDe } from "@/lib/domain/feux";
 import { listPreparation, listCatalogueFournitures } from "@/lib/services/preparation";
 import { listFaconniers } from "@/lib/services/commandes";
@@ -13,7 +13,8 @@ import { NavMagfour } from "../magfour/nav-magfour";
  * cliente afficher la configuration de l'écran demandé. */
 export async function PagePreparation({ ecran }: { ecran: EcranId }) {
   const cfg = ECRANS[ecran];
-  const user = await requireUser();
+  // L'écran EST le module (dt, modelisme, nomen, magfour, magtissu) : même matrice que le menu.
+  const user = await exigerModule(ecran);
   const role = userRole(user);
   const [rows, faconniers, modules, catalogue] = await Promise.all([
     listPreparation(),

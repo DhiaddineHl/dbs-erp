@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { bonRetourTissu } from "@/lib/services/matiere-tissu";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
 
@@ -7,7 +7,7 @@ import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/doc
  *   - RT-  : reliquats rendus au CLIENT (matière qu'il nous a confiée) ;
  *   - RTF- : rouleaux renvoyés au FOURNISSEUR (défaut, erreur de livraison). */
 export default async function BonRetourPage({ params }: { params: Promise<{ numero: string }> }) {
-  await requireUser();
+  await exigerModule("magtissu");
   const { numero } = await params;
   const b = await bonRetourTissu(decodeURIComponent(numero));
   if (!b) notFound();

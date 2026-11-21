@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser } from "@/lib/auth/server";
+import { assertModule } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["factures"] as const;
+
 import * as svc from "@/lib/services/facturation";
 import type { FactureDomain } from "@/lib/services/facturation";
 
@@ -15,7 +18,7 @@ const PATH = "/factures";
 
 export async function saveFactureAction(f: FactureDomain): Promise<Result<{ existed: boolean }>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const existed = await svc.factureExists(f.id, f.type);
     await svc.saveFacture(f);
     revalidatePath(PATH);
@@ -27,7 +30,7 @@ export async function saveFactureAction(f: FactureDomain): Promise<Result<{ exis
 
 export async function deleteFactureAction(num: string, type: string): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await svc.softDeleteFacture(num, type);
     revalidatePath(PATH);
     return { ok: true };
@@ -38,7 +41,7 @@ export async function deleteFactureAction(num: string, type: string): Promise<Re
 
 export async function restoreFacturesAction(): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await svc.restoreAllFactures();
     revalidatePath(PATH);
     return { ok: true };
@@ -54,7 +57,7 @@ export async function setCostLineAction(
   data: { lieu: string; faconnier: string; cout: number | null },
 ): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await svc.setCostLine(num, type, lineIdx, data);
     revalidatePath(PATH);
     return { ok: true };
@@ -67,7 +70,7 @@ export async function suggererClientAction(
   lignes: { modele: string; ref: string }[],
 ): Promise<Result<{ suggestions: svc.SuggestionClient[] }>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const suggestions = await svc.suggererClientPourFacture(lignes);
     return { ok: true, suggestions };
   } catch (e) {
@@ -77,7 +80,7 @@ export async function suggererClientAction(
 
 export async function reattribuerClientAction(num: string, type: string, clientKey: string): Promise<Result> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await svc.reattribuerClientFacture(num, type, clientKey);
     revalidatePath(PATH);
     return { ok: true };

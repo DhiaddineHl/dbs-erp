@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["clients", "facon", "commandes", "factures"] as const;
+
 import * as svc from "@/lib/services/referentiel";
 import { journaliser } from "@/lib/services/activite";
 
@@ -17,7 +20,7 @@ const fail = (e: unknown): { ok: false; error: string } => ({
 const RESPONSABLE = ["admin", "resp"];
 
 async function exigerResponsable() {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   if (!RESPONSABLE.includes(userRole(user)))
     throw new Error("Réservé aux administrateurs et responsables");
   return user;
@@ -25,7 +28,7 @@ async function exigerResponsable() {
 
 export async function peutNettoyerReferentiel(): Promise<boolean> {
   try {
-    const user = await assertUser();
+    const user = await assertModule(...MODULES);
     return RESPONSABLE.includes(userRole(user));
   } catch {
     return false;

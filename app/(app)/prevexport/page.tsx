@@ -1,4 +1,4 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { listPrevisionExport } from "@/lib/services/aval";
 import { brouillon, historique } from "@/lib/services/prevision-client";
 import { estWeekEnd } from "@/lib/domain/prevision-client";
@@ -11,7 +11,7 @@ const PRODUCTION = ["admin", "resp", "chef", "magasin"];
 export const dynamic = "force-dynamic";
 
 export default async function PrevExportPage() {
-  const user = await requireUser();
+  const user = await exigerModule("prevexport");
   const role = userRole(user);
   const [lignes, b, h] = await Promise.all([listPrevisionExport(), brouillon(), historique()]);
 

@@ -260,7 +260,8 @@ export function ParametresClient({
                       {grp.label}
                     </TableCell>
                   </TableRow>
-                  {grp.items.map((it) => {
+                  {/* Les entrées retirées du menu (fusionnées ailleurs) n'ont plus de case : elles n'ouvrent rien. */}
+                  {grp.items.filter((it) => !it.masque).map((it) => {
                     const Icon = it.icon;
                     return (
                       <TableRow key={it.id}>

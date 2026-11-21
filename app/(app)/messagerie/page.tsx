@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { annuaire, listConversations, marquerLu, ouvrirConversation, type ConversationVue } from "@/lib/services/messagerie";
 import { Messagerie } from "./messagerie-client";
 
@@ -6,7 +6,7 @@ import { Messagerie } from "./messagerie-client";
 export const dynamic = "force-dynamic";
 
 export default async function MessageriePage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("messagerie");
   const sp = await searchParams;
   const moi = { id: user.id, nom: user.name as string };
   const c = Number(sp.c);

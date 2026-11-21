@@ -43,14 +43,16 @@ export type NavItem = {
   /** Retiré du menu, mais la route, les permissions et le titre de page
    * restent en place : la page se rejoint encore par son URL. */
   masque?: boolean;
-  /** Modules fusionnés dans celui-ci : l'entrée reste visible pour un rôle qui
-   * avait accès à l'un d'eux (ex. « Réception ST » → Magasin produits finis). */
+  /** Anciens modules fusionnés dans celui-ci (historique : « Réception ST » →
+   * Magasin produits finis). Ils n'ouvrent plus rien : c'est la case de
+   * l'entrée elle-même qui décide — sinon décocher « Magasin » ne fermait
+   * rien tant que l'ancienne case « Réception ST » restait cochée. */
   aussi?: string[];
 };
 
-/** Un rôle voit une entrée s'il a son module, ou l'un des modules fusionnés dedans. */
-export const entreeAutorisee = (it: Pick<NavItem, "id" | "aussi">, modules: Record<string, boolean>) =>
-  modules[it.id] !== false || (it.aussi ?? []).some((a) => modules[a] === true);
+/** Un rôle voit (et ouvre) une entrée si sa case n'est pas décochée dans
+ * Paramètres → Rôles. Une seule case par entrée : décocher ferme. */
+export const entreeAutorisee = (it: Pick<NavItem, "id">, modules: Record<string, boolean>) => modules[it.id] !== false;
 
 export type NavGroup = {
   label: string;

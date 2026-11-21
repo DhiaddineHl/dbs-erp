@@ -1,4 +1,4 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { peutModifier } from "@/lib/domain/feux";
 import { getRoleModules } from "@/lib/services/permissions";
 import { listCatalogueFournitures } from "@/lib/services/preparation";
@@ -6,7 +6,7 @@ import { CatalogueFournitures } from "./catalogue-client";
 import { NavMagfour } from "../nav-magfour";
 
 export default async function CataloguePage() {
-  const user = await requireUser();
+  const user = await exigerModule("magfour");
   const role = userRole(user);
   const [catalogue, modules] = await Promise.all([listCatalogueFournitures(), getRoleModules(role)]);
   const peutSaisir = peutModifier("four", role) || !!modules.magfour;

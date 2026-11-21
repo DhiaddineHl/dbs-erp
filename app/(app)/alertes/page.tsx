@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import {
   AlertCircle,
   TriangleAlert,
@@ -24,6 +25,7 @@ const ICONS: Record<string, LucideIcon> = {
 };
 
 export default async function AlertesPage() {
+  await exigerModule("alertes");
   const { alerts, total, critiques, avertissements } = await getAlertes();
   return (
     <>

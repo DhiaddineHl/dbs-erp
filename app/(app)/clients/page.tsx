@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { Building2, Euro, Package } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
@@ -18,6 +19,7 @@ import { BoutonFusionClients } from "./fusion";
 const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
 export default async function ClientsPage() {
+  await exigerModule("clients");
   const [CLIENTS, peutFusionner] = await Promise.all([listClients(), peutNettoyerReferentiel()]);
   const caTotal = CLIENTS.reduce((s, c) => s + c.ca, 0);
   const cmdTotal = CLIENTS.reduce((s, c) => s + c.cmd, 0);

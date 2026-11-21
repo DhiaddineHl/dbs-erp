@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { manques } from "@/lib/domain/fournitures";
 import { lignesEnManque } from "@/lib/services/fournitures";
 import { DocumentImprimable, nbFr } from "@/components/shared/document-imprimable";
@@ -6,7 +6,7 @@ import { DocumentImprimable, nbFr } from "@/components/shared/document-imprimabl
 /* Liste d'achat DBS (commandes CMT) : les manques des lignes « acheté DBS »,
  * cumulés par article et regroupés par fournisseur — en quantités. */
 export default async function ListeAchatPage() {
-  await requireUser();
+  await exigerModule("magfour");
   const { achats } = manques(await lignesEnManque());
   return (
     <DocumentImprimable

@@ -1,4 +1,4 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { peutModifier } from "@/lib/domain/feux";
 import { getRoleModules } from "@/lib/services/permissions";
 import { bonsRetourTissu, reliquatsTissu, vueMatiereCommandes } from "@/lib/services/matiere-tissu";
@@ -10,7 +10,7 @@ import { MagasinTissu, type OngletTissu } from "./magtissu-client";
 const ONGLETS: OngletTissu[] = ["commandes", "lots", "rouleaux", "reliquats", "dashboard"];
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ onglet?: string; q?: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("magtissu");
   const role = userRole(user);
   const sp = await searchParams;
   const [{ commandes: parCommande, lots }, choix, bons, modules, rouleaux, kpisRouleaux, bonsSortie, recaps, clients] = await Promise.all([

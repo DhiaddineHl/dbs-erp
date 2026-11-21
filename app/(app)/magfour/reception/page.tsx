@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { PackageOpen } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { lignesPourReception, listReceptionsFournitures } from "@/lib/services/fournitures";
@@ -6,6 +7,7 @@ import { NavMagfour } from "../nav-magfour";
 import { ReceptionFournitures } from "./reception-client";
 
 export default async function ReceptionFournituresPage({ searchParams }: { searchParams: Promise<{ client?: string }> }) {
+  await exigerModule("magfour");
   const { client = "" } = await searchParams;
   const [peutSaisir, { clients, lignes }, historique] = await Promise.all([
     droitFournitures(),

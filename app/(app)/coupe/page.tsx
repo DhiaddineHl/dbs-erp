@@ -1,4 +1,4 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { listCommandesAval, listToutesCoupes } from "@/lib/services/aval";
 import { listFiches, seuilEcart } from "@/lib/services/coupe";
 import { resumesPlans } from "@/lib/services/plan-coupe";
@@ -7,7 +7,7 @@ import { CoupeClient } from "./coupe-client";
 const PRODUCTION = ["admin", "resp", "chef", "magasin"];
 
 export default async function CoupePage() {
-  const user = await requireUser();
+  const user = await exigerModule("coupe");
   const role = userRole(user);
   const [commandes, coupes, plans, fiches, seuil] = await Promise.all([
     listCommandesAval({ archived: false }),

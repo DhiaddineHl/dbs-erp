@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["qrouv"] as const;
+
 import { cleAleatoire } from "@/lib/atelier/cle";
 import { rattacherOuvrieresManquantes as rattacher } from "@/lib/services/atelier";
 import { getSetting, setSetting } from "@/lib/services/permissions";
@@ -18,7 +21,7 @@ const fail = (e: unknown): Result<never> => ({
 const ATELIER = ["admin", "resp", "chef"];
 
 async function exiger() {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   if (!ATELIER.includes(userRole(user))) throw new Error("Réservé à la direction de production");
 }
 
@@ -69,6 +72,7 @@ export async function supprimerJetonDirection(): Promise<Result> {
 }
 
 export async function lireBasePortail() {
+  await assertModule(...MODULES);
   return getSetting<string>("basePortail", "");
 }
 

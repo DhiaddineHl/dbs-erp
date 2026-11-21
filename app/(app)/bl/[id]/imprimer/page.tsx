@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { STATUTS_BL, type StatutBl } from "@/lib/domain/aval";
 import { getBl } from "@/lib/services/aval";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
@@ -12,7 +12,7 @@ const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-"
  * Il est rendu comme une page normale : l'impression du navigateur produit le
  * PDF, sans fenêtre construite à la main comme dans l'application d'origine. */
 export default async function BlImprimerPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  await exigerModule("bl");
   const { id } = await params;
   const b = await getBl(Number(id));
   if (!b) notFound();

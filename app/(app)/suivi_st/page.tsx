@@ -1,6 +1,6 @@
 import { Truck } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { ROLES_SAISIE_MAGASIN } from "@/lib/domain/aval";
 import { MOTIFS_ECART } from "@/lib/domain/coupe";
 import { suiviSt } from "@/lib/services/suivi-soustraitants";
@@ -13,7 +13,7 @@ import { SuiviStClient } from "./suivi-st-client";
 export const dynamic = "force-dynamic";
 
 export default async function SuiviStPage() {
-  const user = await requireUser();
+  const user = await exigerModule("suivi_st");
   const role = userRole(user);
   const vue = await suiviSt();
   return (

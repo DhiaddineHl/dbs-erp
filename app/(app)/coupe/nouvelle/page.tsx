@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Scissors } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import * as av from "@/lib/domain/aval";
 import { contexteCoupe, porteurDe } from "@/lib/services/coupe";
 import { AssistantCoupe } from "./assistant";
@@ -11,7 +11,7 @@ import { AssistantCoupe } from "./assistant";
  * des OF réunis). Tailles et quantités prévues sont importées, jamais
  * retapées. */
 export default async function NouvelleCoupePage({ searchParams }: { searchParams: Promise<{ commande?: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("coupe");
   const role = userRole(user);
   const id = Number((await searchParams).commande);
   if (!Number.isInteger(id)) notFound();

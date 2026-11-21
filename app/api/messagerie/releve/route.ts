@@ -1,4 +1,4 @@
-import { getUser } from "@/lib/auth/server";
+import { getUser, utilisateurAvecModule } from "@/lib/auth/server";
 import { releve } from "@/lib/services/messagerie";
 
 /* Relève de la messagerie, appelée toutes les quelques secondes par chaque
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const u = await getUser();
   if (!u) return Response.json({ error: "Non authentifié" }, { status: 401 });
+  if (!(await utilisateurAvecModule("messagerie"))) return Response.json({ error: "Messagerie non ouverte à votre rôle." }, { status: 403 });
   const q = new URL(req.url).searchParams;
   const num = (k: string) => {
     const v = q.get(k);

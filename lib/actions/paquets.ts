@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["paquets", "gpao_prod"] as const;
+
 import { auteurGpao } from "@/lib/auth/gpao";
 import * as svc from "@/lib/services/paquets";
 
@@ -20,7 +23,7 @@ const PATH = "/paquets";
 
 /** Auteur autorisé à relever. Une seule règle, écran et tournée mobile. */
 async function auteurTournee() {
-  const u = await assertUser();
+  const u = await assertModule(...MODULES);
   const role = userRole(u);
   if (!(await svc.peutRelever(role))) {
     throw new Error("Votre rôle n'est pas autorisé à faire la tournée des paquets (réglage dans l'écran Suivi paquets).");
@@ -30,7 +33,7 @@ async function auteurTournee() {
 
 export async function lirePaquet(code: string): Promise<Result<{ paquet: svc.PaquetVue }>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const p = await svc.paquetParCode(code);
     if (!p) return { ok: false, error: `Paquet ${code} introuvable. Vérifiez le numéro imprimé sous le QR.` };
     return { ok: true, paquet: p };
@@ -74,7 +77,7 @@ export async function annulerReleve(releveId: number, motif: string): Promise<Re
 /** Réglages du suivi : responsable de production et administrateur
  * seulement (avant, tout compte connecté pouvait les changer). */
 async function regleur() {
-  const u = await assertUser();
+  const u = await assertModule(...MODULES);
   const role = userRole(u);
   if (!["admin", "resp"].includes(role)) throw new Error("Réservé au responsable de production et à l'administrateur.");
   return { name: u.name as string, role };
@@ -218,7 +221,7 @@ export async function historique(code: string): Promise<
   Result<{ paquet: NonNullable<Awaited<ReturnType<typeof svc.historiquePaquet>>>["paquet"]; lignes: NonNullable<Awaited<ReturnType<typeof svc.historiquePaquet>>>["lignes"] }>
 > {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const h = await svc.historiquePaquet(code);
     if (!h) return { ok: false, error: "Paquet introuvable : vérifiez l'étiquette (PQ-AAAA-NNNNNN)." };
     return { ok: true, ...h };

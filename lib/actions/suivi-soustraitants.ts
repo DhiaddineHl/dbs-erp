@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["suivi_st", "magasin"] as const;
+
 import * as av from "@/lib/domain/aval";
 import * as svc from "@/lib/services/suivi-soustraitants";
 import { creerBr } from "@/lib/actions/aval";
@@ -16,7 +19,7 @@ export type Result<T = unknown> = ({ ok: true } & T) | { ok: false; error: strin
 const fail = (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : "Erreur" });
 
 async function magasin() {
-  const u = await assertUser();
+  const u = await assertModule(...MODULES);
   const role = userRole(u);
   if (role !== "admin" && !av.ROLES_SAISIE_MAGASIN.includes(role)) throw new Error("Réservé à la production et au magasin.");
   return { id: u.id as string, nom: u.name as string };
@@ -89,7 +92,7 @@ export async function refuserRapport(id: number, motif: string): Promise<Result>
 
 export async function enregistrerReglages(v: { montrerClient: boolean; delai: number }): Promise<Result> {
   try {
-    const u = await assertUser();
+    const u = await assertModule(...MODULES);
     if (!["admin", "resp"].includes(userRole(u))) throw new Error("Réservé au responsable de production et à l'administrateur.");
     await svc.enregistrerReglagesSt(v);
     revalider();

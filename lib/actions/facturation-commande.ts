@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { ECRANS_CARNET } from "@/lib/revalidation";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["commandes", "factures"] as const;
+
 import type { Divergence } from "@/lib/domain/facturation-commande";
 import * as svc from "@/lib/services/facturation-commande";
 import { deleteCommandes, setArchived } from "@/lib/services/commandes";
@@ -21,7 +24,7 @@ const fail = (e: unknown): Result<never> => ({
 const PEUT_FACTURER = ["admin", "resp"];
 
 async function exigerFacturation() {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   if (!PEUT_FACTURER.includes(userRole(user)))
     throw new Error("Facturation réservée aux administrateurs et responsables");
   return user;
@@ -33,7 +36,7 @@ function revalider() {
 
 export async function peutFacturer(): Promise<boolean> {
   try {
-    const user = await assertUser();
+    const user = await assertModule(...MODULES);
     return PEUT_FACTURER.includes(userRole(user));
   } catch {
     return false;
@@ -44,7 +47,7 @@ export async function peutFacturer(): Promise<boolean> {
 
 export async function chargerCibles(clientNom: string, commandeId: number) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const [cibles, numero] = await Promise.all([
       svc.facturesDuClient(clientNom),
       svc.prochainNumeroPasserelle(),
@@ -78,7 +81,7 @@ export async function facturerCommande(
 
 export async function controlerPrixFacon(): Promise<Result<Divergence[]>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     return ok(await svc.controlerPrixFacon());
   } catch (e) {
     return fail(e);
@@ -113,7 +116,7 @@ export async function propagerPrixFacon(commandeId: number): Promise<Result<numb
 
 export async function listerSoldees(): Promise<Result<svc.Soldee[]>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     return ok(await svc.listerSoldees());
   } catch (e) {
     return fail(e);

@@ -1,6 +1,6 @@
 import { Globe } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { client, faconnier } from "@/lib/db/schema";
 import { asc } from "drizzle-orm";
@@ -16,7 +16,7 @@ import { PortailsClient } from "./portails-client";
 export const dynamic = "force-dynamic";
 
 export default async function PortailsPage() {
-  const user = await requireUser();
+  const user = await exigerModule("portails");
   const role = userRole(user);
   const peutGerer = ["admin", "resp"].includes(role);
   const [acces, clients, ateliers, base] = await Promise.all([

@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { CalendarDays, Package, Scissors, TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
@@ -46,6 +47,7 @@ const COLONNES_CSV: Column[] = [
  * L'écran ne crée pas de commandes et n'en importe pas : le planning ajuste ce
  * qui existe. La création reste au carnet. */
 export default async function PlanningPage() {
+  await exigerModule("planning");
   const [CMDS, clients, faconniers, chaines, peutSupprimer] = await Promise.all([
     listCommandes({ includeArchived: true }),
     listClients(),

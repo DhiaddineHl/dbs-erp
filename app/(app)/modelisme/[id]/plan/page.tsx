@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { PencilRuler } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { peutModifier } from "@/lib/domain/feux";
 import { contexteCommande, etapeTracesFaite, planOuInitial } from "@/lib/services/plan-coupe";
 import { EditeurPlan } from "./editeur";
@@ -14,7 +14,7 @@ import { EditeurPlan } from "./editeur";
  * l'impression n'est qu'un segment de plus dessous — pas un document.write
  * dans une fenêtre surgissante. */
 export default async function PlanDeCoupePage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("modelisme");
   const { id } = await params;
   const commandeId = Number(id);
   if (!Number.isInteger(commandeId)) notFound();

@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { Recycle } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { lignesPourReception, listRestes } from "@/lib/services/fournitures";
@@ -6,6 +7,7 @@ import { NavMagfour } from "../nav-magfour";
 import { RestesClient } from "./restes-client";
 
 export default async function RestesPage() {
+  await exigerModule("magfour");
   const [peutSaisir, restes, { clients, lignes }] = await Promise.all([droitFournitures(), listRestes(), lignesPourReception("")]);
   return (
     <>

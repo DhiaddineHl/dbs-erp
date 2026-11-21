@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { notFound } from "next/navigation";
 import { getChaines, getJournees, getModeles } from "@/lib/services/gpao";
 import { getSetting } from "@/lib/services/permissions";
@@ -12,6 +13,7 @@ import { TvPage } from "./tv-page";
  * mieux : on la pose sur le second écran, elle se recharge seule et le poste
  * de saisie reste libre. */
 export default async function TvJourPage({ params }: { params: Promise<{ id: string }> }) {
+  await exigerModule("gpao_prod");
   const { id } = await params;
   const jourId = Number(id);
   if (!Number.isFinite(jourId)) notFound();

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { listReceptions } from "@/lib/services/tissu";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
 
@@ -7,7 +7,7 @@ import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/doc
  * face au bon de livraison du client. À envoyer avant la coupe : après, plus
  * rien ne prouve que l'écart était là à l'arrivée. */
 export default async function ReclamationPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  await exigerModule("magtissu");
   const { id } = await params;
   const r = (await listReceptions()).find((x) => x.id === Number(id));
   if (!r) notFound();

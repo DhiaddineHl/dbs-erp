@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { Handshake, Boxes, Layers } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
@@ -16,6 +17,7 @@ import { createFaconnier, importFaconniers } from "@/lib/actions/commandes";
 const nb = new Intl.NumberFormat("fr-FR");
 
 export default async function FaconPage() {
+  await exigerModule("facon");
   const FACONNIERS = await listFaconniers();
   const cmdTotal = FACONNIERS.reduce((s, f) => s + f.cmd, 0);
   const chargeTotal = FACONNIERS.reduce((s, f) => s + f.charge, 0);

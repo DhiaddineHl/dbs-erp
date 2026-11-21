@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["modelisme"] as const;
+
 import * as fx from "@/lib/domain/feux";
 import * as pc from "@/lib/domain/plan-coupe";
 import { journaliser } from "@/lib/services/activite";
@@ -37,7 +40,7 @@ function revalider(commandeId: number) {
 }
 
 async function exigerModeliste() {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   const role = userRole(user);
   if (!fx.peutModifier("modelisme", role)) {
     throw new Error(`Modification réservée à ${fx.RESPONSABLE_DOMAINE.modelisme}`);

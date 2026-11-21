@@ -2,7 +2,7 @@ import { SearchCheck } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { getFrise, listCommandesTracables } from "@/lib/services/tracabilite";
 import { Selecteur } from "./selecteur";
 
@@ -17,7 +17,7 @@ export default async function TracabilitePage({
 }: {
   searchParams: Promise<{ of?: string }>;
 }) {
-  await requireUser();
+  await exigerModule("tracabilite");
   const { of } = await searchParams;
   const id = of ? Number(of) : null;
   const [commandes, frise] = await Promise.all([

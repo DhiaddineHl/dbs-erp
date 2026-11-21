@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { peutModifier } from "@/lib/domain/feux";
 import { getRoleModules } from "@/lib/services/permissions";
 import { getInventaire } from "@/lib/services/rouleaux";
@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { ClotureInventaire } from "../inventaires-client";
 
 export default async function InventairePage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("magtissu");
   const role = userRole(user);
   const [inv, modules] = await Promise.all([getInventaire(Number((await params).id)), getRoleModules(role)]);
   if (!inv) notFound();

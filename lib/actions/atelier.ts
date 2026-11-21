@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import * as XLSX from "xlsx";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["gpao_prod", "operations", "personnel", "qrouv"] as const;
+
 import * as at from "@/lib/domain/atelier";
 import * as svc from "@/lib/services/atelier";
 import { journaliser } from "@/lib/services/activite";
@@ -21,7 +24,7 @@ const fail = (e: unknown): Result<never> => ({
 const ATELIER = ["admin", "resp", "chef"];
 
 async function exigerAtelier() {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   const role = userRole(user);
   if (!ATELIER.includes(role)) throw new Error("Saisie réservée à la direction de production");
   return user;
@@ -269,7 +272,7 @@ export async function synchroniserOperations(): Promise<Result<number>> {
 /** Capture silencieuse appelée par les écrans de saisie GPAO. */
 export async function assurerOperations(entrees: { nom: string; sam?: number }[]): Promise<Result<number>> {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const n = await svc.assurerOperations(entrees, "saisie");
     if (n) revalidatePath("/operations");
     return ok(n);

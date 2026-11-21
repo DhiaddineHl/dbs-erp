@@ -3,6 +3,7 @@ import { requireUser, userRole } from "@/lib/auth/server";
 import { getRoleModules, listRoles } from "@/lib/services/permissions";
 import { compteursMenu } from "@/lib/services/compteurs-menu";
 import { VeilleMessagerie } from "@/components/messagerie/veille";
+import { moduleOuvert } from "@/lib/auth/acces";
 
 export default async function AppLayout({
   children,
@@ -19,7 +20,8 @@ export default async function AppLayout({
   return (
     <CadreApp modules={modules} badges={badges} user={{ name: user.name, email: user.email, role, roleLabel }}>
       {children}
-      <VeilleMessagerie />
+      {/* Les notifications de messages : seulement si la messagerie est ouverte au rôle. */}
+      {moduleOuvert("messagerie", modules, role) && <VeilleMessagerie />}
     </CadreApp>
   );
 }

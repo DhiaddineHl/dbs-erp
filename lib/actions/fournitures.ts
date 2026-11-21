@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["magfour", "dt", "modelisme", "nomen", "magtissu"] as const;
+
 import * as fx from "@/lib/domain/feux";
 import * as fo from "@/lib/domain/fournitures";
 import { journaliser } from "@/lib/services/activite";
@@ -19,7 +22,7 @@ function revalider() {
 
 /** Mêmes droits que l'écran Magasin fournitures (rôle ou module ouvert). */
 async function exigerFour() {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   const role = userRole(user);
   let autorise = fx.peutModifier("four", role);
   if (!autorise) autorise = (await getRoleModules(role)).magfour === true;

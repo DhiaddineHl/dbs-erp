@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { enregistrerReglagesPaquets } from "@/lib/services/paquets";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["gpao_prod"] as const;
+
 import * as g from "@/lib/services/gpao";
 import * as at from "@/lib/services/atelier";
 import { cleNom } from "@/lib/domain/atelier";
@@ -38,7 +41,7 @@ export async function createDay(input: {
   nbHeures: number;
 }) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const row = await g.creerJournee(input);
     revalidatePath(PATH);
     return { ok: true as const, row };
@@ -61,7 +64,7 @@ export async function duplicateDay(input: {
   objManuel?: number | null;
 }) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const row = await g.insertJournee({
       date: input.date,
       chaineId: input.chaineId,
@@ -90,7 +93,7 @@ export async function duplicateDay(input: {
 
 export async function updateDay(id: number, patch: Record<string, unknown>) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await g.updateJournee(id, patch as Partial<JourneeInsert>);
     // Si la production a bougé, remonter l'avancement de la commande liée.
     if ("sortie" in patch) await g.synchroniserAvancementJournee(id);
@@ -103,7 +106,7 @@ export async function updateDay(id: number, patch: Record<string, unknown>) {
 
 export async function deleteDay(id: number) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await g.deleteJournee(id);
     revalidatePath(PATH);
     return { ok: true as const };
@@ -114,7 +117,7 @@ export async function deleteDay(id: number) {
 
 export async function saveChaine(input: { id?: number; nom: string; chef: string; effectif?: number }) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const effectif = Math.max(0, Math.trunc(input.effectif ?? 0));
     if (input.id) {
       await g.updateChaine(input.id, { nom: input.nom, chef: input.chef, effectif });
@@ -131,7 +134,7 @@ export async function saveChaine(input: { id?: number; nom: string; chef: string
 
 export async function deleteChaine(id: number) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await g.deleteChaine(id);
     revalidatePath(PATH);
     return { ok: true as const };
@@ -148,7 +151,7 @@ export async function saveOuvriere(input: {
   sam: number;
 }) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     /* Toute saisie alimente le référentiel : le poste entre au catalogue, la
      * personne entre au registre. C'est ce qui empêche les variantes
      * orthographiques de proliférer sans que rien ne les rattrape. */
@@ -195,7 +198,7 @@ export async function enregistrerEffectifJour(
   cibleId: number,
 ) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const cible = roster.find((o) => o.id === cibleId);
     let personne: at.ResolutionPersonne = { personnelId: null, creee: false, matricule: "" };
 
@@ -222,7 +225,7 @@ export async function enregistrerEffectifJour(
 
 export async function deleteOuvriere(id: number) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await g.deleteOuvriere(id);
     revalidatePath(PATH);
     return { ok: true as const };
@@ -243,7 +246,7 @@ export async function saveModele(input: {
   taillePaquet?: number;
 }) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const champs = {
       nom: input.nom,
       ref: input.ref,
@@ -274,7 +277,7 @@ export async function saveModele(input: {
  * restent consultables via le filtre « Archivés ». */
 export async function archiverModele(id: number, archive: boolean) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await g.updateModele(id, { archive });
     revalidatePath(PATH);
     return { ok: true as const };
@@ -285,7 +288,7 @@ export async function archiverModele(id: number, archive: boolean) {
 
 export async function deleteModele(id: number) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await g.deleteModele(id);
     revalidatePath(PATH);
     return { ok: true as const };
@@ -305,7 +308,7 @@ export async function enregistrerReglages(r: {
   taillePaquet?: number;
 }) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     // Un seul interrupteur pour tout le suivi par paquets (GPAO et coupe).
     if (r.suiviPaquets !== undefined) await enregistrerReglagesPaquets({ actif: !!r.suiviPaquets });
     if (r.taillePaquet !== undefined) {
@@ -333,7 +336,7 @@ export type LigneImportOuvriere = { nom: string; poste: string; sam: number };
  * une saisie manuelle — l'import n'est pas une porte dérobée. */
 export async function importerOuvrieres(chaineId: number, lignes: LigneImportOuvriere[]) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const valides = lignes
       .map((l) => ({ nom: l.nom.trim(), poste: l.poste.trim(), sam: Math.max(0, Math.round(l.sam)) || 100 }))
       .filter((l) => l.nom);
@@ -368,7 +371,7 @@ export async function importerOuvrieres(chaineId: number, lignes: LigneImportOuv
 /** Simulation : pièces produites & CA depuis les journées GPAO, sur une période. */
 export async function simuler(from: string, to: string) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const data = await g.simulationGpao(from, to);
     return { ok: true as const, data };
   } catch (e) {
@@ -380,7 +383,7 @@ export async function simuler(from: string, to: string) {
  * de l'historique GPAO en une fois). */
 export async function rapprocherModelesCommandes() {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     const bilan = await g.rapprocherModelesCommandes();
     revalidatePath(PATH);
     return { ok: true as const, ...bilan };
@@ -392,7 +395,7 @@ export async function rapprocherModelesCommandes() {
 /** Lie manuellement un modèle à une commande (archivée acceptée) ou détache. */
 export async function lierModele(modeleId: number, commandeId: number | null) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await g.lierModeleCommande(modeleId, commandeId);
     revalidatePath(PATH);
     return { ok: true as const };
@@ -404,7 +407,7 @@ export async function lierModele(modeleId: number, commandeId: number | null) {
 /** Fixe/efface le prix de vente manuel d'un modèle (€/pièce). */
 export async function majPrixManuel(modeleId: number, prix: number | null) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     await g.majPrixManuelModele(modeleId, prix);
     revalidatePath(PATH);
     return { ok: true as const };
@@ -416,7 +419,7 @@ export async function majPrixManuel(modeleId: number, prix: number | null) {
 /** Commandes internes, archivées incluses — pour le rattachement manuel. */
 export async function commandesPourLien() {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     return { ok: true as const, data: await g.listCommandesInternes(true) };
   } catch (e) {
     return fail(e);
@@ -434,7 +437,7 @@ const ROLES_COUT_USINE = ["admin", "resp"];
 
 export async function lireParamsUsine() {
   try {
-    const user = await assertUser();
+    const user = await assertModule(...MODULES);
     const params = await rent.lireParamsUsine();
     return { ok: true as const, params, modifiable: ROLES_COUT_USINE.includes(userRole(user)) };
   } catch (e) {
@@ -446,7 +449,7 @@ export async function lireParamsUsine() {
  * valeur actuelle (la Simulation règle le coût, la Rentabilité les objectifs). */
 export async function enregistrerParamsUsine(input: Partial<ParamsUsine>) {
   try {
-    const user = await assertUser();
+    const user = await assertModule(...MODULES);
     if (!ROLES_COUT_USINE.includes(userRole(user))) {
       throw new Error("Réservé à l'administrateur et au responsable production");
     }
@@ -463,7 +466,7 @@ export async function enregistrerParamsUsine(input: Partial<ParamsUsine>) {
 /** Rapport de rentabilité d'une période (marge par modèle, pertes, point mort…). */
 export async function rentabilite(from: string, to: string) {
   try {
-    await assertUser();
+    await assertModule(...MODULES);
     return { ok: true as const, data: await rent.rentabiliteGpao(from, to) };
   } catch (e) {
     return fail(e);
@@ -476,7 +479,7 @@ export async function rentabilite(from: string, to: string) {
  * « Vérifier » calcule le bilan sans rien écrire ; « Appliquer » fusionne les
  * fiches en double et relie toutes les journées. Réservé admin + resp. */
 async function exigerGestion() {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   if (!["admin", "resp"].includes(userRole(user))) throw new Error("Réservé à l'administrateur et au responsable production");
 }
 

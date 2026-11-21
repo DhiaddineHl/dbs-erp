@@ -1,4 +1,4 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { ROLES_SAISIE_MAGASIN } from "@/lib/domain/aval";
 import { vueMagasin } from "@/lib/services/magasin-vue";
 import { MagasinClient, type Onglet } from "./magasin-client";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  * ça vient (par façonnier), ce qu'il faut faire aujourd'hui, les entrées et
  * le journal des mouvements. Le stock se lit aussi par taille. */
 export default async function MagasinPage({ searchParams }: { searchParams: Promise<{ onglet?: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("magasin");
   const role = userRole(user);
   const { onglet } = await searchParams;
   const vue = await vueMagasin();

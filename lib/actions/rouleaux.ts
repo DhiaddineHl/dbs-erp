@@ -16,7 +16,10 @@ import {
   tissuRecapLigne,
   tissuRouleau,
 } from "@/lib/db/schema";
-import { assertUser } from "@/lib/auth/server";
+import { assertModule } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["magtissu"] as const;
+
 import { auteurTissu } from "@/lib/auth/tissu";
 import * as rl from "@/lib/domain/rouleau";
 import * as tx from "@/lib/domain/tissu";
@@ -113,7 +116,7 @@ export async function resoudreScan(brut: string): Promise<Result<{ type: "roulea
   try {
     // Lecture seule : tout compte connecté peut ouvrir une fiche (les gestes,
     // eux, restent réservés au magasin tissu).
-    await assertUser();
+    await assertModule(...MODULES);
     const lu = rl.lireScan(brut);
     if (!lu) return { ok: false, error: "Code illisible : ni un rouleau (R-AAAA-NNNNNN) ni un emplacement." };
     if (lu.type === "rouleau") {

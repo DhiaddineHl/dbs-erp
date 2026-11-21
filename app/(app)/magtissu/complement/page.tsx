@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { demandeComplementTissu } from "@/lib/services/matiere-tissu";
 import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/document-imprimable";
 
@@ -6,7 +6,7 @@ import { Cadre, DocumentImprimable, dateFr, nbFr } from "@/components/shared/doc
  * besoin (sa conso × pièces × chute) que ni le tissu reçu ni son stock libre
  * ne couvrent. Il reste à lui envoyer. */
 export default async function ComplementPage({ searchParams }: { searchParams: Promise<{ client?: string }> }) {
-  await requireUser();
+  await exigerModule("magtissu");
   const { client = "" } = await searchParams;
   const lignes = await demandeComplementTissu(client);
   const total = lignes.reduce((s, l) => s + l.etat.aDemander, 0);

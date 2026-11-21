@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { qrSvg } from "@/lib/atelier/qr";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { basePortail } from "@/lib/services/portail";
@@ -9,7 +9,7 @@ import { basePortail } from "@/lib/services/portail";
  * première fois, puis gardée). À imprimer et à coller au bureau des méthodes
  * ou au dos de la tablette. */
 export default async function QrSaisiePage() {
-  await requireUser();
+  await exigerModule("gpao_prod");
   const url = `${(await basePortail()).replace(/\/+$/, "")}/m/gpao`;
   const svg = await qrSvg(url, 420);
   return (

@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import Link from "next/link";
 import {
   Target,
@@ -48,6 +49,7 @@ const TONE_TEXT: Record<string, string> = {
 const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
 
 export default async function CockpitPage() {
+  await exigerModule("cockpit");
   const [data, finance, pm] = await Promise.all([getCockpitData(), getGraphiquesFinance(), pointMortMoisCourant()]);
   const totalFacture = finance.facturation.at(-1)?.cumul ?? 0;
 

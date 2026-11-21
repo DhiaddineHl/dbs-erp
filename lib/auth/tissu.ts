@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { assertUser, getUser, userRole } from "@/lib/auth/server";
 import { peutModifier } from "@/lib/domain/feux";
 import { getRoleModules } from "@/lib/services/permissions";
+import { moduleOuvert } from "@/lib/auth/acces";
 
 /** Droit d'écrire au magasin tissu (lots ET rouleaux) : les rôles de
  * préparation tissu, ou tout rôle à qui l'on a ouvert le module magtissu.
@@ -10,11 +11,10 @@ import { getRoleModules } from "@/lib/services/permissions";
 export async function auteurTissu() {
   const user = await assertUser();
   const role = userRole(user);
-  let autorise = peutModifier("tissu", role);
-  if (!autorise) {
-    const modules = await getRoleModules(role);
-    if (modules.magtissu) autorise = true;
-  }
+  const modules = await getRoleModules(role);
+  // Module décoché = aucune écriture, même pour un rôle de préparation tissu.
+  let autorise = moduleOuvert("magtissu", modules, role) && peutModifier("tissu", role);
+  if (!autorise && modules.magtissu) autorise = true;
   if (!autorise) throw new Error("Réservé au magasin tissu");
   return { id: user.id, name: user.name as string, role };
 }
@@ -27,5 +27,7 @@ export async function accesTissuPage(suite: string) {
   if (!user) redirect(`/login?suite=${encodeURIComponent(suite)}`);
   const role = userRole(user);
   const modules = await getRoleModules(role);
+  // Lire l'écran demande déjà le module : décoché = porte fermée, pas lecture seule.
+  if (!moduleOuvert("magtissu", modules, role)) redirect("/sans-acces?module=magtissu");
   return { user, peutSaisir: peutModifier("tissu", role) || modules.magtissu === true };
 }

@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["coupe"] as const;
+
 import * as av from "@/lib/domain/aval";
 import * as cp from "@/lib/domain/coupe";
 import { journaliser } from "@/lib/services/activite";
@@ -16,7 +19,7 @@ export type Result<T = unknown> = ({ ok: true } & T) | { ok: false; error: strin
 const fail = (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : "Erreur" });
 
 async function exigerCoupe() {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   const role = userRole(user);
   if (role !== "admin" && !av.ROLES_SAISIE_MAGASIN.includes(role)) throw new Error("Saisie de coupe réservée à la production et au magasin.");
   return { id: user.id, name: user.name, role };
@@ -67,7 +70,7 @@ export async function genererPvCoupe(ficheId: number): Promise<Result<{ numero: 
 /** Seuil d'écart (% par taille) au-delà duquel le motif est exigé. */
 export async function majSeuilEcart(valeur: string): Promise<Result> {
   try {
-    const user = await assertUser();
+    const user = await assertModule(...MODULES);
     if (!["admin", "resp"].includes(userRole(user))) return { ok: false, error: "Réservé aux administrateurs et responsables." };
     const n = Number(String(valeur).replace(",", "."));
     if (!Number.isFinite(n) || n < 0 || n > 50) return { ok: false, error: "Seuil entre 0 et 50 %." };

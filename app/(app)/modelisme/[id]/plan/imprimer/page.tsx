@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import * as pc from "@/lib/domain/plan-coupe";
 import { contexteCommande, getPlan } from "@/lib/services/plan-coupe";
 
@@ -16,7 +16,7 @@ const dateFr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split("-"
  * modéliste, chef de coupe, contrôle — parce qu'une fiche de coupe est un
  * document signé : c'est elle qui autorise à entamer le rouleau. */
 export default async function FicheMatelassagePage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  await exigerModule("modelisme");
   const { id } = await params;
   const commandeId = Number(id);
   if (!Number.isInteger(commandeId)) notFound();

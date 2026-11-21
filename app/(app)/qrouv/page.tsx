@@ -1,4 +1,4 @@
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { qrSvg, urlDirection, urlPortail } from "@/lib/atelier/qr";
 import { CLE_SEUIL_ALERTE, SEUIL_ALERTE_DEFAUT } from "@/lib/domain/rendement";
 import { listOuvrieres } from "@/lib/services/atelier";
@@ -9,7 +9,7 @@ import { QrOuvClient, type CarteAffichee } from "./qrouv-client";
 const ATELIER = ["admin", "resp", "chef"];
 
 export default async function QrOuvPage() {
-  const user = await requireUser();
+  const user = await exigerModule("qrouv");
   const role = userRole(user);
 
   const [cartes, ouvrieres, base, jeton, seuilAlerte] = await Promise.all([

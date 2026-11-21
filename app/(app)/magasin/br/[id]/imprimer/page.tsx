@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { CONTROLES_BR } from "@/lib/domain/aval";
 import { getBrImpression } from "@/lib/services/aval";
@@ -11,7 +11,7 @@ const dateFr = (iso: string | null | undefined) => (iso && /^\d{4}-\d{2}-\d{2}$/
 /* Bon de réception façonnier — le document remis et signé à la réception.
  * Page normale : l'impression du navigateur produit le PDF. */
 export default async function BrImprimerPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  await exigerModule("magasin");
   const { id } = await params;
   const d = await getBrImpression(Number(id));
   if (!d) notFound();

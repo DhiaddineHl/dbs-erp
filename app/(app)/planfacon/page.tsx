@@ -2,7 +2,7 @@ import { CalendarRange } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionPanel } from "@/components/shared/section-panel";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { libelleMoisExport } from "@/lib/domain/aval";
 import { getPlanFaconnier } from "@/lib/services/aval";
 import { Kpi, Tuiles } from "../aval/ui";
@@ -17,7 +17,7 @@ const eur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
  * Un façonnier chargé de 20 000 pièces dont 19 000 sont faites n'a pas de
  * problème de capacité ; l'inverse, si. */
 export default async function PlanFaconPage() {
-  await requireUser();
+  await exigerModule("planfacon");
   const { plans, mois } = await getPlanFaconnier();
 
   const totalRestant = plans.reduce((s, p) => s + p.total.restant, 0);

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { qrSvg } from "@/lib/atelier/qr";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { basePortail } from "@/lib/services/portail";
@@ -8,7 +8,7 @@ import { listEmplacements } from "@/lib/services/rouleaux";
 /* Étiquettes QR des emplacements, en planche A4 (3 × 8, 70 × 37 mm), à
  * coller sur les rayons. Le QR mène à https://<app>/e/<CODE>. */
 export default async function EtiquettesEmplacementsPage({ searchParams }: { searchParams: Promise<{ ids?: string }> }) {
-  await requireUser();
+  await exigerModule("magtissu");
   const { ids = "" } = await searchParams;
   const voulus = new Set(ids.split(",").map(Number));
   const [emps, base] = await Promise.all([listEmplacements(), basePortail()]);

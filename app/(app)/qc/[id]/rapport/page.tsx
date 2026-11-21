@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { FAMILLES_DEFAUT, GRAVITES, VERDICTS, libelleType, statutActionLabel, statutPointLabel } from "@/lib/domain/qc";
 import { getInspection } from "@/lib/services/qc";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
@@ -29,7 +29,7 @@ export default async function RapportPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ type?: string }>;
 }) {
-  await requireUser();
+  await exigerModule("qc");
   const { id } = await params;
   const { type } = await searchParams;
   const insp = await getInspection(Number(id));

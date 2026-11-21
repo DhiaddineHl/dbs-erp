@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["prevexport"] as const;
+
 import * as svc from "@/lib/services/prevision-client";
 import { journaliser } from "@/lib/services/activite";
 
@@ -13,7 +16,7 @@ const fail = (e: unknown) => ({ ok: false as const, error: e instanceof Error ? 
 
 export async function publierPrevision(v: { exclus: number[]; qtes: Record<string, number>; commentaires: Record<string, string> }): Promise<Result<{ lignes: number; clients: number }>> {
   try {
-    const u = await assertUser();
+    const u = await assertModule(...MODULES);
     if (!["admin", "resp"].includes(userRole(u))) throw new Error("Publication réservée au responsable de production et à l'administrateur.");
     const r = await svc.publier(v, { id: u.id as string, nom: u.name as string });
     await journaliser("validation", "Prévision export clients", `semaine du ${r.debut} : ${r.lignes} ligne(s), ${r.clients} client(s)`);

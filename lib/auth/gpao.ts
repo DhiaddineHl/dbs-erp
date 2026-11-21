@@ -2,6 +2,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { assertUser, getUser, userRole } from "@/lib/auth/server";
 import { getRoleModules } from "@/lib/services/permissions";
+import { moduleOuvert } from "@/lib/auth/acces";
 
 /* Droit de saisir la production GPAO : le module « GPAO Production » ouvert au
  * rôle (réglage Paramètres → rôles), l'administrateur toujours. Une seule
@@ -20,8 +21,10 @@ export async function auteurGpao() {
 }
 
 /** Pages tablette : connexion obligatoire (retour ici après login) + droit. */
-export async function accesGpaoPage(suite: string) {
+export async function accesGpaoPage(suite: string, module = "gpao_prod") {
   const user = await getUser();
   if (!user) redirect(`/login?suite=${encodeURIComponent(suite)}`);
+  const role = userRole(user);
+  if (!moduleOuvert(module, await getRoleModules(role), role)) redirect(`/sans-acces?module=${module}`);
   return { user, peutSaisir: await autorise(userRole(user)) };
 }

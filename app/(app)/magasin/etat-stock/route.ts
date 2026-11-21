@@ -1,4 +1,4 @@
-import { getUser, userRole } from "@/lib/auth/server";
+import { getUser, userRole, utilisateurAvecModule } from "@/lib/auth/server";
 import { vueMagasin } from "@/lib/services/magasin-vue";
 import { excelEtatStock } from "@/lib/coupe/etat-stock-excel";
 
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const user = await getUser();
   if (!user) return new Response("Non authentifié", { status: 401 });
+  if (!(await utilisateurAvecModule("magasin"))) return new Response("Accès refusé", { status: 403 });
   const client = new URL(req.url).searchParams.get("client") ?? "";
   const { commandes } = await vueMagasin();
   const lignes = commandes.filter((c) => c.stockQte > 0 && (!client || c.client === client));

@@ -39,7 +39,13 @@ export const nouveauPin = () => String(randomInt(0, 10 ** pt.PIN_LONGUEUR)).padS
 
 /* ─────────── mémoire du téléphone (cookie signé) ─────────── */
 
-const secret = () => process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET || "pilotpro-portail";
+/* Pas de secret de repli : avec une valeur écrite dans le code, n'importe qui
+ * ayant lu le code pourrait fabriquer le témoin « PIN déjà donné ». */
+const secret = () => {
+  const s = process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET;
+  if (!s) throw new Error("Configuration incomplète (BETTER_AUTH_SECRET manquant) : portail fermé.");
+  return s;
+};
 const nomCookie = (id: number) => `pp_portail_${id}`;
 const signer = (charge: string) => createHmac("sha256", secret()).update(charge).digest("base64url");
 

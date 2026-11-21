@@ -16,7 +16,7 @@ export const metadata = { title: "Tournée des paquets", robots: { index: false,
 export default async function TourneePage({ searchParams }: { searchParams: Promise<{ code?: string; liasse?: string }> }) {
   const sp = await searchParams;
   const suite = `/m/paquets${sp.code ? `?code=${sp.code}${sp.liasse ? `&liasse=${sp.liasse}` : ""}` : ""}`;
-  const { user } = await accesGpaoPage(suite);
+  const { user } = await accesGpaoPage(suite, "paquets");
   const [actif, autorise, paquetInitial] = await Promise.all([
     suiviPaquetsActif(),
     peutRelever(userRole(user)),

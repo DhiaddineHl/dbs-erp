@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["dt", "modelisme", "nomen", "magfour", "magtissu"] as const;
+
 import { peutModifier } from "@/lib/domain/feux";
 import * as svc from "@/lib/services/documents-modele";
 import { journaliser } from "@/lib/services/activite";
@@ -9,7 +12,7 @@ import { journaliser } from "@/lib/services/activite";
 export type Result = { ok: true } | { ok: false; error: string };
 
 async function dt() {
-  const u = await assertUser();
+  const u = await assertModule(...MODULES);
   if (!peutModifier("tds", userRole(u))) throw new Error("Réservé à la direction technique.");
   return { id: u.id as string, nom: u.name as string };
 }

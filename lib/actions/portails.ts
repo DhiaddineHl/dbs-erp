@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["portails"] as const;
+
 import * as acc from "@/lib/services/portail-acces";
 
 /* Gestion des accès aux portails (bureau) : responsable de production et
@@ -11,7 +14,7 @@ export type Result<T = unknown> = ({ ok: true } & T) | { ok: false; error: strin
 const fail = (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : "Erreur" });
 
 async function gestionnaire() {
-  const u = await assertUser();
+  const u = await assertModule(...MODULES);
   if (!["admin", "resp"].includes(userRole(u))) throw new Error("Réservé au responsable de production et à l'administrateur.");
   return { name: u.name as string };
 }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { qrSvg } from "@/lib/atelier/qr";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { basePortail } from "@/lib/services/portail";
@@ -52,7 +52,7 @@ export default async function EtiquettesPaquetsPage({
 }: {
   searchParams: Promise<{ of?: string; du?: string; au?: string; format?: string; morceau?: string }>;
 }) {
-  await requireUser();
+  await exigerModule("paquets");
   const sp = await searchParams;
   const format: Format = FORMATS.some((f) => f.value === sp.format) ? (sp.format as Format) : "a4";
   const commandeId = Number(sp.of) || 0;

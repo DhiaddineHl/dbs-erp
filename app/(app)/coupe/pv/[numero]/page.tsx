@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 import { motifEcartLabel } from "@/lib/domain/coupe";
 import { lirePv } from "@/lib/services/coupe";
@@ -16,7 +16,7 @@ const dateHeure = (iso: string) => (iso ? new Date(iso).toLocaleString("fr-FR", 
  * et ne bougent plus, même si la fiche ou le stock évoluent. Régénérer crée
  * la version suivante ; les précédentes restent consultables ici. */
 export default async function PvCoupePage({ params, searchParams }: { params: Promise<{ numero: string }>; searchParams: Promise<{ v?: string }> }) {
-  await requireUser();
+  await exigerModule("coupe");
   const numero = decodeURIComponent((await params).numero);
   const v = Number((await searchParams).v) || undefined;
   const pv = await lirePv(numero, v);

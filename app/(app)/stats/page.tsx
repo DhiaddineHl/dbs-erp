@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { TrendingUp, Euro, BarChart3, Package, Factory } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard, KpiGrid } from "@/components/shared/kpi-card";
@@ -14,6 +15,7 @@ const eur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
 const TETE_CLIENTS = 8;
 
 export default async function StatsPage() {
+  await exigerModule("stats");
   const { rows, totals, repartition } = await getStatsData();
   const tete = rows.filter((r) => r.ca > 0).slice(0, TETE_CLIENTS);
 

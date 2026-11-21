@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { revaliderCarnet } from "@/lib/revalidation";
-import { assertUser } from "@/lib/auth/server";
+import { assertModule } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["dt", "modelisme", "nomen", "magfour", "magtissu"] as const;
+
 import { userRole } from "@/lib/auth/server";
 import * as fx from "@/lib/domain/feux";
 import * as svc from "@/lib/services/preparation";
@@ -30,7 +33,7 @@ function revalider() {
  * La permission de menu donne l'accès à l'écran ; celle-ci donne le droit de
  * modifier — un magasinier consulte la direction technique sans y toucher. */
 async function exigerDroit(domaine: fx.DomaineDroit): Promise<svc.Auteur> {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   const role = userRole(user);
   let autorise = fx.peutModifier(domaine, role);
   /* Les droits d'écriture magasin suivent aussi l'accès module accordé par
@@ -290,7 +293,7 @@ export async function annulerLancement(commandeId: number): Promise<Result> {
 /* ─────────── journal ─────────── */
 
 export async function chargerJournal(commandeId: number, domaine?: string) {
-  await assertUser();
+  await assertModule(...MODULES);
   const rows = await svc.journalDe(commandeId, domaine);
   return rows.map((r) => ({
     id: r.id,

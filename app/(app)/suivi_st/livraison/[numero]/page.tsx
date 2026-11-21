@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { PackageCheck } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { ROLES_SAISIE_MAGASIN } from "@/lib/domain/aval";
 import { livraisonBureau } from "@/lib/services/suivi-soustraitants";
 import { ReceptionLivraison } from "./reception";
@@ -13,7 +13,7 @@ import { ReceptionLivraison } from "./reception";
 export const dynamic = "force-dynamic";
 
 export default async function ReceptionLivraisonPage({ params }: { params: Promise<{ numero: string }> }) {
-  const user = await requireUser();
+  const user = await exigerModule("suivi_st");
   const role = userRole(user);
   const { numero } = await params;
   const d = await livraisonBureau(decodeURIComponent(numero));

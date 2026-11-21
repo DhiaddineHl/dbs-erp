@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertUser, userRole } from "@/lib/auth/server";
+import { assertModule, userRole } from "@/lib/auth/server";
+/** Pages d'où ces actions s'utilisent : le rôle doit avoir au moins un de ces modules (Paramètres → Rôles). */
+const MODULES = ["qc"] as const;
+
 import { enregistrerFichier } from "@/lib/services/fichiers";
 import * as svc from "@/lib/services/qc";
 import { journaliser } from "@/lib/services/activite";
@@ -18,7 +21,7 @@ const CONTROLE = ["admin", "resp", "chef", "qualitycontrol"];
 
 /** Le contrôle qualité est saisi par la qualité, la direction et la production. */
 async function exigerControle(): Promise<svc.Auteur> {
-  const user = await assertUser();
+  const user = await assertModule(...MODULES);
   const role = userRole(user);
   if (role !== "admin" && !CONTROLE.includes(role)) {
     throw new Error("Saisie réservée au contrôle qualité");

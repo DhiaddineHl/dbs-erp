@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser, userRole } from "@/lib/auth/server";
+import { exigerModule, userRole } from "@/lib/auth/server";
 import { peutModifier } from "@/lib/domain/feux";
 import { getRoleModules } from "@/lib/services/permissions";
 import { listInventaires } from "@/lib/services/rouleaux";
@@ -12,7 +12,7 @@ const dateFr = (iso: string) => (iso ? new Date(iso).toLocaleDateString("fr-FR")
 /* Inventaires par scan des rouleaux. Le scan se fait au téléphone
  * (/m/tissu/inventaire) ; ici on suit l'avancement et on clôture. */
 export default async function InventairesPage() {
-  const user = await requireUser();
+  const user = await exigerModule("magtissu");
   const role = userRole(user);
   const [invs, modules] = await Promise.all([listInventaires(), getRoleModules(role)]);
   const peutSaisir = peutModifier("tissu", role) || modules.magtissu === true;

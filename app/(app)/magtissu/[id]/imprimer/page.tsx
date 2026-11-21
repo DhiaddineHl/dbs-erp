@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { getPreparation, journalDe } from "@/lib/services/preparation";
 import { BoutonImprimer } from "@/components/shared/bouton-imprimer";
 
@@ -32,7 +32,7 @@ const CONTROLE: Record<string, { label: string; note: string }> = {
  * sans recalcul, et il porte le journal des mouvements tissu — un bon signé
  * doit pouvoir dire qui a saisi quoi, et quand. */
 export default async function BonReceptionTissuPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  await exigerModule("magtissu");
   const { id } = await params;
   const commandeId = Number(id);
   if (!Number.isInteger(commandeId)) notFound();

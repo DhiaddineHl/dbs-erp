@@ -1,3 +1,4 @@
+import { exigerModule } from "@/lib/auth/server";
 import { ClipboardList } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { listCatalogueFournitures } from "@/lib/services/preparation";
@@ -7,6 +8,7 @@ import { NavMagfour } from "../nav-magfour";
 import { NomenclatureClient } from "./nomenclature-client";
 
 export default async function NomenclatureFournituresPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  await exigerModule("magfour");
   const [peutSaisir, modeles, catalogue, sp] = await Promise.all([droitFournitures(), listNomenclatures(), listCatalogueFournitures(), searchParams]);
   return (
     <>

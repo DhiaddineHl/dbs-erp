@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/server";
+import { exigerModule } from "@/lib/auth/server";
 import { bilanMatiereCommande } from "@/lib/services/matiere-tissu";
 import { Cadre, DocumentImprimable, nbFr } from "@/components/shared/document-imprimable";
 
@@ -8,7 +8,7 @@ import { Cadre, DocumentImprimable, nbFr } from "@/components/shared/document-im
  * C'est la pièce à produire s'il conteste une surconsommation ou réclame du
  * tissu. */
 export default async function BilanMatierePage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  await exigerModule("magtissu");
   const { id } = await params;
   const d = await bilanMatiereCommande(Number(id));
   if (!d) notFound();
